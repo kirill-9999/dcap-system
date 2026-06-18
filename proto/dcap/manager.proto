@@ -1,0 +1,42 @@
+syntax = "proto3";
+
+package dcap;
+
+service Manager {
+    rpc Register(RegisterRequest) returns (RegisterResponse);
+    rpc Heartbeat(HeartbeatRequest) returns (HeartbeatResponse);
+    rpc GetTask(GetTaskRequest) returns (GetTaskResponse);
+}
+
+message RegisterRequest {
+    string scanner_name = 1;
+    string endpoint = 2;
+}
+
+message RegisterResponse {
+    string scanner_id = 1;
+    bool success = 2;
+    string message = 3;
+}
+
+message HeartbeatRequest {
+    string scanner_id = 1;
+}
+
+message HeartbeatResponse {
+    bool success = 2;
+    string message = 3;
+}
+
+message GetTaskRequest {
+    string scanner_id = 1;
+}
+
+message GetTaskResponse {
+    bool has_task = 1;
+    string task_id = 2;
+    string resource_id = 3;
+    string resource_path = 4;
+    string resource_type = 5;
+    int32 batch_size = 6;
+}
