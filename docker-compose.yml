@@ -1,0 +1,53 @@
+version: '3.8'
+
+services:
+  postgres:
+    image: postgres:15-alpine
+    container_name: dcap-postgres
+    environment:
+      POSTGRES_DB: dcap
+      POSTGRES_USER: dcap
+      POSTGRES_PASSWORD: dcap_dev_2026
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U dcap -d dcap"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - dcap-network
+    restart: unless-stopped
+
+  manager:
+    build:
+      context: .
+      dockerfile: manager/Dockerfile
+    container_name: dcap-manager
+    environment:
+      DATABASE_URL: postgresql://dcap:dcap_dev_2026@postgres:5432/dcap
+      GRPC_PORT: 50051
+      LOG_LEVEL: DEBUG
+      PYTHONUNBUFFERED: 1
+    ports:
+      - "50051:50051"
+    volumes:
+      # Windows пути: ./manager → /app, ./shared → /shared
+      - ./manager:/app
+      - ./shared:/shared
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - dcap-network
+    restart: unless-stopped
+
+networks:
+  dcap-network:
+    driver: bridge
+
+volumes:
+  postgres_data:
+    driver: local

@@ -1,0 +1,56 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info/
+dist/
+build/
+.eggs/
+.pytest_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*.suo
+*.user
+
+# Windows
+Thumbs.db
+desktop.ini
+$RECYCLE.BIN/
+*.lnk
+
+# Environment
+.env
+.venv
+venv/
+ENV/
+env/
+
+# Logs
+logs/
+*.log
+temp/
+*.pid
+
+# Database
+*.db
+*.sqlite
+*.sqlite3
+
+# Docker
+*.pid
+docker-compose.override.yml
+
+# Project specific
+models/
+catalog/
+state.json
+*.jsonl
