@@ -51,7 +51,7 @@ async def test_resources():
     else:
         print(f"    ℹ️  Ресурс не найден, создаём...")
         create_response = await stub.CreateResource(manager_pb2.CreateResourceRequest(
-            resource_type="FILESYSTEM",  # В верхнем регистре!
+            resource_type="filesystem",  # В верхнем регистре!
             path=resource_path,
             config={"extensions": "txt,pdf,docx"}
         ))

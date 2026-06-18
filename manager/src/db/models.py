@@ -1,26 +1,23 @@
 # -*- coding: utf-8 -*-
 """
-DCAP Manager - Database Models (SQLite compatible)
+DCAP Manager - Database Models
 """
 
 import uuid
 from datetime import datetime
 from typing import Optional, List, Dict, Any
+from uuid import UUID, uuid4
 
 from sqlalchemy import (
-    String, DateTime, Integer, Boolean, 
+    Column, String, DateTime, Integer, Boolean, 
     JSON, Enum as SQLEnum, BigInteger, ForeignKey,
-    Text, Float, Index
+    Text, Float
 )
+from sqlalchemy.dialects.postgresql import UUID as PGUUID
 from sqlalchemy.orm import declarative_base, relationship, Mapped, mapped_column
 import enum
 
 Base = declarative_base()
-
-
-def generate_uuid() -> str:
-    """Генерация UUID строки"""
-    return str(uuid.uuid4())
 
 
 class ScannerStatus(str, enum.Enum):
@@ -40,11 +37,18 @@ class TaskStatus(str, enum.Enum):
     FAILED = "failed"
 
 
+class ResourceType(str, enum.Enum):
+    """Тип ресурса"""
+    FILESYSTEM = "FILESYSTEM"
+    S3 = "S3"
+    MINIO = "MINIO"
+
+
 class Scanner(Base):
     """Модель агента сканирования"""
     __tablename__ = "scanners"
     
-    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=generate_uuid)
+    id: Mapped[UUID] = mapped_column(PGUUID, primary_key=True, default=uuid4)
     name: Mapped[str] = mapped_column(String(100), unique=True, nullable=False)
     endpoint: Mapped[str] = mapped_column(String(255), nullable=False)
     public_cert: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
@@ -73,7 +77,7 @@ class Scanner(Base):
     
     def to_dict(self) -> Dict[str, Any]:
         return {
-            "id": self.id,
+            "id": str(self.id),
             "name": self.name,
             "endpoint": self.endpoint,
             "status": self.status.value,
@@ -91,14 +95,18 @@ class Resource(Base):
     """Модель ресурса для сканирования"""
     __tablename__ = "resources"
     
-    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=generate_uuid)
+    id: Mapped[UUID] = mapped_column(PGUUID, primary_key=True, default=uuid4)
+    #type: Mapped[ResourceType] = mapped_column(SQLEnum(ResourceType), nullable=False)
     type: Mapped[str] = mapped_column(String(20), nullable=False)
     path: Mapped[str] = mapped_column(String(500), nullable=False)
     
+    # Зашифрованные credentials (AES-256-GCM)
     credentials_encrypted: Mapped[Optional[bytes]] = mapped_column(JSON, nullable=True)
     credentials_nonce: Mapped[Optional[bytes]] = mapped_column(JSON, nullable=True)
     
     enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+    
+    # Дополнительные параметры (extensions, max_file_size и т.д.)
     config: Mapped[Optional[Dict[str, Any]]] = mapped_column(JSON, nullable=True)
     
     last_scan_start: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
@@ -111,13 +119,14 @@ class Resource(Base):
         onupdate=datetime.utcnow
     )
     
+    # Relationships
     schedules: Mapped[List["Schedule"]] = relationship("Schedule", back_populates="resource")
     tasks: Mapped[List["ScanTask"]] = relationship("ScanTask", back_populates="resource")
     
     def to_dict(self) -> Dict[str, Any]:
         return {
-            "id": self.id,
-            "type": self.type,
+            "id": str(self.id),
+            "type": self.type.value,
             "path": self.path,
             "enabled": self.enabled,
             "config": self.config or {},
@@ -127,20 +136,29 @@ class Resource(Base):
         }
     
     def get_full_path(self) -> str:
-        if self.type in ("S3", "MINIO"):
-            return f"{self.type.lower()}://{self.path}"
+        """Получить полный путь с учётом типа ресурса"""
+        if self.type in (ResourceType.S3, ResourceType.MINIO):
+            return f"{self.type.value}://{self.path}"
         return self.path
+    
+    def __repr__(self) -> str:
+        return f"<Resource(id={self.id}, type={self.type.value}, path={self.path})>"
 
 
 class Schedule(Base):
     """Модель расписания сканирования"""
     __tablename__ = "schedules"
     
-    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=generate_uuid)
-    resource_id: Mapped[str] = mapped_column(String(36), ForeignKey("resources.id"), nullable=False)
+    id: Mapped[UUID] = mapped_column(PGUUID, primary_key=True, default=uuid4)
+    resource_id: Mapped[UUID] = mapped_column(PGUUID, ForeignKey("resources.id"), nullable=False)
     
+    # Cron выражение (например, "0 2 * * *" - каждый день в 2 часа)
     cron_expression: Mapped[str] = mapped_column(String(100), nullable=False)
+    
+    # Приоритет (чем выше, тем раньше выполняется)
     priority: Mapped[int] = mapped_column(Integer, default=0)
+    
+    # Максимальное количество файлов за одно задание
     max_files_per_batch: Mapped[int] = mapped_column(Integer, default=500)
     
     enabled: Mapped[bool] = mapped_column(Boolean, default=True)
@@ -155,12 +173,13 @@ class Schedule(Base):
         onupdate=datetime.utcnow
     )
     
+    # Relationships
     resource: Mapped[Resource] = relationship("Resource", back_populates="schedules")
     
     def to_dict(self) -> Dict[str, Any]:
         return {
-            "id": self.id,
-            "resource_id": self.resource_id,
+            "id": str(self.id),
+            "resource_id": str(self.resource_id),
             "cron_expression": self.cron_expression,
             "priority": self.priority,
             "max_files_per_batch": self.max_files_per_batch,
@@ -168,30 +187,38 @@ class Schedule(Base):
             "last_run": self.last_run.isoformat() if self.last_run else None,
             "next_run": self.next_run.isoformat() if self.next_run else None,
         }
+    
+    def __repr__(self) -> str:
+        return f"<Schedule(id={self.id}, cron={self.cron_expression})>"
 
 
 class ScanTask(Base):
     """Модель задания на сканирование"""
     __tablename__ = "scan_tasks"
     
-    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=generate_uuid)
-    resource_id: Mapped[str] = mapped_column(String(36), ForeignKey("resources.id"), nullable=False)
-    scanner_id: Mapped[Optional[str]] = mapped_column(String(36), ForeignKey("scanners.id"), nullable=True)
+    id: Mapped[UUID] = mapped_column(PGUUID, primary_key=True, default=uuid4)
+    resource_id: Mapped[UUID] = mapped_column(PGUUID, ForeignKey("resources.id"), nullable=False)
+    scanner_id: Mapped[Optional[UUID]] = mapped_column(PGUUID, ForeignKey("scanners.id"), nullable=True)
     
+    # Какую часть ресурса сканировать (например, подпапку или список файлов)
     path_filter: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
     
+    # Статус задания
     status: Mapped[TaskStatus] = mapped_column(SQLEnum(TaskStatus), default=TaskStatus.PENDING)
     
+    # Статистика
     files_total: Mapped[int] = mapped_column(Integer, default=0)
     files_scanned: Mapped[int] = mapped_column(Integer, default=0)
     findings_count: Mapped[int] = mapped_column(Integer, default=0)
     
+    # Временные метки
     assigned_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
     started_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
     completed_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
     
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     
+    # Relationships
     resource: Mapped[Resource] = relationship("Resource", back_populates="tasks")
     scanner: Mapped[Optional[Scanner]] = relationship("Scanner", back_populates="tasks")
     findings: Mapped[List["Finding"]] = relationship("Finding", back_populates="task")
@@ -199,9 +226,9 @@ class ScanTask(Base):
     
     def to_dict(self) -> Dict[str, Any]:
         return {
-            "id": self.id,
-            "resource_id": self.resource_id,
-            "scanner_id": self.scanner_id,
+            "id": str(self.id),
+            "resource_id": str(self.resource_id),
+            "scanner_id": str(self.scanner_id) if self.scanner_id else None,
             "path_filter": self.path_filter,
             "status": self.status.value,
             "files_total": self.files_total,
@@ -212,15 +239,18 @@ class ScanTask(Base):
             "completed_at": self.completed_at.isoformat() if self.completed_at else None,
             "created_at": self.created_at.isoformat() if self.created_at else None,
         }
+    
+    def __repr__(self) -> str:
+        return f"<ScanTask(id={self.id}, status={self.status.value})>"
 
 
 class Finding(Base):
     """Находка (результат сканирования)"""
     __tablename__ = "findings"
 
-    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=generate_uuid)
-    scanner_id: Mapped[str] = mapped_column(String(36), ForeignKey("scanners.id"), nullable=False)
-    task_id: Mapped[str] = mapped_column(String(36), ForeignKey("scan_tasks.id"), nullable=False)
+    id: Mapped[UUID] = mapped_column(PGUUID, primary_key=True, default=uuid4)
+    scanner_id: Mapped[UUID] = mapped_column(PGUUID, ForeignKey("scanners.id"), nullable=False)
+    task_id: Mapped[UUID] = mapped_column(PGUUID, ForeignKey("scan_tasks.id"), nullable=False)
 
     file_path: Mapped[str] = mapped_column(String(500), nullable=False)
     file_hash: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
@@ -237,14 +267,15 @@ class Finding(Base):
 
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
+    # Relationships
     scanner: Mapped[Scanner] = relationship("Scanner", back_populates="findings")
     task: Mapped[ScanTask] = relationship("ScanTask", back_populates="findings")
 
     def to_dict(self) -> Dict[str, Any]:
         return {
-            "id": self.id,
-            "scanner_id": self.scanner_id,
-            "task_id": self.task_id,
+            "id": str(self.id),
+            "scanner_id": str(self.scanner_id),
+            "task_id": str(self.task_id),
             "file_path": self.file_path,
             "file_hash": self.file_hash,
             "file_size": self.file_size,
@@ -264,8 +295,8 @@ class CatalogEntry(Base):
     """Запись каталога (папка с находками)"""
     __tablename__ = "catalog_entries"
 
-    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=generate_uuid)
-    scanner_id: Mapped[str] = mapped_column(String(36), ForeignKey("scanners.id"), nullable=False)
+    id: Mapped[UUID] = mapped_column(PGUUID, primary_key=True, default=uuid4)
+    scanner_id: Mapped[UUID] = mapped_column(PGUUID, ForeignKey("scanners.id"), nullable=False)
 
     folder_path: Mapped[str] = mapped_column(String(500), nullable=False)
     source_type: Mapped[str] = mapped_column(String(20), nullable=False)
@@ -276,12 +307,13 @@ class CatalogEntry(Base):
     first_seen: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     last_seen: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
+    # Relationships
     scanner: Mapped[Scanner] = relationship("Scanner", back_populates="catalog_entries")
 
     def to_dict(self) -> Dict[str, Any]:
         return {
-            "id": self.id,
-            "scanner_id": self.scanner_id,
+            "id": str(self.id),
+            "scanner_id": str(self.scanner_id),
             "folder_path": self.folder_path,
             "source_type": self.source_type,
             "classifiers": self.classifiers,
@@ -296,9 +328,9 @@ class FailedFile(Base):
     """Файлы, которые не удалось обработать"""
     __tablename__ = "failed_files"
 
-    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=generate_uuid)
-    scanner_id: Mapped[str] = mapped_column(String(36), ForeignKey("scanners.id"), nullable=False)
-    task_id: Mapped[str] = mapped_column(String(36), ForeignKey("scan_tasks.id"), nullable=False)
+    id: Mapped[UUID] = mapped_column(PGUUID, primary_key=True, default=uuid4)
+    scanner_id: Mapped[UUID] = mapped_column(PGUUID, ForeignKey("scanners.id"), nullable=False)
+    task_id: Mapped[UUID] = mapped_column(PGUUID, ForeignKey("scan_tasks.id"), nullable=False)
 
     file_path: Mapped[str] = mapped_column(String(500), nullable=False)
     error: Mapped[str] = mapped_column(Text, nullable=False)
@@ -306,14 +338,15 @@ class FailedFile(Base):
 
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
+    # Relationships
     scanner: Mapped[Scanner] = relationship("Scanner", back_populates="failed_files")
     task: Mapped[ScanTask] = relationship("ScanTask", back_populates="failed_files")
 
     def to_dict(self) -> Dict[str, Any]:
         return {
-            "id": self.id,
-            "scanner_id": self.scanner_id,
-            "task_id": self.task_id,
+            "id": str(self.id),
+            "scanner_id": str(self.scanner_id),
+            "task_id": str(self.task_id),
             "file_path": self.file_path,
             "error": self.error,
             "error_type": self.error_type,
@@ -321,7 +354,9 @@ class FailedFile(Base):
         }
 
 
-# Индексы
+# Индексы для оптимизации запросов
+from sqlalchemy import Index
+
 Index("idx_scanners_status", Scanner.status)
 Index("idx_scanners_last_heartbeat", Scanner.last_heartbeat)
 Index("idx_resources_enabled", Resource.enabled)
