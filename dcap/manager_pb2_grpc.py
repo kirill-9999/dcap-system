@@ -3,7 +3,7 @@
 import grpc
 import warnings
 
-from manager.src.proto_gen.dcap import manager_pb2 as dcap_dot_manager__pb2
+from dcap import manager_pb2 as dcap_dot_manager__pb2
 
 GRPC_GENERATED_VERSION = '1.81.1'
 GRPC_VERSION = grpc.__version__
@@ -94,6 +94,11 @@ class ManagerStub:
                 request_serializer=dcap_dot_manager__pb2.CompleteTaskRequest.SerializeToString,
                 response_deserializer=dcap_dot_manager__pb2.CompleteTaskResponse.FromString,
                 _registered_method=True)
+        self.HealthCheck = channel.unary_unary(
+                '/dcap.Manager/HealthCheck',
+                request_serializer=dcap_dot_manager__pb2.HealthCheckRequest.SerializeToString,
+                response_deserializer=dcap_dot_manager__pb2.HealthCheckResponse.FromString,
+                _registered_method=True)
 
 
 class ManagerServicer:
@@ -175,6 +180,13 @@ class ManagerServicer:
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
 
+    def HealthCheck(self, request, context):
+        """HealthCheck
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
 
 def add_ManagerServicer_to_server(servicer, server):
     rpc_method_handlers = {
@@ -237,6 +249,11 @@ def add_ManagerServicer_to_server(servicer, server):
                     servicer.CompleteTask,
                     request_deserializer=dcap_dot_manager__pb2.CompleteTaskRequest.FromString,
                     response_serializer=dcap_dot_manager__pb2.CompleteTaskResponse.SerializeToString,
+            ),
+            'HealthCheck': grpc.unary_unary_rpc_method_handler(
+                    servicer.HealthCheck,
+                    request_deserializer=dcap_dot_manager__pb2.HealthCheckRequest.FromString,
+                    response_serializer=dcap_dot_manager__pb2.HealthCheckResponse.SerializeToString,
             ),
     }
     generic_handler = grpc.method_handlers_generic_handler(
@@ -563,6 +580,33 @@ class Manager:
             '/dcap.Manager/CompleteTask',
             dcap_dot_manager__pb2.CompleteTaskRequest.SerializeToString,
             dcap_dot_manager__pb2.CompleteTaskResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def HealthCheck(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/dcap.Manager/HealthCheck',
+            dcap_dot_manager__pb2.HealthCheckRequest.SerializeToString,
+            dcap_dot_manager__pb2.HealthCheckResponse.FromString,
             options,
             channel_credentials,
             insecure,

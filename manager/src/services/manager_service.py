@@ -21,7 +21,7 @@ from manager.src.db.session import get_session
 from manager.src.db.models import (
     Scanner, ScannerStatus, Resource, Schedule, 
     ScanTask, TaskStatus, Finding, CatalogEntry, 
-    FailedFile, generate_uuid  # <-- generate_uuid импортирован
+    FailedFile, generate_uuid
 )
 
 logger = logging.getLogger("dcap-manager")
@@ -543,4 +543,61 @@ class ManagerService(manager_pb2_grpc.ManagerServicer):
             return manager_pb2.CompleteTaskResponse(
                 success=True,
                 message="Task completed successfully"
+            )
+
+    # ========== HealthCheck методы ==========
+
+    async def HealthCheck(self, request, context):
+        """Проверка состояния Manager"""
+        from sqlalchemy import select, func
+        from manager.src.db.models import Scanner, ScanTask, TaskStatus, Finding
+        
+        logger.info("💓 HealthCheck requested")
+        
+        async with get_session() as session:
+            # Статистика
+            stmt_scanners = select(func.count()).select_from(Scanner).where(Scanner.status == ScannerStatus.ACTIVE)
+            active_scanners = (await session.execute(stmt_scanners)).scalar() or 0
+            
+            stmt_pending = select(func.count()).select_from(ScanTask).where(ScanTask.status == TaskStatus.PENDING)
+            pending_tasks = (await session.execute(stmt_pending)).scalar() or 0
+            
+            stmt_running = select(func.count()).select_from(ScanTask).where(ScanTask.status == TaskStatus.RUNNING)
+            running_tasks = (await session.execute(stmt_running)).scalar() or 0
+            
+            stmt_completed = select(func.count()).select_from(ScanTask).where(ScanTask.status == TaskStatus.COMPLETED)
+            completed_tasks = (await session.execute(stmt_completed)).scalar() or 0
+            
+            stmt_failed = select(func.count()).select_from(ScanTask).where(ScanTask.status == TaskStatus.FAILED)
+            failed_tasks = (await session.execute(stmt_failed)).scalar() or 0
+            
+            stmt_findings = select(func.count()).select_from(Finding)
+            total_findings = (await session.execute(stmt_findings)).scalar() or 0
+            
+            metrics = manager_pb2.Metrics(
+                active_scanners=active_scanners,
+                pending_tasks=pending_tasks,
+                running_tasks=running_tasks,
+                completed_tasks=completed_tasks,
+                failed_tasks=failed_tasks,
+                total_findings=total_findings
+            )
+            
+            # Проверка здоровья системы
+            is_healthy = True
+            status = "OK"
+            message = "All systems operational"
+            
+            if pending_tasks > 100:
+                is_healthy = False
+                status = "DEGRADED"
+                message = f"Too many pending tasks: {pending_tasks}"
+            
+            import time
+            return manager_pb2.HealthCheckResponse(
+                healthy=is_healthy,
+                status=status,
+                message=message,
+                timestamp=int(time.time()),
+                metrics=metrics
             )

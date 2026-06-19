@@ -22,6 +22,9 @@ service Manager {
     // Report методы
     rpc ReportBatch(stream ReportChunk) returns (ReportResponse);
     rpc CompleteTask(CompleteTaskRequest) returns (CompleteTaskResponse);
+    
+    // HealthCheck
+    rpc HealthCheck(HealthCheckRequest) returns (HealthCheckResponse);
 }
 
 // ========== Scanner сообщения ==========
@@ -60,7 +63,7 @@ message GetTaskResponse {
 
 // ========== Resource сообщения ==========
 message CreateResourceRequest {
-    string resource_type = 1;     // "filesystem", "s3", "minio"
+    string resource_type = 1;
     string path = 2;
     map<string, string> config = 3;
 }
@@ -206,4 +209,26 @@ message CompleteTaskRequest {
 message CompleteTaskResponse {
     bool success = 1;
     string message = 2;
+}
+
+// ========== HealthCheck сообщения ==========
+message HealthCheckRequest {
+    string service = 1;
+}
+
+message HealthCheckResponse {
+    bool healthy = 1;
+    string status = 2;
+    string message = 3;
+    int64 timestamp = 4;
+    Metrics metrics = 5;
+}
+
+message Metrics {
+    int32 active_scanners = 1;
+    int32 pending_tasks = 2;
+    int32 running_tasks = 3;
+    int32 completed_tasks = 4;
+    int32 failed_tasks = 5;
+    int64 total_findings = 6;
 }
