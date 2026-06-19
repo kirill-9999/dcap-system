@@ -1,0 +1,164 @@
+{% extends "base.html" %}
+
+{% block title %}Задания - DCAP v3.0{% endblock %}
+
+{% block content %}
+<div class="tasks-page">
+    <h2 class="mb-4"><i class="fas fa-tasks text-primary"></i> Задания</h2>
+    
+    <!-- Фильтр по статусу -->
+    <div class="card mb-4">
+        <div class="card-body">
+            <div class="row">
+                <div class="col-md-4">
+                    <label class="form-label">Статус</label>
+                    <select class="form-select" id="task-status-filter">
+                        <option value="">Все статусы</option>
+                        <option value="PENDING">⏳ Ожидает</option>
+                        <option value="ASSIGNED">🔄 Назначено</option>
+                        <option value="SCANNING">🔍 Сканируется</option>
+                        <option value="COMPLETED">✅ Завершено</option>
+                        <option value="FAILED">❌ Провалено</option>
+                    </select>
+                </div>
+                <div class="col-md-2 d-flex align-items-end">
+                    <button class="btn btn-primary" onclick="loadTasks()">
+                        <i class="fas fa-filter"></i> Применить
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Таблица заданий -->
+    <div class="card">
+        <div class="card-body p-0">
+            <div id="tasks-container">
+                <div class="text-center p-4 text-muted">
+                    <i class="fas fa-spinner fa-spin"></i> Загрузка...
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    loadTasks();
+    
+    document.getElementById('task-status-filter').addEventListener('change', function() {
+        loadTasks();
+    });
+});
+
+async function loadTasks() {
+    const status = document.getElementById('task-status-filter').value;
+    let url = '/api/tasks?limit=50';
+    if (status) url += `&status=${encodeURIComponent(status)}`;
+    
+    try {
+        const response = await fetch(url);
+        const tasks = await response.json();
+        renderTasks(tasks);
+        updateTime();
+    } catch (error) {
+        console.error('Ошибка загрузки заданий:', error);
+    }
+}
+
+function renderTasks(tasks) {
+    const container = document.getElementById('tasks-container');
+    
+    if (tasks.length === 0) {
+        container.innerHTML = '<div class="text-center p-4 text-muted">Нет заданий</div>';
+        return;
+    }
+    
+    let html = `
+        <div class="table-responsive">
+            <table class="table table-hover table-sm mb-0">
+                <thead class="table-light">
+                    <tr>
+                        <th>ID</th>
+                        <th>Статус</th>
+                        <th>Файлов</th>
+                        <th>Находок</th>
+                        <th>Создано</th>
+                        <th>Завершено</th>
+                    </tr>
+                </thead>
+                <tbody>
+    `;
+    
+    tasks.forEach(task => {
+        const statusBadge = {
+            'PENDING': 'secondary',
+            'ASSIGNED': 'primary',
+            'SCANNING': 'warning',
+            'COMPLETED': 'success',
+            'FAILED': 'danger'
+        }[task.status] || 'secondary';
+        
+        const statusIcon = {
+            'PENDING': '⏳',
+            'ASSIGNED': '🔄',
+            'SCANNING': '🔍',
+            'COMPLETED': '✅',
+            'FAILED': '❌'
+        }[task.status] || '';
+        
+        const created = task.created_at ? new Date(task.created_at).toLocaleString('ru-RU') : '-';
+        const completed = task.completed_at ? new Date(task.completed_at).toLocaleString('ru-RU') : '-';
+        
+        html += `
+            <tr onclick="showTaskDetail(${task.id})" style="cursor: pointer;">
+                <td><strong>#${task.id}</strong></td>
+                <td><span class="badge bg-${statusBadge}">${statusIcon} ${task.status}</span></td>
+                <td>${task.files_scanned || 0}</td>
+                <td>${task.findings_count || 0}</td>
+                <td>${created}</td>
+                <td>${completed}</td>
+            </tr>
+        `;
+    });
+    
+    html += '</tbody></table></div>';
+    container.innerHTML = html;
+}
+
+async function showTaskDetail(id) {
+    try {
+        const response = await fetch(`/api/tasks/${id}`);
+        const data = await response.json();
+        
+        const task = data.task;
+        const findings = data.findings || [];
+        
+        let details = `
+            Задание #${task.id}
+            Статус: ${task.status}
+            Файлов сканировано: ${task.files_scanned || 0}
+            Находок: ${task.findings_count || 0}
+            Создано: ${task.created_at ? new Date(task.created_at).toLocaleString('ru-RU') : '-'}
+            Завершено: ${task.completed_at ? new Date(task.completed_at).toLocaleString('ru-RU') : '-'}
+        `;
+        
+        if (findings.length > 0) {
+            details += '\n\nПоследние находки:';
+            findings.slice(0, 5).forEach(f => {
+                details += `\n- ${f.category}: ${f.file_path} (${(f.confidence * 100).toFixed(0)}%)`;
+            });
+            if (findings.length > 5) {
+                details += `\n... и еще ${findings.length - 5} находок`;
+            }
+        }
+        
+        alert(details);
+    } catch (error) {
+        console.error('Ошибка загрузки деталей задания:', error);
+    }
+}
+</script>
+{% endblock %}
