@@ -6,6 +6,7 @@ Manager gRPC Service Implementation
 import uuid
 import logging
 from datetime import datetime
+from typing import Optional
 
 import grpc
 
@@ -21,10 +22,15 @@ from manager.src.db.session import get_session
 from manager.src.db.models import (
     Scanner, ScannerStatus, Resource, Schedule, 
     ScanTask, TaskStatus, Finding, CatalogEntry, 
-    FailedFile, generate_uuid
+    FailedFile
 )
 
 logger = logging.getLogger("dcap-manager")
+
+
+def generate_uuid() -> str:
+    """Генерация UUID строки"""
+    return str(uuid.uuid4())
 
 
 class ManagerService(manager_pb2_grpc.ManagerServicer):
@@ -51,13 +57,12 @@ class ManagerService(manager_pb2_grpc.ManagerServicer):
 
                 logger.info(f"✅ Scanner '{request.scanner_name}' re-registered")
                 return manager_pb2.RegisterResponse(
-                    scanner_id=existing.id,
+                    scanner_id=str(existing.id),
                     success=True,
                     message="Scanner re-registered successfully"
                 )
 
             scanner = Scanner(
-                id=generate_uuid(),
                 name=request.scanner_name,
                 endpoint=request.endpoint,
                 status=ScannerStatus.ACTIVE,
@@ -68,10 +73,13 @@ class ManagerService(manager_pb2_grpc.ManagerServicer):
             session.add(scanner)
             await session.commit()
 
-            logger.info(f"✅ Scanner '{request.scanner_name}' registered with ID: {scanner.id}")
+            # Получаем ID после сохранения
+            scanner_id = scanner.id
+
+            logger.info(f"✅ Scanner '{request.scanner_name}' registered with ID: {scanner_id}")
 
             return manager_pb2.RegisterResponse(
-                scanner_id=scanner.id,
+                scanner_id=str(scanner_id),
                 success=True,
                 message="Scanner registered successfully"
             )
@@ -135,8 +143,8 @@ class ManagerService(manager_pb2_grpc.ManagerServicer):
             task, resource = row
             
             # Сохраняем данные для ответа
-            task_id = task.id
-            resource_id = resource.id
+            task_id = str(task.id)
+            resource_id = str(resource.id)
             resource_path = resource.path
             resource_type = resource.type.lower()
 
@@ -200,7 +208,6 @@ class ManagerService(manager_pb2_grpc.ManagerServicer):
                 )
 
             resource = Resource(
-                id=generate_uuid(),
                 type=resource_type_str,
                 path=request.path,
                 enabled=True,
@@ -209,11 +216,12 @@ class ManagerService(manager_pb2_grpc.ManagerServicer):
             session.add(resource)
             await session.commit()
 
-            logger.info(f"✅ Resource created: {resource.id}")
+            resource_id = str(resource.id)
+            logger.info(f"✅ Resource created: {resource_id}")
 
             return manager_pb2.CreateResourceResponse(
                 success=True,
-                resource_id=resource.id,
+                resource_id=resource_id,
                 message="Resource created successfully"
             )
 
@@ -232,7 +240,7 @@ class ManagerService(manager_pb2_grpc.ManagerServicer):
             resources_list = []
             for r in resources:
                 resources_list.append(manager_pb2.ResourceInfo(
-                    id=r.id,
+                    id=str(r.id),
                     type=r.type,
                     path=r.path,
                     enabled=r.enabled,
@@ -259,7 +267,7 @@ class ManagerService(manager_pb2_grpc.ManagerServicer):
 
             return manager_pb2.GetResourceResponse(
                 resource=manager_pb2.ResourceInfo(
-                    id=resource.id,
+                    id=str(resource.id),
                     type=resource.type,
                     path=resource.path,
                     enabled=resource.enabled,
@@ -342,7 +350,6 @@ class ManagerService(manager_pb2_grpc.ManagerServicer):
             next_run = croniter(request.cron_expression, now).get_next(datetime)
 
             schedule = Schedule(
-                id=generate_uuid(),
                 resource_id=resource_id,
                 cron_expression=request.cron_expression,
                 priority=request.priority,
@@ -353,11 +360,12 @@ class ManagerService(manager_pb2_grpc.ManagerServicer):
             session.add(schedule)
             await session.commit()
 
-            logger.info(f"✅ Schedule created: {schedule.id}")
+            schedule_id = str(schedule.id)
+            logger.info(f"✅ Schedule created: {schedule_id}")
 
             return manager_pb2.CreateScheduleResponse(
                 success=True,
-                schedule_id=schedule.id,
+                schedule_id=schedule_id,
                 message="Schedule created successfully"
             )
 
@@ -376,8 +384,8 @@ class ManagerService(manager_pb2_grpc.ManagerServicer):
             schedules_list = []
             for s in schedules:
                 schedules_list.append(manager_pb2.ScheduleInfo(
-                    id=s.id,
-                    resource_id=s.resource_id,
+                    id=str(s.id),
+                    resource_id=str(s.resource_id),
                     cron_expression=s.cron_expression,
                     priority=s.priority,
                     max_files_per_batch=s.max_files_per_batch,
@@ -441,7 +449,6 @@ class ManagerService(manager_pb2_grpc.ManagerServicer):
 
                     for finding in chunk.findings:
                         finding_db = Finding(
-                            id=generate_uuid(),
                             scanner_id=scanner_id,
                             task_id=task_id,
                             file_path=finding.file_path,
@@ -461,7 +468,6 @@ class ManagerService(manager_pb2_grpc.ManagerServicer):
 
                     for entry in chunk.catalog:
                         catalog_db = CatalogEntry(
-                            id=generate_uuid(),
                             scanner_id=scanner_id,
                             folder_path=entry.folder_path,
                             source_type=entry.source_type,
@@ -475,7 +481,6 @@ class ManagerService(manager_pb2_grpc.ManagerServicer):
 
                     for failed in chunk.failed:
                         failed_db = FailedFile(
-                            id=generate_uuid(),
                             scanner_id=scanner_id,
                             task_id=task_id,
                             file_path=failed.path,

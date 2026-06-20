@@ -3,24 +3,18 @@
 DCAP Manager - Database Models (SQLite compatible)
 """
 
-import uuid
 from datetime import datetime
 from typing import Optional, List, Dict, Any
 
 from sqlalchemy import (
-    String, DateTime, Integer, Boolean, 
+    Column, String, DateTime, Integer, Boolean, 
     JSON, Enum as SQLEnum, BigInteger, ForeignKey,
     Text, Float, Index
 )
-from sqlalchemy.orm import declarative_base, relationship, Mapped, mapped_column
+from sqlalchemy.orm import declarative_base, relationship
 import enum
 
 Base = declarative_base()
-
-
-def generate_uuid() -> str:
-    """Генерация UUID строки"""
-    return str(uuid.uuid4())
 
 
 class ScannerStatus(str, enum.Enum):
@@ -44,32 +38,25 @@ class Scanner(Base):
     """Модель агента сканирования"""
     __tablename__ = "scanners"
     
-    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=generate_uuid)
-    name: Mapped[str] = mapped_column(String(100), unique=True, nullable=False)
-    endpoint: Mapped[str] = mapped_column(String(255), nullable=False)
-    public_cert: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    name = Column(String(100), unique=True, nullable=False)
+    endpoint = Column(String(255), nullable=False)
+    public_cert = Column(Text, nullable=True)
     
-    status: Mapped[ScannerStatus] = mapped_column(
-        SQLEnum(ScannerStatus), 
-        default=ScannerStatus.OFFLINE
-    )
-    last_heartbeat: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    status = Column(SQLEnum(ScannerStatus), default=ScannerStatus.OFFLINE)
+    last_heartbeat = Column(DateTime, nullable=True)
     
-    total_files_scanned: Mapped[int] = mapped_column(BigInteger, default=0)
-    total_findings: Mapped[int] = mapped_column(BigInteger, default=0)
+    total_files_scanned = Column(BigInteger, default=0)
+    total_findings = Column(BigInteger, default=0)
     
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
-    updated_at: Mapped[datetime] = mapped_column(
-        DateTime, 
-        default=datetime.utcnow, 
-        onupdate=datetime.utcnow
-    )
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     
     # Relationships
-    tasks: Mapped[List["ScanTask"]] = relationship("ScanTask", back_populates="scanner")
-    findings: Mapped[List["Finding"]] = relationship("Finding", back_populates="scanner")
-    catalog_entries: Mapped[List["CatalogEntry"]] = relationship("CatalogEntry", back_populates="scanner")
-    failed_files: Mapped[List["FailedFile"]] = relationship("FailedFile", back_populates="scanner")
+    tasks = relationship("ScanTask", back_populates="scanner")
+    findings = relationship("Finding", back_populates="scanner")
+    catalog_entries = relationship("CatalogEntry", back_populates="scanner")
+    failed_files = relationship("FailedFile", back_populates="scanner")
     
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -91,28 +78,25 @@ class Resource(Base):
     """Модель ресурса для сканирования"""
     __tablename__ = "resources"
     
-    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=generate_uuid)
-    type: Mapped[str] = mapped_column(String(20), nullable=False)
-    path: Mapped[str] = mapped_column(String(500), nullable=False)
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    type = Column(String(20), nullable=False)
+    path = Column(String(500), nullable=False)
     
-    credentials_encrypted: Mapped[Optional[bytes]] = mapped_column(JSON, nullable=True)
-    credentials_nonce: Mapped[Optional[bytes]] = mapped_column(JSON, nullable=True)
+    credentials_encrypted = Column(JSON, nullable=True)
+    credentials_nonce = Column(JSON, nullable=True)
     
-    enabled: Mapped[bool] = mapped_column(Boolean, default=True)
-    config: Mapped[Optional[Dict[str, Any]]] = mapped_column(JSON, nullable=True)
+    enabled = Column(Boolean, default=True)
+    config = Column(JSON, nullable=True)
     
-    last_scan_start: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
-    last_scan_end: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    last_scan_start = Column(DateTime, nullable=True)
+    last_scan_end = Column(DateTime, nullable=True)
     
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
-    updated_at: Mapped[datetime] = mapped_column(
-        DateTime, 
-        default=datetime.utcnow, 
-        onupdate=datetime.utcnow
-    )
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     
-    schedules: Mapped[List["Schedule"]] = relationship("Schedule", back_populates="resource")
-    tasks: Mapped[List["ScanTask"]] = relationship("ScanTask", back_populates="resource")
+    # Relationships
+    schedules = relationship("Schedule", back_populates="resource")
+    tasks = relationship("ScanTask", back_populates="resource")
     
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -136,26 +120,23 @@ class Schedule(Base):
     """Модель расписания сканирования"""
     __tablename__ = "schedules"
     
-    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=generate_uuid)
-    resource_id: Mapped[str] = mapped_column(String(36), ForeignKey("resources.id"), nullable=False)
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    resource_id = Column(Integer, ForeignKey("resources.id"), nullable=False)
     
-    cron_expression: Mapped[str] = mapped_column(String(100), nullable=False)
-    priority: Mapped[int] = mapped_column(Integer, default=0)
-    max_files_per_batch: Mapped[int] = mapped_column(Integer, default=500)
+    cron_expression = Column(String(100), nullable=False)
+    priority = Column(Integer, default=0)
+    max_files_per_batch = Column(Integer, default=500)
     
-    enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+    enabled = Column(Boolean, default=True)
     
-    last_run: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
-    next_run: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    last_run = Column(DateTime, nullable=True)
+    next_run = Column(DateTime, nullable=True)
     
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
-    updated_at: Mapped[datetime] = mapped_column(
-        DateTime, 
-        default=datetime.utcnow, 
-        onupdate=datetime.utcnow
-    )
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     
-    resource: Mapped[Resource] = relationship("Resource", back_populates="schedules")
+    # Relationships
+    resource = relationship("Resource", back_populates="schedules")
     
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -174,28 +155,29 @@ class ScanTask(Base):
     """Модель задания на сканирование"""
     __tablename__ = "scan_tasks"
     
-    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=generate_uuid)
-    resource_id: Mapped[str] = mapped_column(String(36), ForeignKey("resources.id"), nullable=False)
-    scanner_id: Mapped[Optional[str]] = mapped_column(String(36), ForeignKey("scanners.id"), nullable=True)
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    resource_id = Column(Integer, ForeignKey("resources.id"), nullable=False)
+    scanner_id = Column(Integer, ForeignKey("scanners.id"), nullable=True)
     
-    path_filter: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
+    path_filter = Column(String(500), nullable=True)
     
-    status: Mapped[TaskStatus] = mapped_column(SQLEnum(TaskStatus), default=TaskStatus.PENDING)
+    status = Column(SQLEnum(TaskStatus), default=TaskStatus.PENDING)
     
-    files_total: Mapped[int] = mapped_column(Integer, default=0)
-    files_scanned: Mapped[int] = mapped_column(Integer, default=0)
-    findings_count: Mapped[int] = mapped_column(Integer, default=0)
+    files_total = Column(Integer, default=0)
+    files_scanned = Column(Integer, default=0)
+    findings_count = Column(Integer, default=0)
     
-    assigned_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
-    started_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
-    completed_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    assigned_at = Column(DateTime, nullable=True)
+    started_at = Column(DateTime, nullable=True)
+    completed_at = Column(DateTime, nullable=True)
     
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=datetime.utcnow)
     
-    resource: Mapped[Resource] = relationship("Resource", back_populates="tasks")
-    scanner: Mapped[Optional[Scanner]] = relationship("Scanner", back_populates="tasks")
-    findings: Mapped[List["Finding"]] = relationship("Finding", back_populates="task")
-    failed_files: Mapped[List["FailedFile"]] = relationship("FailedFile", back_populates="task")
+    # Relationships
+    resource = relationship("Resource", back_populates="tasks")
+    scanner = relationship("Scanner", back_populates="tasks")
+    findings = relationship("Finding", back_populates="task")
+    failed_files = relationship("FailedFile", back_populates="task")
     
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -218,27 +200,28 @@ class Finding(Base):
     """Находка (результат сканирования)"""
     __tablename__ = "findings"
 
-    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=generate_uuid)
-    scanner_id: Mapped[str] = mapped_column(String(36), ForeignKey("scanners.id"), nullable=False)
-    task_id: Mapped[str] = mapped_column(String(36), ForeignKey("scan_tasks.id"), nullable=False)
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    scanner_id = Column(Integer, ForeignKey("scanners.id"), nullable=False)
+    task_id = Column(Integer, ForeignKey("scan_tasks.id"), nullable=False)
 
-    file_path: Mapped[str] = mapped_column(String(500), nullable=False)
-    file_hash: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
-    file_size: Mapped[int] = mapped_column(BigInteger, nullable=False)
-    file_modified: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    file_path = Column(String(500), nullable=False)
+    file_hash = Column(String(64), nullable=True)
+    file_size = Column(BigInteger, nullable=False)
+    file_modified = Column(DateTime, nullable=True)
 
-    classifier_name: Mapped[str] = mapped_column(String(50), nullable=False)
-    category: Mapped[str] = mapped_column(String(50), nullable=False)
-    subcategory: Mapped[str] = mapped_column(String(50), nullable=False)
-    value: Mapped[str] = mapped_column(Text, nullable=False)
-    confidence: Mapped[float] = mapped_column(Float, nullable=False)
-    detection_method: Mapped[str] = mapped_column(String(50), nullable=False)
-    context: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    classifier_name = Column(String(50), nullable=False)
+    category = Column(String(50), nullable=False)
+    subcategory = Column(String(50), nullable=False)
+    value = Column(Text, nullable=False)
+    confidence = Column(Float, nullable=False)
+    detection_method = Column(String(50), nullable=False)
+    context = Column(Text, nullable=True)
 
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=datetime.utcnow)
 
-    scanner: Mapped[Scanner] = relationship("Scanner", back_populates="findings")
-    task: Mapped[ScanTask] = relationship("ScanTask", back_populates="findings")
+    # Relationships
+    scanner = relationship("Scanner", back_populates="findings")
+    task = relationship("ScanTask", back_populates="findings")
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -264,19 +247,20 @@ class CatalogEntry(Base):
     """Запись каталога (папка с находками)"""
     __tablename__ = "catalog_entries"
 
-    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=generate_uuid)
-    scanner_id: Mapped[str] = mapped_column(String(36), ForeignKey("scanners.id"), nullable=False)
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    scanner_id = Column(Integer, ForeignKey("scanners.id"), nullable=False)
 
-    folder_path: Mapped[str] = mapped_column(String(500), nullable=False)
-    source_type: Mapped[str] = mapped_column(String(20), nullable=False)
-    classifiers: Mapped[List[str]] = mapped_column(JSON, default=list)
-    subcategories: Mapped[List[str]] = mapped_column(JSON, default=list)
-    findings_count: Mapped[int] = mapped_column(Integer, default=0)
+    folder_path = Column(String(500), nullable=False)
+    source_type = Column(String(20), nullable=False)
+    classifiers = Column(JSON, default=list)
+    subcategories = Column(JSON, default=list)
+    findings_count = Column(Integer, default=0)
 
-    first_seen: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
-    last_seen: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    first_seen = Column(DateTime, default=datetime.utcnow)
+    last_seen = Column(DateTime, default=datetime.utcnow)
 
-    scanner: Mapped[Scanner] = relationship("Scanner", back_populates="catalog_entries")
+    # Relationships
+    scanner = relationship("Scanner", back_populates="catalog_entries")
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -296,18 +280,19 @@ class FailedFile(Base):
     """Файлы, которые не удалось обработать"""
     __tablename__ = "failed_files"
 
-    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=generate_uuid)
-    scanner_id: Mapped[str] = mapped_column(String(36), ForeignKey("scanners.id"), nullable=False)
-    task_id: Mapped[str] = mapped_column(String(36), ForeignKey("scan_tasks.id"), nullable=False)
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    scanner_id = Column(Integer, ForeignKey("scanners.id"), nullable=False)
+    task_id = Column(Integer, ForeignKey("scan_tasks.id"), nullable=False)
 
-    file_path: Mapped[str] = mapped_column(String(500), nullable=False)
-    error: Mapped[str] = mapped_column(Text, nullable=False)
-    error_type: Mapped[str] = mapped_column(String(50), nullable=False)
+    file_path = Column(String(500), nullable=False)
+    error = Column(Text, nullable=False)
+    error_type = Column(String(50), nullable=False)
 
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=datetime.utcnow)
 
-    scanner: Mapped[Scanner] = relationship("Scanner", back_populates="failed_files")
-    task: Mapped[ScanTask] = relationship("ScanTask", back_populates="failed_files")
+    # Relationships
+    scanner = relationship("Scanner", back_populates="failed_files")
+    task = relationship("ScanTask", back_populates="failed_files")
 
     def to_dict(self) -> Dict[str, Any]:
         return {

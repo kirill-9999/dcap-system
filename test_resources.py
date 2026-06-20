@@ -19,25 +19,23 @@ import dcap.manager_pb2 as manager_pb2
 import dcap.manager_pb2_grpc as manager_pb2_grpc
 
 
-async def get_resource_id(stub, path: str) -> str:
-    """Получить ID ресурса по пути"""
+async def get_resource_id(stub, path: str) -> int:
+    """Получить ID ресурса по пути (теперь Integer)"""
     response = await stub.ListResources(manager_pb2.ListResourcesRequest(
         include_disabled=True
     ))
     
     for r in response.resources:
         if r.path == path:
-            return r.id
+            return int(r.id)
     return None
 
 
-async def create_task_direct(stub, resource_id: str) -> bool:
+async def create_task_direct(resource_id: int) -> bool:
     """
-    Создать задание напрямую через SQL (поскольку gRPC метод CreateTask пока не реализован)
-    Используем прямую вставку в БД через коннектор
+    Создать задание напрямую через SQL
     """
     import sqlite3
-    import uuid
     
     db_path = Path(__file__).parent / "manager" / "src" / "db" / "dcap.db"
     
@@ -49,15 +47,14 @@ async def create_task_direct(stub, resource_id: str) -> bool:
         conn = sqlite3.connect(str(db_path))
         cursor = conn.cursor()
         
-        # Генерируем ID задания
-        task_id = str(uuid.uuid4())
-        
+        # Создаём задание с целочисленным автоинкрементом (без указания id)
         cursor.execute("""
-            INSERT INTO scan_tasks (id, resource_id, status, files_total, files_scanned, findings_count, created_at)
-            VALUES (?, ?, 'PENDING', 0, 0, 0, datetime('now'))
-        """, (task_id, resource_id))
+            INSERT INTO scan_tasks (resource_id, status, files_total, files_scanned, findings_count, created_at)
+            VALUES (?, 'PENDING', 0, 0, 0, datetime('now'))
+        """, (resource_id,))
         
         conn.commit()
+        task_id = cursor.lastrowid
         conn.close()
         
         print(f"    ✅ Задание создано! ID: {task_id}")
@@ -97,7 +94,7 @@ async def test_resources():
         ))
         
         if create_response.success:
-            resource_id = create_response.resource_id
+            resource_id = int(create_response.resource_id)
             print(f"    ✅ Ресурс создан! ID: {resource_id}")
         else:
             print(f"    ❌ Ошибка: {create_response.message}")
@@ -105,7 +102,7 @@ async def test_resources():
     
     # 2. Создаём задание напрямую в БД
     print("\n[2] Создание задания...")
-    await create_task_direct(stub, resource_id)
+    await create_task_direct(resource_id)
     
     # 3. Проверяем создание через SQL
     import sqlite3
@@ -126,17 +123,20 @@ async def test_resources():
         else:
             print(f"\n[3] ⚠️ Задание не найдено в БД")
     
-    # 4. Список расписаний (если есть)
+    # 4. Список расписаний (если есть) — исправлено: передаём строку
     print("\n[4] Список расписаний...")
-    schedules_response = await stub.ListSchedules(manager_pb2.ListSchedulesRequest(
-        resource_id=resource_id
-    ))
-    
-    if schedules_response.schedules:
-        for s in schedules_response.schedules:
-            print(f"    📅 Cron: {s.cron_expression}, приоритет: {s.priority}")
-    else:
-        print(f"    ℹ️  Нет расписаний")
+    try:
+        schedules_response = await stub.ListSchedules(manager_pb2.ListSchedulesRequest(
+            resource_id=str(resource_id)  # ← преобразуем в строку
+        ))
+        
+        if schedules_response.schedules:
+            for s in schedules_response.schedules:
+                print(f"    📅 Cron: {s.cron_expression}, приоритет: {s.priority}")
+        else:
+            print(f"    ℹ️  Нет расписаний")
+    except Exception as e:
+        print(f"    ❌ Ошибка получения расписаний: {e}")
     
     print("\n" + "=" * 60)
     print("✅ Готово! Запустите Scanner:")

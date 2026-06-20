@@ -7,9 +7,10 @@ Managed Scanner — получает задания от Manager и выполн
 import asyncio
 import sys
 import logging
+import uuid
 from pathlib import Path
 from datetime import datetime
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
 
 import grpc
 
@@ -22,7 +23,7 @@ from scanner.core.base import FileContext, ClassificationResult, DataCategory
 from scanner.connectors.filesystem import FileSystemConnector
 
 # Импорты для gRPC
-sys.path.insert(0, str(Path(__file__).parent.parent))
+sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 import dcap.manager_pb2 as manager_pb2
 import dcap.manager_pb2_grpc as manager_pb2_grpc
 
@@ -37,7 +38,7 @@ logger = logging.getLogger("dcap-scanner")
 class GrpcHandler:
     """Обработчик, отправляющий находки в Manager через gRPC"""
     
-    def __init__(self, stub, scanner_id: str, task_id: str):
+    def __init__(self, stub, scanner_id: int, task_id: int):
         self.stub = stub
         self.scanner_id = scanner_id
         self.task_id = task_id
@@ -50,10 +51,10 @@ class GrpcHandler:
         if not result.findings:
             return
         
-        for finding in result.findings[:20]:  # Ограничиваем количество
+        for finding in result.findings[:20]:
             self.buffer.append(manager_pb2.Finding(
                 file_path=file_context.path,
-                file_hash="",  # TODO: вычислить хэш
+                file_hash="",
                 file_size=file_context.size_bytes,
                 file_modified=file_context.modified_time.isoformat() if file_context.modified_time else "",
                 classifier_name=result.classifier_name,
@@ -67,7 +68,6 @@ class GrpcHandler:
         
         self.findings_count += len(result.findings)
         
-        # Отправка при заполнении буфера
         if len(self.buffer) >= self.batch_size:
             self.flush()
     
@@ -77,18 +77,15 @@ class GrpcHandler:
             return
         
         try:
-            # Отправляем через ReportBatch
             chunk = manager_pb2.ReportChunk(
                 scanner_id=self.scanner_id,
                 task_id=self.task_id,
                 findings=self.buffer,
-                catalog=[],  # TODO: добавить каталог
+                catalog=[],
                 failed=[]
             )
             
-            # Синхронный вызов (для простоты)
             response = self.stub.ReportBatch(iter([chunk]))
-            
             logger.info(f"📤 Отправлено {len(self.buffer)} находок в Manager")
             self.buffer = []
             
@@ -110,7 +107,6 @@ class ManagedScanner:
         self.stub = None
         self.channel = None
         
-        # Подготовка классификаторов
         self.classifiers = []
         self._load_classifiers()
     
@@ -150,7 +146,7 @@ class ManagedScanner:
         ))
         
         if response.success:
-            self.scanner_id = response.scanner_id
+            self.scanner_id = int(response.scanner_id)
             logger.info(f"✅ Зарегистрирован! ID: {self.scanner_id}")
             return True
         else:
@@ -161,7 +157,7 @@ class ManagedScanner:
         """Получение задания от Manager"""
         try:
             response = await self.stub.GetTask(manager_pb2.GetTaskRequest(
-                scanner_id=self.scanner_id
+                scanner_id=str(self.scanner_id)  # ← СТРОКА!
             ))
             
             if response.has_task:
@@ -176,17 +172,15 @@ class ManagedScanner:
             return None
     
     async def execute_task(self, task):
-        """Выполнение задания (реальное сканирование)"""
+        """Выполнение задания"""
         logger.info(f"🔍 Начало сканирования: {task.resource_path}")
         
-        # Создаём обработчик для отправки в Manager
         grpc_handler = GrpcHandler(
             self.stub,
             self.scanner_id,
-            task.task_id
+            int(task.task_id)
         )
         
-        # Создаём Orchestrator с нашими классификаторами
         orchestrator = Orchestrator(
             config={
                 "state_file": "state.json",
@@ -197,7 +191,6 @@ class ManagedScanner:
             shared_handlers=[grpc_handler]
         )
         
-        # Настраиваем коннектор
         connector = FileSystemConnector()
         connector.configure({
             "extensions": ["txt", "pdf", "docx", "xlsx", "png", "jpg", "jpeg"],
@@ -207,10 +200,7 @@ class ManagedScanner:
         orchestrator.configure(connector)
         
         try:
-            # Запускаем сканирование
             orchestrator.process_source(task.resource_path)
-            
-            # Отправляем оставшиеся находки
             grpc_handler.close()
             
             stats = orchestrator.get_statistics()
@@ -219,23 +209,21 @@ class ManagedScanner:
             logger.info(f"   Обработано: {stats.get('processed_files', 0)} файлов")
             logger.info(f"   Находок: {grpc_handler.findings_count}")
             
-            # Завершаем задание
-            await self.complete_task(task.task_id, stats, grpc_handler.findings_count)
+            await self.complete_task(int(task.task_id), stats, grpc_handler.findings_count)
             
         except Exception as e:
             logger.error(f"❌ Ошибка сканирования: {e}")
-            await self.complete_task(task.task_id, {}, 0, success=False, error=str(e))
+            await self.complete_task(int(task.task_id), {}, 0, success=False, error=str(e))
         
-        # Очистка памяти
         orchestrator.stop()
         del orchestrator
     
-    async def complete_task(self, task_id: str, stats: Dict, findings_count: int, 
+    async def complete_task(self, task_id: int, stats: Dict, findings_count: int, 
                            success: bool = True, error: str = ""):
         """Завершение задания"""
         try:
             response = await self.stub.CompleteTask(manager_pb2.CompleteTaskRequest(
-                scanner_id=self.scanner_id,
+                scanner_id=str(self.scanner_id),  # ← СТРОКА!
                 task_id=task_id,
                 files_scanned=stats.get('processed_files', 0),
                 findings_count=findings_count,
@@ -257,7 +245,7 @@ class ManagedScanner:
             try:
                 await asyncio.sleep(10)
                 response = await self.stub.Heartbeat(manager_pb2.HeartbeatRequest(
-                    scanner_id=self.scanner_id
+                    scanner_id=str(self.scanner_id)  # ← СТРОКА!
                 ))
                 if not response.success:
                     logger.warning(f"⚠️ Heartbeat failed: {response.message}")
@@ -273,7 +261,6 @@ class ManagedScanner:
         if not await self.connect():
             return
         
-        # Запускаем heartbeat
         asyncio.create_task(self.heartbeat_loop())
         
         logger.info("⏳ Ожидание заданий...")
@@ -302,7 +289,12 @@ class ManagedScanner:
 
 
 async def main():
-    scanner = ManagedScanner("real-scanner-1")
+    """Точка входа"""
+    scanner = ManagedScanner(
+        name="real-scanner-1",
+        manager_endpoint="localhost:50051"
+    )
+    
     try:
         await scanner.run()
     except KeyboardInterrupt:

@@ -131,7 +131,7 @@ class SchedulerEngine:
             logger.debug(f"⏳ Resource {schedule.resource_id} has {len(active_tasks)} active tasks, skipping")
             return
 
-        # ЯВНО загружаем ресурс через запрос (исправление ошибки)
+        # ЯВНО загружаем ресурс через запрос
         stmt = select(Resource).where(Resource.id == schedule.resource_id)
         result = await session.execute(stmt)
         resource = result.scalar_one_or_none()
@@ -147,13 +147,11 @@ class SchedulerEngine:
             await self._update_next_run(schedule)
             return
 
-        # Создаём задание
-        import uuid
+        # Создаём задание с целочисленным ID (автоинкремент)
         task = ScanTask(
-            id=uuid.uuid4(),
             resource_id=schedule.resource_id,
             status=TaskStatus.PENDING,
-            path_filter=None,  # TODO: добавить фильтры
+            path_filter=None,
             files_total=0,
             files_scanned=0,
             findings_count=0,
@@ -161,12 +159,13 @@ class SchedulerEngine:
         )
 
         session.add(task)
+        await session.flush()  # Получаем ID
 
         # Обновляем время последнего запуска и вычисляем следующий запуск
         schedule.last_run = datetime.utcnow()
         await self._update_next_run(schedule)
 
-        logger.info(f"✅ Task created: {task.id} for resource {resource.path}")    
+        logger.info(f"✅ Task created: {task.id} for resource {resource.path}")
 
     async def _update_next_run(self, schedule: Schedule):
         """

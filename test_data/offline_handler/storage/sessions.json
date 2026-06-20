@@ -1,0 +1,12 @@
+{
+  "91c9f972-766e-4c91-9756-fdd0b09e7b31": {
+    "session_id": "91c9f972-766e-4c91-9756-fdd0b09e7b31",
+    "resource_path": "/test/data",
+    "resource_type": "filesystem",
+    "started_at": "2026-06-20T09:38:01.331150",
+    "files_scanned": 0,
+    "findings_count": 10,
+    "completed_at": "2026-06-20T09:38:02.315488",
+    "error": null
+  }
+}
