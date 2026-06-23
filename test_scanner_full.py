@@ -1,14 +1,13 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Тестовый Scanner — получает задания от Manager и отправляет результаты
+Тестовый Scanner — получает задания от Manager и "сканирует"
 """
 
 import asyncio
 import sys
 import time
 from pathlib import Path
-from datetime import datetime
 
 import grpc
 
@@ -20,7 +19,7 @@ import dcap.manager_pb2_grpc as manager_pb2_grpc
 
 
 class TestScanner:
-    """Тестовый сканер, который получает задания от Manager и отправляет результаты"""
+    """Тестовый сканер, который получает задания от Manager"""
 
     def __init__(self, name: str, manager_endpoint: str = "localhost:50051"):
         self.name = name
@@ -34,6 +33,7 @@ class TestScanner:
         self.channel = grpc.aio.insecure_channel(self.manager_endpoint)
         self.stub = manager_pb2_grpc.ManagerStub(self.channel)
 
+        # Регистрация
         print(f"📝 Регистрация сканера '{self.name}'...")
         response = await self.stub.Register(manager_pb2.RegisterRequest(
             scanner_name=self.name,
@@ -92,7 +92,7 @@ class TestScanner:
                     file_path=f"E:\\test_data\\file_{i+1}.txt",
                     file_hash=f"hash_{i+1}",
                     file_size=1024 * (i + 1),
-                    file_modified=datetime.now().isoformat(),
+                    file_modified="2026-06-17T18:00:00",
                     classifier_name="pii_classifier",
                     category="pii",
                     subcategory="PII_PER",
@@ -169,19 +169,25 @@ class TestScanner:
         print("🔍 ЗАПУСК ТЕСТОВОГО SCANNER")
         print("=" * 60)
 
+        # Подключение к Manager
         if not await self.connect():
             return
 
+        # Запускаем heartbeat в фоне
         asyncio.create_task(self.heartbeat_loop())
 
+        # Основной цикл
         print("\n⏳ Ожидание заданий...")
         while True:
             try:
+                # Пытаемся получить задание
                 has_task = await self.get_and_execute_task()
                 
                 if not has_task:
+                    # Нет заданий — ждём
                     await asyncio.sleep(5)
                 else:
+                    # Задание выполнено — небольшая пауза
                     await asyncio.sleep(2)
 
             except KeyboardInterrupt:
@@ -191,6 +197,7 @@ class TestScanner:
                 await asyncio.sleep(5)
 
     async def stop(self):
+        """Остановка Scanner"""
         if self.channel:
             await self.channel.close()
         print("👋 Scanner остановлен")

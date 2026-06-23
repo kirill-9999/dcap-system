@@ -447,8 +447,10 @@ class ManagerService(manager_pb2_grpc.ManagerServicer):
                         logger.warning(f"⚠️ Task {task_id} not found")
                         continue
 
+                    # Сохраняем находки
                     for finding in chunk.findings:
                         finding_db = Finding(
+                            id=generate_uuid(),
                             scanner_id=scanner_id,
                             task_id=task_id,
                             file_path=finding.file_path,
@@ -466,8 +468,10 @@ class ManagerService(manager_pb2_grpc.ManagerServicer):
                         session.add(finding_db)
                         findings_received += 1
 
+                    # Сохраняем каталог
                     for entry in chunk.catalog:
                         catalog_db = CatalogEntry(
+                            id=generate_uuid(),  # <-- ИСПРАВЛЕНО: добавлен id
                             scanner_id=scanner_id,
                             folder_path=entry.folder_path,
                             source_type=entry.source_type,
@@ -479,8 +483,10 @@ class ManagerService(manager_pb2_grpc.ManagerServicer):
                         session.add(catalog_db)
                         catalog_entries_received += 1
 
+                    # Сохраняем неудачные файлы
                     for failed in chunk.failed:
                         failed_db = FailedFile(
+                            id=generate_uuid(),
                             scanner_id=scanner_id,
                             task_id=task_id,
                             file_path=failed.path,
