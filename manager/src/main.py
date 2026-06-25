@@ -62,7 +62,7 @@ def get_stub():
         # Создаём stub в текущем loop
         current_loop = asyncio.get_event_loop()
         channel = grpc.aio.insecure_channel('localhost:50051')
-        _grpc_stub = manager_pb2_grpc.ManagerStub(channel)
+        _grpc_stub = manager_pb2_grpc.ManagerServiceStub(channel)
         _grpc_loop = current_loop
     return _grpc_stub
 
@@ -123,7 +123,8 @@ async def serve_grpc(shutdown_event: asyncio.Event):
 
     server = grpc.aio.server()
 
-    manager_pb2_grpc.add_ManagerServicer_to_server(
+    # Правильная регистрация сервиса
+    manager_pb2_grpc.add_ManagerServiceServicer_to_server(
         ManagerService(),
         server
     )

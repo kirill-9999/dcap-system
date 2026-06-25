@@ -78,8 +78,8 @@ class GrpcHandler:
         
         try:
             chunk = manager_pb2.ReportChunk(
-                scanner_id=self.scanner_id,
-                task_id=self.task_id,
+                scanner_id=str(self.scanner_id),
+                task_id=str(self.task_id),
                 findings=self.buffer,
                 catalog=[],
                 failed=[]
@@ -137,7 +137,8 @@ class ManagedScanner:
     async def connect(self):
         """Подключение к Manager"""
         self.channel = grpc.aio.insecure_channel(self.manager_endpoint)
-        self.stub = manager_pb2_grpc.ManagerStub(self.channel)
+        # Исправлено: ManagerServiceStub вместо ManagerStub
+        self.stub = manager_pb2_grpc.ManagerServiceStub(self.channel)
         
         logger.info(f"📝 Регистрация сканера '{self.name}'...")
         response = await self.stub.Register(manager_pb2.RegisterRequest(
@@ -157,7 +158,7 @@ class ManagedScanner:
         """Получение задания от Manager"""
         try:
             response = await self.stub.GetTask(manager_pb2.GetTaskRequest(
-                scanner_id=str(self.scanner_id)  # ← СТРОКА!
+                scanner_id=str(self.scanner_id)
             ))
             
             if response.has_task:
@@ -193,7 +194,7 @@ class ManagedScanner:
         
         connector = FileSystemConnector()
         connector.configure({
-            "extensions": ["txt", "pdf", "docx", "xlsx", "png", "jpg", "jpeg"],
+            "extensions": ["txt", "pdf", "docx", "xlsx", "png", "jpg", "jpeg", "json", "csv", "log"],
             "max_file_size_mb": 50
         })
         
@@ -223,8 +224,8 @@ class ManagedScanner:
         """Завершение задания"""
         try:
             response = await self.stub.CompleteTask(manager_pb2.CompleteTaskRequest(
-                scanner_id=str(self.scanner_id),  # ← СТРОКА!
-                task_id=task_id,
+                scanner_id=str(self.scanner_id),
+                task_id=str(task_id),
                 files_scanned=stats.get('processed_files', 0),
                 findings_count=findings_count,
                 success=success,
@@ -245,7 +246,7 @@ class ManagedScanner:
             try:
                 await asyncio.sleep(10)
                 response = await self.stub.Heartbeat(manager_pb2.HeartbeatRequest(
-                    scanner_id=str(self.scanner_id)  # ← СТРОКА!
+                    scanner_id=str(self.scanner_id)
                 ))
                 if not response.success:
                     logger.warning(f"⚠️ Heartbeat failed: {response.message}")

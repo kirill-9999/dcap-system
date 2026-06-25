@@ -10,7 +10,6 @@ from typing import Optional
 
 import grpc
 
-# Добавляем путь для импорта сгенерированных файлов
 import sys
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent / "proto_gen"))
@@ -28,12 +27,7 @@ from manager.src.db.models import (
 logger = logging.getLogger("dcap-manager")
 
 
-def generate_uuid() -> str:
-    """Генерация UUID строки"""
-    return str(uuid.uuid4())
-
-
-class ManagerService(manager_pb2_grpc.ManagerServicer):
+class ManagerService(manager_pb2_grpc.ManagerServiceServicer):
     """Реализация gRPC сервиса Manager"""
 
     # ========== Scanner методы ==========
@@ -54,7 +48,6 @@ class ManagerService(manager_pb2_grpc.ManagerServicer):
                 existing.status = ScannerStatus.ACTIVE
                 existing.last_heartbeat = datetime.utcnow()
                 await session.commit()
-
                 logger.info(f"✅ Scanner '{request.scanner_name}' re-registered")
                 return manager_pb2.RegisterResponse(
                     scanner_id=str(existing.id),
@@ -73,13 +66,10 @@ class ManagerService(manager_pb2_grpc.ManagerServicer):
             session.add(scanner)
             await session.commit()
 
-            # Получаем ID после сохранения
-            scanner_id = scanner.id
-
-            logger.info(f"✅ Scanner '{request.scanner_name}' registered with ID: {scanner_id}")
+            logger.info(f"✅ Scanner '{request.scanner_name}' registered with ID: {scanner.id}")
 
             return manager_pb2.RegisterResponse(
-                scanner_id=str(scanner_id),
+                scanner_id=str(scanner.id),
                 success=True,
                 message="Scanner registered successfully"
             )
@@ -91,7 +81,7 @@ class ManagerService(manager_pb2_grpc.ManagerServicer):
         async with get_session() as session:
             from sqlalchemy import select
 
-            stmt = select(Scanner).where(Scanner.id == scanner_id)
+            stmt = select(Scanner).where(Scanner.id == int(scanner_id))
             result = await session.execute(stmt)
             scanner = result.scalar_one_or_none()
 
@@ -115,15 +105,19 @@ class ManagerService(manager_pb2_grpc.ManagerServicer):
 
     async def GetTask(self, request, context):
         """Получение задания для сканера"""
-        logger.info(f"📋 GetTask called by scanner: {request.scanner_id}")
-        
         scanner_id = request.scanner_id
+        logger.info(f"📋 GetTask called by scanner: {scanner_id}")
 
         async with get_session() as session:
             from sqlalchemy import select, and_
             from manager.src.db.models import ScanTask, TaskStatus, Resource
 
-            # Находим PENDING задание и сразу подгружаем ресурс через JOIN
+            # Проверяем, есть ли вообще PENDING задания
+            count_stmt = select(ScanTask).where(ScanTask.status == TaskStatus.PENDING)
+            count_result = await session.execute(count_stmt)
+            pending_count = len(count_result.scalars().all())
+            logger.info(f"   PENDING tasks count: {pending_count}")
+
             stmt = select(ScanTask, Resource).join(
                 Resource, Resource.id == ScanTask.resource_id
             ).where(
@@ -141,38 +135,27 @@ class ManagerService(manager_pb2_grpc.ManagerServicer):
                 return manager_pb2.GetTaskResponse(has_task=False)
 
             task, resource = row
-            
-            # Сохраняем данные для ответа
-            task_id = str(task.id)
-            resource_id = str(resource.id)
-            resource_path = resource.path
-            resource_type = resource.type.lower()
-
-            # Проверяем, что задание ещё PENDING
-            if task.status != TaskStatus.PENDING:
-                logger.info(f"ℹ️ Task {task_id} is no longer pending (status: {task.status.value})")
-                return manager_pb2.GetTaskResponse(has_task=False)
+            logger.info(f"   Found task: {task.id}, resource: {resource.path}")
 
             # Назначаем задание сканеру
-            task.scanner_id = scanner_id
+            task.scanner_id = int(scanner_id)
             task.status = TaskStatus.ASSIGNED
             task.assigned_at = datetime.utcnow()
-            
+
             try:
                 await session.commit()
+                logger.info(f"✅ Task {task.id} assigned to scanner {scanner_id}")
             except Exception as e:
                 await session.rollback()
-                logger.error(f"❌ Failed to assign task {task_id}: {e}")
+                logger.error(f"❌ Failed to assign task {task.id}: {e}")
                 return manager_pb2.GetTaskResponse(has_task=False)
-
-            logger.info(f"✅ Task {task_id} assigned to scanner {scanner_id}")
 
             return manager_pb2.GetTaskResponse(
                 has_task=True,
-                task_id=task_id,
-                resource_id=resource_id,
-                resource_path=resource_path,
-                resource_type=resource_type,
+                task_id=str(task.id),
+                resource_id=str(resource.id),
+                resource_path=resource.path,
+                resource_type=resource.type.lower(),
                 batch_size=500
             )
 
@@ -216,12 +199,11 @@ class ManagerService(manager_pb2_grpc.ManagerServicer):
             session.add(resource)
             await session.commit()
 
-            resource_id = str(resource.id)
-            logger.info(f"✅ Resource created: {resource_id}")
+            logger.info(f"✅ Resource created: {resource.id}")
 
             return manager_pb2.CreateResourceResponse(
                 success=True,
-                resource_id=resource_id,
+                resource_id=str(resource.id),
                 message="Resource created successfully"
             )
 
@@ -258,7 +240,7 @@ class ManagerService(manager_pb2_grpc.ManagerServicer):
         async with get_session() as session:
             from sqlalchemy import select
 
-            stmt = select(Resource).where(Resource.id == resource_id)
+            stmt = select(Resource).where(Resource.id == int(resource_id))
             result = await session.execute(stmt)
             resource = result.scalar_one_or_none()
 
@@ -284,7 +266,7 @@ class ManagerService(manager_pb2_grpc.ManagerServicer):
         async with get_session() as session:
             from sqlalchemy import select, delete
 
-            stmt = select(Schedule).where(Schedule.resource_id == resource_id)
+            stmt = select(Schedule).where(Schedule.resource_id == int(resource_id))
             result = await session.execute(stmt)
             schedules = result.scalars().all()
 
@@ -294,10 +276,10 @@ class ManagerService(manager_pb2_grpc.ManagerServicer):
                     message=f"Cannot delete: resource has {len(schedules)} schedules"
                 )
 
-            stmt = delete(ScanTask).where(ScanTask.resource_id == resource_id)
+            stmt = delete(ScanTask).where(ScanTask.resource_id == int(resource_id))
             await session.execute(stmt)
 
-            stmt = delete(Resource).where(Resource.id == resource_id)
+            stmt = delete(Resource).where(Resource.id == int(resource_id))
             await session.execute(stmt)
             await session.commit()
 
@@ -334,7 +316,7 @@ class ManagerService(manager_pb2_grpc.ManagerServicer):
         async with get_session() as session:
             from sqlalchemy import select
 
-            stmt = select(Resource).where(Resource.id == resource_id)
+            stmt = select(Resource).where(Resource.id == int(resource_id))
             result = await session.execute(stmt)
             resource = result.scalar_one_or_none()
 
@@ -350,7 +332,7 @@ class ManagerService(manager_pb2_grpc.ManagerServicer):
             next_run = croniter(request.cron_expression, now).get_next(datetime)
 
             schedule = Schedule(
-                resource_id=resource_id,
+                resource_id=int(resource_id),
                 cron_expression=request.cron_expression,
                 priority=request.priority,
                 max_files_per_batch=request.max_files_per_batch,
@@ -360,12 +342,11 @@ class ManagerService(manager_pb2_grpc.ManagerServicer):
             session.add(schedule)
             await session.commit()
 
-            schedule_id = str(schedule.id)
-            logger.info(f"✅ Schedule created: {schedule_id}")
+            logger.info(f"✅ Schedule created: {schedule.id}")
 
             return manager_pb2.CreateScheduleResponse(
                 success=True,
-                schedule_id=schedule_id,
+                schedule_id=str(schedule.id),
                 message="Schedule created successfully"
             )
 
@@ -376,7 +357,7 @@ class ManagerService(manager_pb2_grpc.ManagerServicer):
 
             stmt = select(Schedule)
             if request.resource_id:
-                stmt = stmt.where(Schedule.resource_id == request.resource_id)
+                stmt = stmt.where(Schedule.resource_id == int(request.resource_id))
 
             result = await session.execute(stmt)
             schedules = result.scalars().all()
@@ -404,7 +385,7 @@ class ManagerService(manager_pb2_grpc.ManagerServicer):
         async with get_session() as session:
             from sqlalchemy import delete
 
-            stmt = delete(Schedule).where(Schedule.id == schedule_id)
+            stmt = delete(Schedule).where(Schedule.id == int(schedule_id))
             result = await session.execute(stmt)
             await session.commit()
 
@@ -439,7 +420,7 @@ class ManagerService(manager_pb2_grpc.ManagerServicer):
                     task_id = chunk.task_id
 
                     from sqlalchemy import select
-                    stmt = select(ScanTask).where(ScanTask.id == task_id)
+                    stmt = select(ScanTask).where(ScanTask.id == int(task_id))
                     result = await session.execute(stmt)
                     task = result.scalar_one_or_none()
 
@@ -450,9 +431,8 @@ class ManagerService(manager_pb2_grpc.ManagerServicer):
                     # Сохраняем находки
                     for finding in chunk.findings:
                         finding_db = Finding(
-                            id=generate_uuid(),
-                            scanner_id=scanner_id,
-                            task_id=task_id,
+                            scanner_id=int(scanner_id),
+                            task_id=int(task_id),
                             file_path=finding.file_path,
                             file_hash=finding.file_hash if finding.file_hash else None,
                             file_size=finding.file_size,
@@ -471,8 +451,7 @@ class ManagerService(manager_pb2_grpc.ManagerServicer):
                     # Сохраняем каталог
                     for entry in chunk.catalog:
                         catalog_db = CatalogEntry(
-                            id=generate_uuid(),  # <-- ИСПРАВЛЕНО: добавлен id
-                            scanner_id=scanner_id,
+                            scanner_id=int(scanner_id),
                             folder_path=entry.folder_path,
                             source_type=entry.source_type,
                             classifiers=list(entry.classifiers) if entry.classifiers else [],
@@ -486,9 +465,8 @@ class ManagerService(manager_pb2_grpc.ManagerServicer):
                     # Сохраняем неудачные файлы
                     for failed in chunk.failed:
                         failed_db = FailedFile(
-                            id=generate_uuid(),
-                            scanner_id=scanner_id,
-                            task_id=task_id,
+                            scanner_id=int(scanner_id),
+                            task_id=int(task_id),
                             file_path=failed.path,
                             error=failed.error,
                             error_type=failed.error_type,
@@ -528,7 +506,7 @@ class ManagerService(manager_pb2_grpc.ManagerServicer):
             from sqlalchemy import select
             from manager.src.db.models import ScanTask, TaskStatus
 
-            stmt = select(ScanTask).where(ScanTask.id == task_id)
+            stmt = select(ScanTask).where(ScanTask.id == int(task_id))
             result = await session.execute(stmt)
             task = result.scalar_one_or_none()
 
@@ -566,7 +544,6 @@ class ManagerService(manager_pb2_grpc.ManagerServicer):
         logger.info("💓 HealthCheck requested")
         
         async with get_session() as session:
-            # Статистика
             stmt_scanners = select(func.count()).select_from(Scanner).where(Scanner.status == ScannerStatus.ACTIVE)
             active_scanners = (await session.execute(stmt_scanners)).scalar() or 0
             
@@ -594,7 +571,6 @@ class ManagerService(manager_pb2_grpc.ManagerServicer):
                 total_findings=total_findings
             )
             
-            # Проверка здоровья системы
             is_healthy = True
             status = "OK"
             message = "All systems operational"
