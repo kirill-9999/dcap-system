@@ -1,0 +1,158 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>DCAP v3.0</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        body { background: #f5f7fa; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; }
+        .stat-card { background: white; padding: 1.5rem; border-radius: 12px; box-shadow: 0 2px 8px rgba(0,0,0,0.06); height: 100%; }
+        .stat-value { font-size: 2rem; font-weight: 700; color: #1a202c; }
+        .stat-label { font-size: 0.8rem; color: #718096; text-transform: uppercase; }
+        .stat-icon { font-size: 1.8rem; margin-bottom: 8px; }
+        .task-card { background: white; border-radius: 12px; padding: 16px; margin-bottom: 12px; box-shadow: 0 2px 8px rgba(0,0,0,0.06); border: 1px solid #edf2f7; cursor: pointer; }
+        .task-card:hover { transform: translateY(-2px); box-shadow: 0 4px 16px rgba(0,0,0,0.1); }
+        .task-status { padding: 2px 12px; border-radius: 20px; font-size: 0.75rem; font-weight: 600; }
+        .status-pending { background: #e2e8f0; color: #4a5568; }
+        .status-assigned { background: #bee3f8; color: #2b6cb0; }
+        .status-running { background: #fefcbf; color: #975a16; }
+        .status-completed { background: #c6f6d5; color: #276749; }
+        .status-failed { background: #fed7d7; color: #9b2c2c; }
+        .progress-container { position: relative; height: 24px; background: #edf2f7; border-radius: 12px; overflow: hidden; margin: 8px 0; }
+        .progress-bar { height: 100%; background: linear-gradient(90deg, #48bb78, #38a169); transition: width 0.5s ease; }
+        .progress-text { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); font-size: 0.75rem; font-weight: 600; color: #2d3748; }
+        .file-path { font-family: 'Courier New', monospace; font-size: 0.85rem; max-width: 200px; display: inline-block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .confidence-high { color: #38a169; font-weight: 600; }
+        .confidence-medium { color: #d69e2e; font-weight: 600; }
+        .confidence-low { color: #e53e3e; font-weight: 600; }
+        .filter-card { background: white; padding: 1rem; border-radius: 12px; box-shadow: 0 2px 8px rgba(0,0,0,0.06); margin-bottom: 1.5rem; }
+        .findings-table-wrapper { background: white; border-radius: 12px; box-shadow: 0 2px 8px rgba(0,0,0,0.06); overflow: hidden; }
+        .page-content { display: none; }
+        .page-content.active { display: block; }
+        .nav-link { cursor: pointer; }
+        .nav-link.active { font-weight: bold; }
+        .notification { position: fixed; bottom: 20px; right: 20px; padding: 12px 24px; color: white; border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.15); z-index: 9999; max-width: 400px; }
+        @keyframes slideIn { from { transform: translateX(100%); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
+        @keyframes slideOut { from { transform: translateX(0); opacity: 1; } to { transform: translateX(100%); opacity: 0; } }
+        .notification { animation: slideIn 0.3s ease; }
+    </style>
+</head>
+<body>
+    <nav class="navbar navbar-expand-lg navbar-dark bg-dark">
+        <div class="container-fluid">
+            <a class="navbar-brand" href="#"><i class="fas fa-shield-alt text-primary"></i> DCAP v3.0</a>
+            <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav">
+                <span class="navbar-toggler-icon"></span>
+            </button>
+            <div class="collapse navbar-collapse" id="navbarNav">
+                <ul class="navbar-nav me-auto">
+                    <li class="nav-item"><a class="nav-link active" data-page="dashboard" href="#"><i class="fas fa-chart-pie"></i> Дашборд</a></li>
+                    <li class="nav-item"><a class="nav-link" data-page="findings" href="#"><i class="fas fa-search"></i> Находки</a></li>
+                    <li class="nav-item"><a class="nav-link" data-page="tasks" href="#"><i class="fas fa-tasks"></i> Задания</a></li>
+                    <li class="nav-item"><a class="nav-link" data-page="scanners" href="#"><i class="fas fa-server"></i> Сканеры</a></li>
+                </ul>
+                <span class="text-muted small" id="update-time"></span>
+            </div>
+        </div>
+    </nav>
+
+    <main class="container-fluid py-4">
+        <div id="error-message" class="alert alert-danger" style="display:none;"></div>
+        
+        <!-- Дашборд -->
+        <div id="page-dashboard" class="page-content active">
+            <h2 class="mb-4"><i class="fas fa-chart-pie text-primary"></i> Дашборд системы</h2>
+            <div class="row g-3 mb-4" id="stats-grid"></div>
+            <div class="row g-3 mb-4">
+                <div class="col-md-6"><div class="card"><div class="card-header"><i class="fas fa-chart-bar"></i> Находки по категориям</div><div class="card-body"><canvas id="categoryChart" height="250"></canvas></div></div></div>
+                <div class="col-md-6"><div class="card"><div class="card-header"><i class="fas fa-chart-doughnut"></i> Находки по сканерам</div><div class="card-body"><canvas id="scannerChart" height="250"></canvas></div></div></div>
+            </div>
+            <div class="card">
+                <div class="card-header d-flex justify-content-between align-items-center">
+                    <span><i class="fas fa-history"></i> Последние находки</span>
+                    <a href="#" class="btn btn-sm btn-outline-primary" id="show-all-findings">Все находки →</a>
+                </div>
+                <div class="card-body p-0" id="recent-findings"></div>
+            </div>
+        </div>
+
+        <!-- Находки -->
+        <div id="page-findings" class="page-content">
+            <h2 class="mb-4"><i class="fas fa-search text-primary"></i> Находки <span class="text-muted fs-6" id="findings-total"></span></h2>
+            <div class="filter-card">
+                <div class="row g-3 align-items-end">
+                    <div class="col-md-3"><label class="form-label">Категория</label><select class="form-select" id="filter-category"><option value="">Все</option></select></div>
+                    <div class="col-md-4"><label class="form-label">Поиск по файлу</label><input type="text" class="form-control" id="filter-file" placeholder="Часть пути..."></div>
+                    <div class="col-md-2"><label class="form-label">Мин. доверие</label><select class="form-select" id="filter-confidence"><option value="">Любое</option><option value="0.9">90%</option><option value="0.7">70%</option><option value="0.5">50%</option></select></div>
+                    <div class="col-md-3"><button class="btn btn-primary me-2" id="apply-findings"><i class="fas fa-filter"></i> Применить</button><button class="btn btn-outline-secondary" id="reset-findings"><i class="fas fa-undo"></i> Сброс</button></div>
+                </div>
+            </div>
+            <div class="findings-table-wrapper" id="findings-table"></div>
+            <div class="d-flex justify-content-between align-items-center mt-3">
+                <div><select class="form-select form-select-sm" id="per-page"><option value="20">20</option><option value="50" selected>50</option><option value="100">100</option></select><span class="text-muted small ms-2">на страницу</span></div>
+                <nav><ul class="pagination mb-0" id="pagination"></ul></nav>
+            </div>
+        </div>
+
+        <!-- Задания -->
+        <div id="page-tasks" class="page-content">
+            <h2 class="mb-4"><i class="fas fa-tasks text-primary"></i> Задания</h2>
+            <div class="filter-card">
+                <div class="row g-3 align-items-end">
+                    <div class="col-md-3"><label class="form-label">Статус</label><select class="form-select" id="task-filter"><option value="all">Все</option><option value="PENDING">⏳ Ожидает</option><option value="ASSIGNED">📤 Назначено</option><option value="RUNNING">🔄 Выполняется</option><option value="COMPLETED">✅ Завершено</option><option value="FAILED">❌ Ошибка</option></select></div>
+                    <div class="col-md-3"><button class="btn btn-primary" id="refresh-tasks"><i class="fas fa-sync"></i> Обновить</button></div>
+                    <div class="col-md-6 text-end"><button class="btn btn-success" data-bs-toggle="modal" data-bs-target="#createTaskModal"><i class="fas fa-plus"></i> Создать задание</button></div>
+                </div>
+            </div>
+            <div id="tasks-container"><div class="text-center p-4 text-muted"><i class="fas fa-spinner fa-spin"></i> Загрузка...</div></div>
+        </div>
+
+        <!-- Сканеры -->
+        <div id="page-scanners" class="page-content">
+            <h2 class="mb-4"><i class="fas fa-server text-primary"></i> Сканеры</h2>
+            <div class="findings-table-wrapper" id="scanners-table"></div>
+        </div>
+    </main>
+
+    <!-- Модальные окна -->
+    <div class="modal fade" id="createTaskModal" tabindex="-1">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header"><h5 class="modal-title"><i class="fas fa-plus text-primary"></i> Создать задание</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+                <div class="modal-body">
+                    <div class="mb-3"><label class="form-label fw-bold">Ресурс</label><select class="form-select" id="task-resource"><option value="">Выберите ресурс...</option></select></div>
+                    <div class="mb-3"><label class="form-label fw-bold">Тип сканирования</label><select class="form-select" id="scan-type"><option value="full">Полное (все файлы)</option><option value="quick">Быстрое (только новые)</option></select></div>
+                </div>
+                <div class="modal-footer"><button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Отмена</button><button type="button" class="btn btn-primary" id="create-task-btn"><i class="fas fa-play"></i> Запустить</button></div>
+            </div>
+        </div>
+    </div>
+
+    <div class="modal fade" id="taskDetailModal" tabindex="-1">
+        <div class="modal-dialog modal-lg">
+            <div class="modal-content">
+                <div class="modal-header"><h5 class="modal-title">Задание #<span id="detail-task-id">-</span></h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+                <div class="modal-body">
+                    <div class="row g-3">
+                        <div class="col-md-4"><strong>Статус:</strong> <span id="detail-status">-</span></div>
+                        <div class="col-md-4"><strong>Файлов:</strong> <span id="detail-files">-</span></div>
+                        <div class="col-md-4"><strong>Находок:</strong> <span id="detail-findings">-</span></div>
+                        <div class="col-md-6"><strong>Создано:</strong> <span id="detail-created">-</span></div>
+                        <div class="col-md-6"><strong>Завершено:</strong> <span id="detail-completed">-</span></div>
+                    </div>
+                    <hr>
+                    <h6>Находки</h6>
+                    <div id="detail-findings-list"></div>
+                </div>
+                <div class="modal-footer"><button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Закрыть</button><button type="button" class="btn btn-danger" id="cancel-task-btn"><i class="fas fa-times"></i> Отменить</button></div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="/static/js/app_simple.js"></script>
+</body>
+</html>

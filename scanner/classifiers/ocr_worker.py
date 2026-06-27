@@ -11,6 +11,7 @@ import tempfile
 import subprocess
 import hashlib
 from queue import Empty
+import multiprocessing as mp
 from multiprocessing import Queue, Process
 from pathlib import Path
 from typing import Dict, Optional, Tuple
@@ -292,7 +293,6 @@ def _run_ocr_worker(request_queue: Queue, response_queue: Queue, max_cache_size:
 def start_ocr_worker(models_cache: str = "models", max_cache_size: int = 500) -> Tuple[Process, Queue, Queue]:
     """Запуск OCR рабочего процесса"""
     try:
-        import multiprocessing as mp
         mp.set_start_method('spawn', force=True)
     except RuntimeError:
         pass

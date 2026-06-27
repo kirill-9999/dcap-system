@@ -4,161 +4,135 @@
 
 {% block content %}
 <div class="tasks-page">
-    <h2 class="mb-4"><i class="fas fa-tasks text-primary"></i> Задания</h2>
+    <h2 class="page-title"><i class="fas fa-tasks text-primary"></i> Задания</h2>
     
-    <!-- Фильтр по статусу -->
-    <div class="card mb-4">
-        <div class="card-body">
-            <div class="row">
-                <div class="col-md-4">
-                    <label class="form-label">Статус</label>
-                    <select class="form-select" id="task-status-filter">
-                        <option value="">Все статусы</option>
-                        <option value="PENDING">⏳ Ожидает</option>
-                        <option value="ASSIGNED">🔄 Назначено</option>
-                        <option value="SCANNING">🔍 Сканируется</option>
-                        <option value="COMPLETED">✅ Завершено</option>
-                        <option value="FAILED">❌ Провалено</option>
-                    </select>
-                </div>
-                <div class="col-md-2 d-flex align-items-end">
-                    <button class="btn btn-primary" onclick="loadTasks()">
-                        <i class="fas fa-filter"></i> Применить
-                    </button>
-                </div>
+    <button class="btn btn-primary mb-3" onclick="showModal('create-task-modal')">
+        <i class="fas fa-plus"></i> Создать задание
+    </button>
+    
+    <div class="filter-card">
+        <div class="row g-3 align-items-end">
+            <div class="col-md-3">
+                <label class="form-label">Статус</label>
+                <select class="form-select" id="task-status" onchange="loadTasks()">
+                    <option value="">Все</option>
+                    <option value="PENDING">⏳ Ожидает</option>
+                    <option value="ASSIGNED">🔄 Назначено</option>
+                    <option value="RUNNING">🔍 Сканируется</option>
+                    <option value="COMPLETED">✅ Завершено</option>
+                    <option value="FAILED">❌ Провалено</option>
+                </select>
             </div>
         </div>
     </div>
     
-    <!-- Таблица заданий -->
-    <div class="card">
-        <div class="card-body p-0">
-            <div id="tasks-container">
-                <div class="text-center p-4 text-muted">
-                    <i class="fas fa-spinner fa-spin"></i> Загрузка...
-                </div>
-            </div>
+    <div class="table-wrapper" id="tasks-table">
+        <div class="text-center p-4 text-muted"><i class="fas fa-spinner fa-spin"></i> Загрузка...</div>
+    </div>
+</div>
+
+<!-- Модалка создания задания -->
+<div class="modal" id="create-task-modal">
+    <div class="modal-content">
+        <h4 class="mb-3"><i class="fas fa-plus-circle"></i> Создание задания</h4>
+        <div class="mb-3">
+            <label class="form-label">Путь к папке *</label>
+            <input type="text" class="form-control" id="task-path" placeholder="E:\\data или /home/user/data">
+            <small class="text-muted">Укажите абсолютный путь к папке для сканирования</small>
+        </div>
+        <div class="mb-3">
+            <label class="form-label">Расширения файлов</label>
+            <input type="text" class="form-control" id="task-extensions" value="txt,pdf,docx,xlsx,png,jpg,jpeg">
+        </div>
+        <div class="mb-3">
+            <label class="form-label">Макс. размер файла (MB)</label>
+            <input type="number" class="form-control" id="task-max-size" value="50">
+        </div>
+        <div class="mb-3 form-check">
+            <input type="checkbox" class="form-check-input" id="task-recursive" checked>
+            <label class="form-check-label">Рекурсивное сканирование</label>
+        </div>
+        <div class="d-flex gap-2">
+            <button class="btn btn-primary flex-grow-1" onclick="createTask()"><i class="fas fa-check"></i> Создать</button>
+            <button class="btn btn-secondary" onclick="closeModal('create-task-modal')">Отмена</button>
         </div>
     </div>
 </div>
-{% endblock %}
 
-{% block scripts %}
 <script>
-document.addEventListener('DOMContentLoaded', function() {
-    loadTasks();
+async function createTask() {
+    const path = document.getElementById('task-path').value.trim();
+    if (!path) { alert('⚠️ Укажите путь к папке'); return; }
     
-    document.getElementById('task-status-filter').addEventListener('change', function() {
-        loadTasks();
-    });
-});
+    const data = {
+        resource_path: path,
+        resource_type: 'FILESYSTEM',
+        extensions: document.getElementById('task-extensions').value.trim(),
+        max_file_size_mb: parseInt(document.getElementById('task-max-size').value) || 50,
+        recursive: document.getElementById('task-recursive').checked
+    };
+    
+    try {
+        const r = await fetch('/api/tasks/create', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(data)
+        });
+        const res = await r.json();
+        if (res.success) {
+            alert(`✅ Задание создано!\nID: ${res.task_id}\nПуть: ${res.resource_path}`);
+            closeModal('create-task-modal');
+            loadTasks();
+        } else {
+            alert(`❌ Ошибка: ${res.detail || 'Неизвестная ошибка'}`);
+        }
+    } catch(e) { alert(`❌ Ошибка: ${e.message}`); }
+}
 
 async function loadTasks() {
-    const status = document.getElementById('task-status-filter').value;
+    const status = document.getElementById('task-status')?.value || '';
     let url = '/api/tasks?limit=50';
     if (status) url += `&status=${encodeURIComponent(status)}`;
     
     try {
-        const response = await fetch(url);
-        const tasks = await response.json();
-        renderTasks(tasks);
+        const r = await fetch(url);
+        const tasks = await r.json();
+        const container = document.getElementById('tasks-table');
+        
+        if (!tasks.length) {
+            container.innerHTML = '<div class="text-center p-4 text-muted">Нет заданий</div>';
+            return;
+        }
+        
+        let html = '<div class="table-responsive"><table class="table table-hover table-sm mb-0"><thead class="table-light"><tr><th>ID</th><th>Статус</th><th>Файлов</th><th>Находок</th><th>Прогресс</th><th>Создано</th></tr></thead><tbody>';
+        tasks.forEach(t => {
+            const badge = { 'PENDING':'secondary','ASSIGNED':'primary','RUNNING':'warning','COMPLETED':'success','FAILED':'danger' }[t.status] || 'secondary';
+            const icons = { 'PENDING':'⏳','ASSIGNED':'🔄','RUNNING':'🔍','COMPLETED':'✅','FAILED':'❌' };
+            const progress = t.progress_percent || 0;
+            const created = t.created_at ? new Date(t.created_at).toLocaleString('ru-RU') : '-';
+            html += `<tr onclick="showTaskDetail(${t.id})"><td>#${t.id}</td><td><span class="badge bg-${badge}">${icons[t.status]||''} ${t.status}</span></td><td>${t.files_scanned||0}/${t.files_total||0}</td><td>${t.findings_count||0}</td><td><div class="progress" style="height:8px;width:100px;"><div class="progress-bar" style="width:${progress}%"></div></div> ${progress}%</td><td>${created}</td></tr>`;
+        });
+        html += '</tbody></table></div>';
+        container.innerHTML = html;
         updateTime();
-    } catch (error) {
-        console.error('Ошибка загрузки заданий:', error);
-    }
-}
-
-function renderTasks(tasks) {
-    const container = document.getElementById('tasks-container');
-    
-    if (tasks.length === 0) {
-        container.innerHTML = '<div class="text-center p-4 text-muted">Нет заданий</div>';
-        return;
-    }
-    
-    let html = `
-        <div class="table-responsive">
-            <table class="table table-hover table-sm mb-0">
-                <thead class="table-light">
-                    <tr>
-                        <th>ID</th>
-                        <th>Статус</th>
-                        <th>Файлов</th>
-                        <th>Находок</th>
-                        <th>Создано</th>
-                        <th>Завершено</th>
-                    </tr>
-                </thead>
-                <tbody>
-    `;
-    
-    tasks.forEach(task => {
-        const statusBadge = {
-            'PENDING': 'secondary',
-            'ASSIGNED': 'primary',
-            'SCANNING': 'warning',
-            'COMPLETED': 'success',
-            'FAILED': 'danger'
-        }[task.status] || 'secondary';
-        
-        const statusIcon = {
-            'PENDING': '⏳',
-            'ASSIGNED': '🔄',
-            'SCANNING': '🔍',
-            'COMPLETED': '✅',
-            'FAILED': '❌'
-        }[task.status] || '';
-        
-        const created = task.created_at ? new Date(task.created_at).toLocaleString('ru-RU') : '-';
-        const completed = task.completed_at ? new Date(task.completed_at).toLocaleString('ru-RU') : '-';
-        
-        html += `
-            <tr onclick="showTaskDetail(${task.id})" style="cursor: pointer;">
-                <td><strong>#${task.id}</strong></td>
-                <td><span class="badge bg-${statusBadge}">${statusIcon} ${task.status}</span></td>
-                <td>${task.files_scanned || 0}</td>
-                <td>${task.findings_count || 0}</td>
-                <td>${created}</td>
-                <td>${completed}</td>
-            </tr>
-        `;
-    });
-    
-    html += '</tbody></table></div>';
-    container.innerHTML = html;
+    } catch(e) { console.error(e); }
 }
 
 async function showTaskDetail(id) {
     try {
-        const response = await fetch(`/api/tasks/${id}`);
-        const data = await response.json();
-        
-        const task = data.task;
-        const findings = data.findings || [];
-        
-        let details = `
-            Задание #${task.id}
-            Статус: ${task.status}
-            Файлов сканировано: ${task.files_scanned || 0}
-            Находок: ${task.findings_count || 0}
-            Создано: ${task.created_at ? new Date(task.created_at).toLocaleString('ru-RU') : '-'}
-            Завершено: ${task.completed_at ? new Date(task.completed_at).toLocaleString('ru-RU') : '-'}
-        `;
-        
-        if (findings.length > 0) {
-            details += '\n\nПоследние находки:';
-            findings.slice(0, 5).forEach(f => {
-                details += `\n- ${f.category}: ${f.file_path} (${(f.confidence * 100).toFixed(0)}%)`;
-            });
-            if (findings.length > 5) {
-                details += `\n... и еще ${findings.length - 5} находок`;
-            }
+        const r = await fetch(`/api/tasks/${id}`);
+        const d = await r.json();
+        const t = d.task;
+        let msg = `📋 Задание #${t.id}\nСтатус: ${t.status}\nФайлов: ${t.files_scanned||0}/${t.files_total||0}\nНаходок: ${t.findings_count||0}\nСоздано: ${t.created_at ? new Date(t.created_at).toLocaleString('ru-RU') : '-'}\nЗавершено: ${t.completed_at ? new Date(t.completed_at).toLocaleString('ru-RU') : '-'}`;
+        if (d.findings?.length) {
+            msg += '\n\nНаходки:' + d.findings.slice(0,5).map(f => `\n- ${f.category}: ${(f.file_path||'').split('\\\\').pop()} (${(f.confidence*100).toFixed(0)}%)`).join('');
+            if (d.findings.length > 5) msg += `\n... и еще ${d.findings.length - 5}`;
         }
-        
-        alert(details);
-    } catch (error) {
-        console.error('Ошибка загрузки деталей задания:', error);
-    }
+        alert(msg);
+    } catch(e) { console.error(e); }
 }
+
+document.addEventListener('DOMContentLoaded', loadTasks);
+setInterval(loadTasks, 30000);
 </script>
 {% endblock %}

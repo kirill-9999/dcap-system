@@ -4,275 +4,161 @@
 
 {% block content %}
 <div class="findings-page">
-    <div class="d-flex justify-content-between align-items-center mb-4">
-        <h2><i class="fas fa-search text-primary"></i> Находки</h2>
-        <span class="text-muted" id="total-count">Загрузка...</span>
-    </div>
+    <h2 class="page-title"><i class="fas fa-search text-primary"></i> Находки <span class="text-muted fs-6" id="findings-total"></span></h2>
     
-    <!-- Фильтры -->
-    <div class="card mb-4">
-        <div class="card-body">
-            <form id="filter-form" class="row g-3">
-                <div class="col-md-3">
-                    <label class="form-label">Категория</label>
-                    <select class="form-select" id="filter-category">
-                        <option value="">Все категории</option>
-                    </select>
-                </div>
-                <div class="col-md-4">
-                    <label class="form-label">Поиск по файлу</label>
-                    <input type="text" class="form-control" id="filter-file" placeholder="Часть пути к файлу">
-                </div>
-                <div class="col-md-2">
-                    <label class="form-label">Мин. доверие</label>
-                    <select class="form-select" id="filter-confidence">
-                        <option value="">Любое</option>
-                        <option value="0.9">90%</option>
-                        <option value="0.7">70%</option>
-                        <option value="0.5">50%</option>
-                    </select>
-                </div>
-                <div class="col-md-3 d-flex align-items-end">
-                    <button type="submit" class="btn btn-primary me-2">
-                        <i class="fas fa-filter"></i> Применить
-                    </button>
-                    <button type="reset" class="btn btn-outline-secondary">
-                        <i class="fas fa-undo"></i> Сброс
-                    </button>
-                </div>
-            </form>
-        </div>
-    </div>
-    
-    <!-- Таблица находок -->
-    <div class="card">
-        <div class="card-body p-0">
-            <div id="findings-table-container">
-                <div class="text-center p-4 text-muted">
-                    <i class="fas fa-spinner fa-spin"></i> Загрузка...
-                </div>
+    <div class="filter-card">
+        <div class="row g-3 align-items-end">
+            <div class="col-md-3">
+                <label class="form-label">Категория</label>
+                <select class="form-select" id="filter-category"><option value="">Все</option></select>
+            </div>
+            <div class="col-md-4">
+                <label class="form-label">Поиск по файлу</label>
+                <input type="text" class="form-control" id="filter-file" placeholder="Часть пути...">
+            </div>
+            <div class="col-md-2">
+                <label class="form-label">Мин. доверие</label>
+                <select class="form-select" id="filter-confidence">
+                    <option value="">Любое</option>
+                    <option value="0.9">90%</option>
+                    <option value="0.7">70%</option>
+                    <option value="0.5">50%</option>
+                </select>
+            </div>
+            <div class="col-md-3">
+                <button class="btn btn-primary me-2" onclick="loadFindings()"><i class="fas fa-filter"></i> Применить</button>
+                <button class="btn btn-outline-secondary" onclick="resetFilters()"><i class="fas fa-undo"></i> Сброс</button>
             </div>
         </div>
     </div>
     
-    <!-- Пагинация -->
+    <div class="table-wrapper" id="findings-table">
+        <div class="text-center p-4 text-muted"><i class="fas fa-spinner fa-spin"></i> Загрузка...</div>
+    </div>
+    
     <div class="d-flex justify-content-between align-items-center mt-3">
         <div>
-            <select class="form-select form-select-sm" id="per-page" style="width: auto; display: inline-block;">
+            <select class="form-select form-select-sm" id="per-page" onchange="loadFindings()" style="width:auto;display:inline-block;">
                 <option value="20">20</option>
                 <option value="50" selected>50</option>
                 <option value="100">100</option>
             </select>
-            <span class="text-muted small ms-2">записей на страницу</span>
+            <span class="text-muted small ms-2">на страницу</span>
         </div>
-        <nav>
-            <ul class="pagination mb-0" id="pagination">
-                <!-- JavaScript пагинация -->
-            </ul>
-        </nav>
+        <nav><ul class="pagination mb-0" id="pagination"></ul></nav>
     </div>
 </div>
-{% endblock %}
 
-{% block scripts %}
 <script>
-let currentPage = 0;
-let totalFindings = 0;
-let perPage = 50;
-
-document.addEventListener('DOMContentLoaded', function() {
-    loadCategories();
-    loadFindings();
-    
-    document.getElementById('filter-form').addEventListener('submit', function(e) {
-        e.preventDefault();
-        currentPage = 0;
-        loadFindings();
-    });
-    
-    document.getElementById('filter-form').addEventListener('reset', function() {
-        setTimeout(() => {
-            document.getElementById('filter-category').value = '';
-            document.getElementById('filter-file').value = '';
-            document.getElementById('filter-confidence').value = '';
-            currentPage = 0;
-            loadFindings();
-        }, 100);
-    });
-    
-    document.getElementById('per-page').addEventListener('change', function() {
-        perPage = parseInt(this.value);
-        currentPage = 0;
-        loadFindings();
-    });
-});
+let findingsPage = 0, findingsTotal = 0, perPage = 50;
 
 async function loadCategories() {
     try {
-        const response = await fetch('/api/categories');
-        const categories = await response.json();
-        
-        const select = document.getElementById('filter-category');
-        categories.forEach(cat => {
-            const option = document.createElement('option');
-            option.value = cat;
-            option.textContent = cat;
-            select.appendChild(option);
+        const r = await fetch('/api/categories');
+        const cats = await r.json();
+        const sel = document.getElementById('filter-category');
+        sel.innerHTML = '<option value="">Все</option>';
+        cats.forEach(c => {
+            const opt = document.createElement('option');
+            opt.value = c;
+            opt.textContent = c;
+            sel.appendChild(opt);
         });
-    } catch (error) {
-        console.error('Ошибка загрузки категорий:', error);
-    }
+    } catch(e) {}
 }
 
 async function loadFindings() {
-    const category = document.getElementById('filter-category').value;
-    const filePath = document.getElementById('filter-file').value;
-    const confidence = document.getElementById('filter-confidence').value;
+    const cat = document.getElementById('filter-category')?.value || '';
+    const fp = document.getElementById('filter-file')?.value || '';
+    const conf = document.getElementById('filter-confidence')?.value || '';
+    perPage = parseInt(document.getElementById('per-page')?.value || 50);
     
-    let url = `/api/findings?limit=${perPage}&offset=${currentPage * perPage}`;
-    if (category) url += `&category=${encodeURIComponent(category)}`;
-    if (filePath) url += `&file_path=${encodeURIComponent(filePath)}`;
-    if (confidence) url += `&min_confidence=${confidence}`;
+    let url = `/api/findings?limit=${perPage}&offset=${findingsPage * perPage}`;
+    if (cat) url += `&category=${encodeURIComponent(cat)}`;
+    if (fp) url += `&file_path=${encodeURIComponent(fp)}`;
+    if (conf) url += `&min_confidence=${conf}`;
     
     try {
-        const response = await fetch(url);
-        const findings = await response.json();
+        const r = await fetch(url);
+        const findings = await r.json();
         
-        // Получаем общее количество
-        const countResponse = await fetch('/api/findings/count?' + new URLSearchParams({
-            category: category,
-            file_path: filePath
-        }));
-        const countData = await countResponse.json();
-        totalFindings = countData.count;
+        const cr = await fetch(`/api/findings/count?${new URLSearchParams({category: cat, file_path: fp})}`);
+        const cd = await cr.json();
+        findingsTotal = cd.count || 0;
         
         renderFindings(findings);
         renderPagination();
-        document.getElementById('total-count').textContent = `Всего: ${totalFindings}`;
-        
-        // Обновляем индикатор времени
+        document.getElementById('findings-total').textContent = `(всего: ${findingsTotal})`;
         updateTime();
-    } catch (error) {
-        console.error('Ошибка загрузки находок:', error);
-    }
+    } catch(e) { console.error(e); }
 }
 
 function renderFindings(findings) {
-    const container = document.getElementById('findings-table-container');
-    
-    if (findings.length === 0) {
-        container.innerHTML = '<div class="text-center p-4 text-muted">Нет находок, соответствующих фильтрам</div>';
+    const container = document.getElementById('findings-table');
+    if (!findings.length) {
+        container.innerHTML = '<div class="text-center p-4 text-muted">Нет находок</div>';
         return;
     }
-    
-    let html = `
-        <div class="table-responsive">
-            <table class="table table-hover table-sm mb-0">
-                <thead class="table-light">
-                    <tr>
-                        <th>#</th>
-                        <th>Файл</th>
-                        <th>Категория</th>
-                        <th>Подкатегория</th>
-                        <th>Значение</th>
-                        <th>Классификатор</th>
-                        <th>Доверие</th>
-                    </tr>
-                </thead>
-                <tbody>
-    `;
-    
-    findings.forEach((f, index) => {
-        const confidence = (f.confidence * 100).toFixed(0);
-        const confidenceClass = f.confidence > 0.8 ? 'high' : f.confidence > 0.5 ? 'medium' : 'low';
-        const filePath = f.file_path.split('\\').pop() || f.file_path;
-        
-        html += `
-            <tr onclick="showFindingDetail(${f.id})" style="cursor: pointer;">
-                <td>${currentPage * perPage + index + 1}</td>
-                <td><span class="file-path" title="${f.file_path}">${filePath}</span></td>
-                <td><span class="badge bg-info">${f.category}</span></td>
-                <td>${f.subcategory || '-'}</td>
-                <td><code class="small">${f.value || '-'}</code></td>
-                <td>${f.classifier_name}</td>
-                <td><span class="confidence-${confidenceClass}">${confidence}%</span></td>
-            </tr>
-        `;
+    let html = '<div class="table-responsive"><table class="table table-hover table-sm mb-0"><thead class="table-light"><tr><th>#</th><th>Файл</th><th>Категория</th><th>Классификатор</th><th>Доверие</th></tr></thead><tbody>';
+    findings.forEach((f, i) => {
+        const conf = (f.confidence * 100).toFixed(0);
+        const cls = f.confidence > 0.8 ? 'high' : f.confidence > 0.5 ? 'medium' : 'low';
+        const fname = (f.file_path || '').split('\\\\').pop() || f.file_path || 'unknown';
+        html += `<tr onclick="showFindingDetail(${f.id})"><td>${findingsPage * perPage + i + 1}</td><td><span class="file-path" title="${f.file_path}">${fname}</span></td><td><span class="badge bg-info">${f.category}</span></td><td>${f.classifier_name}</td><td class="confidence-${cls}">${conf}%</td></tr>`;
     });
-    
     html += '</tbody></table></div>';
     container.innerHTML = html;
 }
 
 function renderPagination() {
-    const totalPages = Math.ceil(totalFindings / perPage);
-    const pagination = document.getElementById('pagination');
-    
-    if (totalPages <= 1) {
-        pagination.innerHTML = '';
-        return;
-    }
-    
-    let html = '';
-    
-    // Previous
-    html += `<li class="page-item ${currentPage === 0 ? 'disabled' : ''}">
-        <a class="page-link" href="#" onclick="goToPage(${currentPage - 1})">«</a>
-    </li>`;
-    
-    // Pages
-    let start = Math.max(0, currentPage - 2);
-    let end = Math.min(totalPages - 1, currentPage + 2);
-    
+    const totalPages = Math.ceil(findingsTotal / perPage);
+    const pag = document.getElementById('pagination');
+    if (totalPages <= 1) { pag.innerHTML = ''; return; }
+    let html = `<li class="page-item ${findingsPage === 0 ? 'disabled' : ''}"><a class="page-link" href="#" onclick="goToPage(${findingsPage - 1})">«</a></li>`;
+    let start = Math.max(0, findingsPage - 2), end = Math.min(totalPages - 1, findingsPage + 2);
     if (start > 0) {
         html += `<li class="page-item"><a class="page-link" href="#" onclick="goToPage(0)">1</a></li>`;
         if (start > 1) html += `<li class="page-item disabled"><span class="page-link">...</span></li>`;
     }
-    
     for (let i = start; i <= end; i++) {
-        html += `<li class="page-item ${i === currentPage ? 'active' : ''}">
-            <a class="page-link" href="#" onclick="goToPage(${i})">${i + 1}</a>
-        </li>`;
+        html += `<li class="page-item ${i === findingsPage ? 'active' : ''}"><a class="page-link" href="#" onclick="goToPage(${i})">${i + 1}</a></li>`;
     }
-    
     if (end < totalPages - 1) {
         if (end < totalPages - 2) html += `<li class="page-item disabled"><span class="page-link">...</span></li>`;
         html += `<li class="page-item"><a class="page-link" href="#" onclick="goToPage(${totalPages - 1})">${totalPages}</a></li>`;
     }
-    
-    // Next
-    html += `<li class="page-item ${currentPage === totalPages - 1 ? 'disabled' : ''}">
-        <a class="page-link" href="#" onclick="goToPage(${currentPage + 1})">»</a>
-    </li>`;
-    
-    pagination.innerHTML = html;
+    html += `<li class="page-item ${findingsPage === totalPages - 1 ? 'disabled' : ''}"><a class="page-link" href="#" onclick="goToPage(${findingsPage + 1})">»</a></li>`;
+    pag.innerHTML = html;
 }
 
 function goToPage(page) {
-    const totalPages = Math.ceil(totalFindings / perPage);
+    const totalPages = Math.ceil(findingsTotal / perPage);
     if (page < 0 || page >= totalPages) return;
-    currentPage = page;
+    findingsPage = page;
     loadFindings();
     window.scrollTo({ top: 0, behavior: 'smooth' });
 }
 
+function resetFilters() {
+    document.getElementById('filter-category').value = '';
+    document.getElementById('filter-file').value = '';
+    document.getElementById('filter-confidence').value = '';
+    findingsPage = 0;
+    loadFindings();
+}
+
 async function showFindingDetail(id) {
     try {
-        const response = await fetch(`/api/findings/${id}`);
-        const data = await response.json();
-        
-        alert(`
-            Находка #${data.finding.id}
-            Файл: ${data.finding.file_path}
-            Категория: ${data.finding.category}
-            Подкатегория: ${data.finding.subcategory || '-'}
-            Значение: ${data.finding.value || '-'}
-            Классификатор: ${data.finding.classifier_name}
-            Доверие: ${(data.finding.confidence * 100).toFixed(0)}%
-        `);
-    } catch (error) {
-        console.error('Ошибка загрузки деталей:', error);
-    }
+        const r = await fetch(`/api/findings/${id}`);
+        const d = await r.json();
+        alert(`📄 Находка #${d.id}\nФайл: ${d.file_path}\nКатегория: ${d.category}\nПодкатегория: ${d.subcategory || '-'}\nЗначение: ${d.value || '-'}\nКлассификатор: ${d.classifier_name}\nДоверие: ${(d.confidence * 100).toFixed(0)}%`);
+    } catch(e) { console.error(e); }
 }
+
+document.addEventListener('DOMContentLoaded', function() {
+    loadCategories();
+    loadFindings();
+});
+setInterval(loadFindings, 30000);
 </script>
 {% endblock %}

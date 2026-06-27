@@ -36,8 +36,37 @@ cursor.execute("""
 rows = cursor.fetchall()
 if rows:
     print("\n   Находки по категориям:")
-    for category, count in rows[:5]:
+    for category, count in rows[:10]:
         print(f"      {category}: {count}")
+
+# Кастомные распознаватели (проверка)
+if findings > 0:
+    print("\n   Проверка кастомных распознавателей:")
+    
+    # Телефоны
+    cursor.execute("SELECT COUNT(*) FROM findings WHERE category = 'PII_PHONE'")
+    phones = cursor.fetchone()[0] or 0
+    print(f"      📞 Телефоны (PII_PHONE): {phones}")
+    
+    # Паспорта
+    cursor.execute("SELECT COUNT(*) FROM findings WHERE category = 'PII_PASSPORT'")
+    passports = cursor.fetchone()[0] or 0
+    print(f"      🪪 Паспорта (PII_PASSPORT): {passports}")
+    
+    # СНИЛС
+    cursor.execute("SELECT COUNT(*) FROM findings WHERE category = 'PII_SNILS'")
+    snils = cursor.fetchone()[0] or 0
+    print(f"      🆔 СНИЛС (PII_SNILS): {snils}")
+    
+    # ИНН
+    cursor.execute("SELECT COUNT(*) FROM findings WHERE category = 'PII_INN'")
+    inn = cursor.fetchone()[0] or 0
+    print(f"      🆔 ИНН (PII_INN): {inn}")
+    
+    # Email
+    cursor.execute("SELECT COUNT(*) FROM findings WHERE category = 'PII_EMAIL'")
+    emails = cursor.fetchone()[0] or 0
+    print(f"      📧 Email (PII_EMAIL): {emails}")
 
 # Сканеры
 cursor.execute("SELECT name, status FROM scanners")
@@ -50,6 +79,6 @@ if scanners:
 conn.close()
 
 if findings > 0 and completed > 0:
-    print("\n✅ Всё работает!")
+    print("\n✅ Всё работает! Presidio успешно заменил Natasha/BERT!")
 else:
     print("\n⚠️ Нет данных. Проверь логи.")

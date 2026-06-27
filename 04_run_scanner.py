@@ -15,4 +15,4 @@ print("=" * 40)
 subprocess.run(["python", "run_scanner.py"])
 
 print("\n✅ Scanner завершил работу!")
-print("   Переходи к ШАГУ 5")
+print("   Переходи к ШАГУ 5: проверка результатов")
