@@ -1,6 +1,6 @@
 # PROJECT_CONTEXT.md — DCAP System
 **Обновлено:** 2026-07-05
-**Ветка:** feature/debug-chain
+**Ветка:** master (feature/debug-chain смержена)
 
 ---
 
