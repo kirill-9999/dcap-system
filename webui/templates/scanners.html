@@ -4,87 +4,40 @@
 
 {% block content %}
 <div class="scanners-page">
-    <h2 class="mb-4"><i class="fas fa-server text-primary"></i> Сканеры</h2>
+    <h2 class="page-title"><i class="fas fa-server text-primary"></i> Сканеры</h2>
     
-    <div class="card">
-        <div class="card-body p-0">
-            <div id="scanners-container">
-                <div class="text-center p-4 text-muted">
-                    <i class="fas fa-spinner fa-spin"></i> Загрузка...
-                </div>
-            </div>
-        </div>
+    <div class="table-wrapper" id="scanners-table">
+        <div class="text-center p-4 text-muted"><i class="fas fa-spinner fa-spin"></i> Загрузка...</div>
     </div>
 </div>
-{% endblock %}
 
-{% block scripts %}
 <script>
-document.addEventListener('DOMContentLoaded', function() {
-    loadScanners();
-    setInterval(loadScanners, 30000);
-});
-
 async function loadScanners() {
     try {
-        const response = await fetch('/api/scanners');
-        const scanners = await response.json();
-        renderScanners(scanners);
+        const r = await fetch('/api/scanners');
+        const scanners = await r.json();
+        const container = document.getElementById('scanners-table');
+        
+        if (!scanners.length) {
+            container.innerHTML = '<div class="text-center p-4 text-muted">Нет сканеров</div>';
+            return;
+        }
+        
+        let html = '<div class="table-responsive"><table class="table table-hover table-sm mb-0"><thead class="table-light"><tr><th>ID</th><th>Имя</th><th>Статус</th><th>Endpoint</th><th>Heartbeat</th><th>Файлов</th><th>Находок</th></tr></thead><tbody>';
+        scanners.forEach(s => {
+            const online = s.status === 'ACTIVE' || s.status === 'active';
+            const badge = online ? 'success' : 'secondary';
+            const statusText = online ? '🟢 Активен' : '⚪ Оффлайн';
+            const hb = s.last_heartbeat ? new Date(s.last_heartbeat).toLocaleString('ru-RU') : '-';
+            html += `<tr><td>#${s.id}</td><td>${s.name}</td><td><span class="badge bg-${badge}">${statusText}</span></td><td><code>${s.endpoint}</code></td><td>${hb}</td><td>${s.total_files_scanned||0}</td><td>${s.total_findings||0}</td></tr>`;
+        });
+        html += '</tbody></table></div>';
+        container.innerHTML = html;
         updateTime();
-    } catch (error) {
-        console.error('Ошибка загрузки сканеров:', error);
-    }
+    } catch(e) { console.error(e); }
 }
 
-function renderScanners(scanners) {
-    const container = document.getElementById('scanners-container');
-    
-    if (scanners.length === 0) {
-        container.innerHTML = '<div class="text-center p-4 text-muted">Нет активных сканеров</div>';
-        return;
-    }
-    
-    let html = `
-        <div class="table-responsive">
-            <table class="table table-hover table-sm mb-0">
-                <thead class="table-light">
-                    <tr>
-                        <th>ID</th>
-                        <th>Имя</th>
-                        <th>Статус</th>
-                        <th>Endpoint</th>
-                        <th>Последний heartbeat</th>
-                        <th>Файлов</th>
-                        <th>Находок</th>
-                    </tr>
-                </thead>
-                <tbody>
-    `;
-    
-    scanners.forEach(scanner => {
-        const isOnline = scanner.status === 'active';
-        const statusBadge = isOnline ? 'success' : 'secondary';
-        const statusText = isOnline ? '🟢 Активен' : '⚪ Оффлайн';
-        
-        const heartbeat = scanner.last_heartbeat 
-            ? new Date(scanner.last_heartbeat).toLocaleString('ru-RU')
-            : '-';
-        
-        html += `
-            <tr>
-                <td><strong>#${scanner.id}</strong></td>
-                <td>${scanner.name}</td>
-                <td><span class="badge bg-${statusBadge}">${statusText}</span></td>
-                <td><code>${scanner.endpoint}</code></td>
-                <td>${heartbeat}</td>
-                <td>${scanner.total_files_scanned || 0}</td>
-                <td>${scanner.total_findings || 0}</td>
-            </tr>
-        `;
-    });
-    
-    html += '</tbody></table></div>';
-    container.innerHTML = html;
-}
+document.addEventListener('DOMContentLoaded', loadScanners);
+setInterval(loadScanners, 30000);
 </script>
 {% endblock %}

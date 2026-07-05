@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Запуск Managed Scanner
+run_scanner.py - Запуск Scanner в непрерывном режиме
 """
 
 import sys
@@ -15,16 +15,19 @@ from scanner.src.managed_scanner import ManagedScanner
 
 async def main():
     scanner = ManagedScanner(
-        name="real-scanner-1",
+        name="scanner-1",
         manager_endpoint="localhost:50051"
     )
     
     try:
-        await scanner.run()
+        await scanner.run_continuous()
     except KeyboardInterrupt:
         print("\n⏹️ Остановка...")
         await scanner.stop()
 
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    try:
+        asyncio.run(main())
+    except KeyboardInterrupt:
+        print("\n⏹️ Прервано")

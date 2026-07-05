@@ -42,12 +42,18 @@ class OCREngine:
     
     def _find_tesseract(self) -> str:
         """Поиск Tesseract в системе Windows"""
+        # Переменная окружения TESSERACT_PATH имеет приоритет
+        env_path = os.environ.get('TESSERACT_PATH')
+        if env_path and os.path.exists(env_path):
+            print(f"[OCR] Found via TESSERACT_PATH: {env_path}")
+            return env_path
+
         # Проверка через where
         try:
             result = subprocess.run(
                 ['where', 'tesseract'],
                 capture_output=True,
-                text=True,
+                text=True, encoding="utf-8", errors="replace",
                 timeout=5,
                 shell=True
             )
@@ -60,6 +66,7 @@ class OCREngine:
         
         # Стандартные пути установки
         possible_paths = [
+            r'D:\dev\Tesseract-OCR\tesseract.exe',
             r'E:\Program Files\Tesseract-OCR\tesseract.exe',
             r'C:\Program Files\Tesseract-OCR\tesseract.exe',
             r'C:\Program Files (x86)\Tesseract-OCR\tesseract.exe',
@@ -83,6 +90,8 @@ class OCREngine:
                 [self._tesseract_cmd, '--list-langs'],
                 capture_output=True,
                 text=True,
+                encoding='utf-8',
+                errors='replace',
                 timeout=10,
                 shell=False
             )
@@ -179,6 +188,8 @@ class OCREngine:
                 cmd,
                 capture_output=True,
                 text=True,
+                encoding='utf-8',
+                errors='replace',
                 timeout=timeout,
                 shell=False
             )

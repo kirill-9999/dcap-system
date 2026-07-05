@@ -3,120 +3,76 @@
 {% block title %}Дашборд - DCAP v3.0{% endblock %}
 
 {% block content %}
-<div class="dashboard">
-    <div class="d-flex justify-content-between align-items-center mb-4">
-        <h2><i class="fas fa-chart-pie text-primary"></i> Дашборд системы</h2>
-        <button class="btn btn-outline-primary btn-sm" onclick="refreshData()">
-            <i class="fas fa-sync"></i> Обновить
-        </button>
+<div class="dashboard-page">
+    <h2 class="page-title"><i class="fas fa-chart-pie text-primary"></i> Дашборд системы</h2>
+    
+    <div class="row g-3 mb-4" id="stats-grid">
+        <div class="col-md-2 col-sm-4">
+            <div class="stat-card text-center">
+                <div class="stat-icon text-primary"><i class="fas fa-file-alt"></i></div>
+                <div class="stat-value" id="total-findings">-</div>
+                <div class="stat-label">Находок</div>
+            </div>
+        </div>
+        <div class="col-md-2 col-sm-4">
+            <div class="stat-card text-center">
+                <div class="stat-icon text-success"><i class="fas fa-server"></i></div>
+                <div class="stat-value" id="active-scanners">-</div>
+                <div class="stat-label">Сканеров</div>
+            </div>
+        </div>
+        <div class="col-md-2 col-sm-4">
+            <div class="stat-card text-center">
+                <div class="stat-icon text-warning"><i class="fas fa-clock"></i></div>
+                <div class="stat-value" id="pending-tasks">-</div>
+                <div class="stat-label">В очереди</div>
+            </div>
+        </div>
+        <div class="col-md-2 col-sm-4">
+            <div class="stat-card text-center">
+                <div class="stat-icon text-success"><i class="fas fa-check-circle"></i></div>
+                <div class="stat-value" id="completed-tasks">-</div>
+                <div class="stat-label">Завершено</div>
+            </div>
+        </div>
+        <div class="col-md-2 col-sm-4">
+            <div class="stat-card text-center">
+                <div class="stat-icon text-danger"><i class="fas fa-exclamation-triangle"></i></div>
+                <div class="stat-value" id="failed-tasks">-</div>
+                <div class="stat-label">Провалено</div>
+            </div>
+        </div>
+        <div class="col-md-2 col-sm-4">
+            <div class="stat-card text-center">
+                <div class="stat-icon text-info"><i class="fas fa-folder-open"></i></div>
+                <div class="stat-value" id="total-files">-</div>
+                <div class="stat-label">Файлов</div>
+            </div>
+        </div>
     </div>
     
-    <!-- Статистика -->
-    <div class="row g-3 mb-4" id="stats-grid">
-        <div class="col-md-3 col-sm-6">
-            <div class="stat-card">
-                <div class="stat-icon text-primary">
-                    <i class="fas fa-file-alt"></i>
-                </div>
-                <div class="stat-info">
-                    <div class="stat-value" id="total-findings">-</div>
-                    <div class="stat-label">Всего находок</div>
-                </div>
-            </div>
-        </div>
-        <div class="col-md-3 col-sm-6">
-            <div class="stat-card">
-                <div class="stat-icon text-success">
-                    <i class="fas fa-server"></i>
-                </div>
-                <div class="stat-info">
-                    <div class="stat-value" id="active-scanners">-</div>
-                    <div class="stat-label">Активных сканеров</div>
-                </div>
-            </div>
-        </div>
-        <div class="col-md-3 col-sm-6">
-            <div class="stat-card">
-                <div class="stat-icon text-warning">
-                    <i class="fas fa-clock"></i>
-                </div>
-                <div class="stat-info">
-                    <div class="stat-value" id="pending-tasks">-</div>
-                    <div class="stat-label">Заданий в очереди</div>
-                </div>
-            </div>
-        </div>
-        <div class="col-md-3 col-sm-6">
-            <div class="stat-card">
-                <div class="stat-icon text-success">
-                    <i class="fas fa-check-circle"></i>
-                </div>
-                <div class="stat-info">
-                    <div class="stat-value" id="completed-tasks">-</div>
-                    <div class="stat-label">Выполнено заданий</div>
-                </div>
-            </div>
-        </div>
-        <div class="col-md-3 col-sm-6">
-            <div class="stat-card">
-                <div class="stat-icon text-danger">
-                    <i class="fas fa-exclamation-triangle"></i>
-                </div>
-                <div class="stat-info">
-                    <div class="stat-value" id="failed-tasks">-</div>
-                    <div class="stat-label">Провалено заданий</div>
-                </div>
-            </div>
-        </div>
-        <div class="col-md-3 col-sm-6">
-            <div class="stat-card">
-                <div class="stat-icon text-info">
-                    <i class="fas fa-folder-open"></i>
-                </div>
-                <div class="stat-info">
-                    <div class="stat-value" id="total-files">-</div>
-                    <div class="stat-label">Отсканировано файлов</div>
-                </div>
-            </div>
-        </div>
-    </div>
-
-    <!-- Графики -->
     <div class="row g-3 mb-4">
         <div class="col-md-6">
             <div class="card">
-                <div class="card-header">
-                    <i class="fas fa-chart-bar"></i> Находки по категориям
-                </div>
-                <div class="card-body">
-                    <canvas id="category-chart" height="250"></canvas>
-                </div>
+                <div class="card-header"><i class="fas fa-chart-bar"></i> Находки по категориям</div>
+                <div class="card-body"><canvas id="categoryChart" height="250"></canvas></div>
             </div>
         </div>
         <div class="col-md-6">
             <div class="card">
-                <div class="card-header">
-                    <i class="fas fa-chart-doughnut"></i> Находки по сканерам
-                </div>
-                <div class="card-body">
-                    <canvas id="scanner-chart" height="250"></canvas>
-                </div>
+                <div class="card-header"><i class="fas fa-chart-doughnut"></i> Находки по сканерам</div>
+                <div class="card-body"><canvas id="scannerChart" height="250"></canvas></div>
             </div>
         </div>
     </div>
-
-    <!-- Последние находки -->
+    
     <div class="card">
         <div class="card-header d-flex justify-content-between align-items-center">
             <span><i class="fas fa-history"></i> Последние находки</span>
             <a href="/findings" class="btn btn-sm btn-outline-primary">Все находки →</a>
         </div>
-        <div class="card-body p-0">
-            <div id="recent-findings">
-                <div class="text-center p-4 text-muted">
-                    <i class="fas fa-spinner fa-spin"></i> Загрузка...
-                </div>
-            </div>
+        <div class="card-body p-0" id="recent-findings">
+            <div class="text-center p-4 text-muted"><i class="fas fa-spinner fa-spin"></i> Загрузка...</div>
         </div>
     </div>
 </div>
@@ -124,161 +80,84 @@
 
 {% block scripts %}
 <script>
-let categoryChart = null;
-let scannerChart = null;
+let charts = {};
 
-document.addEventListener('DOMContentLoaded', function() {
-    loadStats();
-    loadRecentFindings();
-    
-    // Обновление каждые 30 секунд
-    setInterval(() => {
-        loadStats();
-        loadRecentFindings();
-    }, 30000);
-});
-
-async function refreshData() {
-    await loadStats();
-    await loadRecentFindings();
-}
-
-async function loadStats() {
+async function loadDashboard() {
     try {
-        const response = await fetch('/api/stats');
-        const stats = await response.json();
+        const r = await fetch('/api/stats');
+        const s = await r.json();
         
-        document.getElementById('total-findings').textContent = stats.total_findings;
-        document.getElementById('active-scanners').textContent = stats.active_scanners;
-        document.getElementById('pending-tasks').textContent = stats.pending_tasks;
-        document.getElementById('completed-tasks').textContent = stats.completed_tasks;
-        document.getElementById('failed-tasks').textContent = stats.failed_tasks;
-        document.getElementById('total-files').textContent = stats.total_files_scanned;
+        document.getElementById('total-findings').textContent = s.total_findings;
+        document.getElementById('active-scanners').textContent = s.active_scanners;
+        document.getElementById('pending-tasks').textContent = s.pending_tasks;
+        document.getElementById('completed-tasks').textContent = s.completed_tasks;
+        document.getElementById('failed-tasks').textContent = s.failed_tasks;
+        document.getElementById('total-files').textContent = s.total_files_scanned;
         
-        updateCharts(stats);
+        updateCharts(s);
+        await loadRecentFindings();
         updateTime();
-    } catch (error) {
-        console.error('Ошибка загрузки статистики:', error);
-    }
+    } catch(e) { console.error(e); }
 }
 
-function updateCharts(stats) {
-    const colors = ['#4e79a7', '#f28e2b', '#e15759', '#59a14f', '#edc948', '#b07aa1'];
+function updateCharts(s) {
+    const colors = ['#4e79a7','#f28e2b','#e15759','#59a14f','#edc948','#b07aa1'];
     
-    // График категорий
-    const categories = Object.keys(stats.findings_by_category);
-    const categoryCounts = Object.values(stats.findings_by_category);
-    
-    if (categoryChart) categoryChart.destroy();
-    
-    const ctx1 = document.getElementById('category-chart').getContext('2d');
-    categoryChart = new Chart(ctx1, {
-        type: 'bar',
-        data: {
-            labels: categories.length ? categories : ['Нет данных'],
-            datasets: [{
-                label: 'Находки',
-                data: categories.length ? categoryCounts : [0],
-                backgroundColor: colors.slice(0, categories.length || 1),
-                borderColor: 'white',
-                borderWidth: 2
-            }]
-        },
-        options: {
-            responsive: true,
-            maintainAspectRatio: true,
-            plugins: {
-                legend: { display: false }
+    if (charts.category) charts.category.destroy();
+    const ctx1 = document.getElementById('categoryChart')?.getContext('2d');
+    if (ctx1) {
+        const cats = Object.keys(s.findings_by_category || {});
+        const vals = Object.values(s.findings_by_category || {});
+        charts.category = new Chart(ctx1, {
+            type: 'bar',
+            data: {
+                labels: cats.length ? cats : ['Нет данных'],
+                datasets: [{ label: 'Находки', data: cats.length ? vals : [0], backgroundColor: colors.slice(0, cats.length || 1) }]
             },
-            scales: {
-                y: {
-                    beginAtZero: true,
-                    ticks: { stepSize: 1 }
-                }
-            }
-        }
-    });
+            options: { responsive: true, maintainAspectRatio: true, plugins: { legend: { display: false } }, scales: { y: { beginAtZero: true, ticks: { stepSize: 1 } } } }
+        });
+    }
     
-    // График сканеров
-    const scanners = Object.keys(stats.findings_by_scanner);
-    const scannerCounts = Object.values(stats.findings_by_scanner);
-    
-    if (scannerChart) scannerChart.destroy();
-    
-    const ctx2 = document.getElementById('scanner-chart').getContext('2d');
-    scannerChart = new Chart(ctx2, {
-        type: 'doughnut',
-        data: {
-            labels: scanners.length ? scanners : ['Нет данных'],
-            datasets: [{
-                data: scanners.length ? scannerCounts : [1],
-                backgroundColor: colors.slice(0, scanners.length || 1)
-            }]
-        },
-        options: {
-            responsive: true,
-            maintainAspectRatio: true,
-            plugins: {
-                legend: {
-                    position: 'bottom'
-                }
-            }
-        }
-    });
+    if (charts.scanner) charts.scanner.destroy();
+    const ctx2 = document.getElementById('scannerChart')?.getContext('2d');
+    if (ctx2) {
+        const scs = Object.keys(s.findings_by_scanner || {});
+        const scv = Object.values(s.findings_by_scanner || {});
+        charts.scanner = new Chart(ctx2, {
+            type: 'doughnut',
+            data: {
+                labels: scs.length ? scs : ['Нет данных'],
+                datasets: [{ data: scs.length ? scv : [1], backgroundColor: colors.slice(0, scs.length || 1) }]
+            },
+            options: { responsive: true, maintainAspectRatio: true, plugins: { legend: { position: 'bottom' } } }
+        });
+    }
 }
 
 async function loadRecentFindings() {
     try {
-        const response = await fetch('/api/findings?limit=10');
-        const findings = await response.json();
-        
+        const r = await fetch('/api/findings?limit=10');
+        const findings = await r.json();
         const container = document.getElementById('recent-findings');
         
-        if (findings.length === 0) {
+        if (!findings.length) {
             container.innerHTML = '<div class="text-center p-4 text-muted">Нет находок</div>';
             return;
         }
         
-        let html = `
-            <div class="table-responsive">
-                <table class="table table-hover table-sm mb-0">
-                    <thead class="table-light">
-                        <tr>
-                            <th>Файл</th>
-                            <th>Категория</th>
-                            <th>Классификатор</th>
-                            <th>Доверие</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-        `;
-        
+        let html = '<div class="table-responsive"><table class="table table-hover table-sm mb-0"><thead class="table-light"><tr><th>Файл</th><th>Категория</th><th>Классификатор</th><th>Доверие</th></tr></thead><tbody>';
         findings.forEach(f => {
-            const confidence = (f.confidence * 100).toFixed(0);
-            const confidenceClass = f.confidence > 0.8 ? 'high' : f.confidence > 0.5 ? 'medium' : 'low';
-            const filePath = f.file_path.split('\\').pop() || f.file_path;
-            
-            html += `
-                <tr onclick="window.location.href='/findings?search=${encodeURIComponent(f.file_path)}'">
-                    <td><span class="file-path">${filePath}</span></td>
-                    <td><span class="badge bg-info">${f.category}</span></td>
-                    <td>${f.classifier_name}</td>
-                    <td><span class="confidence-${confidenceClass}">${confidence}%</span></td>
-                </tr>
-            `;
+            const conf = (f.confidence * 100).toFixed(0);
+            const cls = f.confidence > 0.8 ? 'high' : f.confidence > 0.5 ? 'medium' : 'low';
+            const fname = (f.file_path || '').split('\\\\').pop() || f.file_path || 'unknown';
+            html += `<tr onclick="window.location.href='/findings'"><td><span class="file-path" title="${f.file_path}">${fname}</span></td><td><span class="badge bg-info">${f.category}</span></td><td>${f.classifier_name}</td><td class="confidence-${cls}">${conf}%</td></tr>`;
         });
-        
         html += '</tbody></table></div>';
         container.innerHTML = html;
-    } catch (error) {
-        console.error('Ошибка загрузки находок:', error);
-    }
+    } catch(e) { console.error(e); }
 }
 
-function updateTime() {
-    const now = new Date();
-    const timeStr = now.toLocaleTimeString('ru-RU');
-    document.getElementById('update-time').textContent = 'Обновлено: ' + timeStr;
-}
+document.addEventListener('DOMContentLoaded', loadDashboard);
+setInterval(loadDashboard, 30000);
 </script>
 {% endblock %}

@@ -1,21 +1,19 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-DCAP Agent - PII Classifier (IPC версия)
+PII Classifier на основе Presidio
+Использует локальные модели spaCy: ru_core_news_sm, en_core_web_sm
 """
 
-import os
 import re
 import time
-import gc
 import threading
-import sys
-import ctypes
 from pathlib import Path
 from typing import Dict, Any, List, Optional
 
-# Добавляем путь для импортов
-sys.path.insert(0, str(Path(__file__).parent.parent))
+from presidio_analyzer import AnalyzerEngine
+from presidio_analyzer import PatternRecognizer, Pattern
+from presidio_analyzer.nlp_engine import NlpEngineProvider
 
 from core.base import (
     IClassifier, DataCategory, FileContext,
@@ -26,21 +24,12 @@ from classifiers.ocr_worker import start_ocr_worker, stop_ocr_worker
 
 
 class PiiClassifier(IClassifier):
+    """PII классификатор на основе Presidio с локальными моделями"""
+    
     _instance = None
     _lock = threading.Lock()
     
-    # Для ModelWorker
-    _worker_process = None
-    _request_queue = None
-    _response_queue = None
-    _worker_started = False
-    _worker_ready = False
-    _response_thread = None
-    _pending_requests = {}
-    _next_request_id = 1
-    _pending_lock = threading.Lock()
-    
-    # Для OCRWorker
+    # OCRWorker (отдельный процесс для Tesseract)
     _ocr_process = None
     _ocr_request_queue = None
     _ocr_response_queue = None
@@ -60,9 +49,10 @@ class PiiClassifier(IClassifier):
                     cls._instance.enabled = True
         return cls._instance
     
-    def __init__(self, *args, **kwargs):
-        if hasattr(self, '_initialized') and self._initialized:
+    def __init__(self):
+        if self._initialized:
             return
+        
         self.config = {}
         self.extractor = None
         self.cache = {}
@@ -70,9 +60,10 @@ class PiiClassifier(IClassifier):
         self.ocr_count = 0
         self.ocr_errors = 0
         self.ocr_time = 0.0
-        self._initialized = True
+        self._initialized = False
         self._timeout = 60.0
         self.enabled = True
+        self._analyzer = None
     
     @property
     def classifier_name(self) -> str:
@@ -84,16 +75,7 @@ class PiiClassifier(IClassifier):
     
     @property
     def version(self) -> str:
-        return "3.0-ipc"
-    
-    def _wait_for_worker_ready(self, timeout: float = 120.0) -> bool:
-        """Ожидание готовности ModelWorker"""
-        start_time = time.time()
-        while time.time() - start_time < timeout:
-            if self._worker_ready:
-                return True
-            time.sleep(0.5)
-        return False
+        return "4.0-presidio"
     
     def _wait_for_ocr_ready(self, timeout: float = 30.0) -> bool:
         """Ожидание готовности OCRWorker"""
@@ -104,134 +86,8 @@ class PiiClassifier(IClassifier):
             time.sleep(0.5)
         return False
     
-    def _start_worker(self):
-        """Запуск ModelWorker"""
-        if self._worker_started:
-            return
-        
-        with self._lock:
-            if self._worker_started:
-                return
-            
-            try:
-                print("[PII] Запуск ModelWorker...")
-                from classifiers.model_worker import start_model_worker
-                
-                models_cache = self.config.get("models_cache", "models")
-                use_bert = self.config.get("use_bert", True)
-                process, req_q, resp_q = start_model_worker(models_cache, use_bert)
-                
-                self._worker_process = process
-                self._request_queue = req_q
-                self._response_queue = resp_q
-                self._worker_started = True
-                self._worker_ready = False
-                
-                self._response_thread = threading.Thread(target=self._process_responses, daemon=True)
-                self._response_thread.start()
-                
-                print(f"[PII] ModelWorker запущен (PID: {self._worker_process.pid})")
-                
-                # Ожидаем готовности worker'а
-                if self._wait_for_worker_ready():
-                    print(f"[PII] ModelWorker готов к работе")
-                else:
-                    print(f"[PII] ⚠️ ModelWorker не ответил о готовности")
-                
-            except Exception as e:
-                print(f"[PII] Ошибка запуска ModelWorker: {e}")
-                import traceback
-                traceback.print_exc()
-                self._worker_started = False
-    
-    def _process_responses(self):
-        """Обработка ответов от ModelWorker"""
-        while self._worker_started and self._response_queue is not None:
-            try:
-                response = self._response_queue.get(timeout=0.5)
-                request_id = response.get("id")
-                if request_id is not None:
-                    if request_id == 0 and response.get("ready"):
-                        self._worker_ready = True
-                    else:
-                        with self._pending_lock:
-                            self._pending_requests[request_id] = response
-            except:
-                pass
-    
-    def _call_model_worker(self, text: str) -> Dict:
-        """Вызов ModelWorker для NLP"""
-        if not self._worker_started:
-            self._start_worker()
-        
-        if not self._worker_started:
-            return {"persons": [], "locations": []}
-        
-        if not self._worker_ready:
-            if not self._wait_for_worker_ready():
-                return {"persons": [], "locations": []}
-        
-        with self._pending_lock:
-            request_id = self._next_request_id
-            self._next_request_id += 1
-            self._pending_requests[request_id] = None
-        
-        try:
-            self._request_queue.put({
-                "id": request_id,
-                "text": text[:10000]
-            }, timeout=5)
-        except Exception as e:
-            print(f"[PII] Ошибка отправки: {e}")
-            return {"persons": [], "locations": []}
-        
-        start_time = time.time()
-        while time.time() - start_time < self._timeout:
-            with self._pending_lock:
-                response = self._pending_requests.get(request_id)
-                if response is not None:
-                    del self._pending_requests[request_id]
-                    return response.get("result", {"persons": [], "locations": []})
-            time.sleep(0.01)
-        
-        print(f"[PII] Timeout ожидания ответа от ModelWorker (request {request_id})")
-        
-        with self._pending_lock:
-            if request_id in self._pending_requests:
-                del self._pending_requests[request_id]
-        
-        return {"persons": [], "locations": []}
-    
-    def _stop_worker(self):
-        """Остановка ModelWorker"""
-        if not self._worker_started:
-            return
-        
-        print("[PII] Остановка ModelWorker...")
-        
-        try:
-            from classifiers.model_worker import stop_model_worker
-            stop_model_worker(self._worker_process, self._request_queue, self._response_queue)
-        except:
-            if self._worker_process and self._worker_process.is_alive():
-                self._worker_process.terminate()
-                self._worker_process.join(timeout=5)
-                if self._worker_process.is_alive():
-                    self._worker_process.kill()
-        
-        self._worker_started = False
-        self._worker_ready = False
-        self._worker_process = None
-        self._request_queue = None
-        self._response_queue = None
-        
-        with self._pending_lock:
-            self._pending_requests.clear()
-        
-        print(f"[PII] ModelWorker остановлен")
-    
     def _start_ocr_worker(self):
-        """Запуск OCR процесса"""
+        """Запуск OCR процесса (для изоляции Tesseract)"""
         if self._ocr_started:
             return
         
@@ -240,7 +96,7 @@ class PiiClassifier(IClassifier):
                 return
             
             try:
-                print("[PII] Запуск OCRWorker...")
+                print("[PII] Запуск OCRWorker (изоляция Tesseract)...")
                 from classifiers.ocr_worker import start_ocr_worker
                 
                 models_cache = self.config.get("models_cache", "models")
@@ -261,8 +117,6 @@ class PiiClassifier(IClassifier):
                 
             except Exception as e:
                 print(f"[PII] Ошибка запуска OCRWorker: {e}")
-                import traceback
-                traceback.print_exc()
                 self._ocr_started = False
     
     def _process_ocr_responses(self):
@@ -278,7 +132,7 @@ class PiiClassifier(IClassifier):
                 pass
     
     def _call_ocr_worker(self, image_data: bytes) -> Optional[str]:
-        """Отправка изображения в OCR процесс"""
+        """Отправка изображения в OCR процесс (изолированный)"""
         if not self._ocr_started:
             self._start_ocr_worker()
         
@@ -352,43 +206,183 @@ class PiiClassifier(IClassifier):
         
         print(f"[PII] OCRWorker остановлен")
     
-    def _trim_memory_windows(self):
-        """Сброс рабочего набора памяти Windows"""
-        if sys.platform == 'win32':
+    def _get_nlp_engine(self):
+        """
+        Создание NLP движка с локальными моделями.
+        Использует NlpEngineProvider с конфигом.
+        """
+        # Конфиг для NlpEngineProvider
+        configuration = {
+            "nlp_engine_name": "spacy",
+            "models": [
+                {"lang_code": "en", "model_name": "en_core_web_sm"},
+                {"lang_code": "ru", "model_name": "ru_core_news_sm"},
+            ]
+        }
+        
+        try:
+            # Проверяем наличие моделей
+            import spacy
             try:
-                kernel32 = ctypes.windll.kernel32
-                process = kernel32.GetCurrentProcess()
-                kernel32.SetProcessWorkingSetSize(process, -1, -1)
-            except:
-                pass
+                spacy.load("ru_core_news_sm")
+                print("[PII] ✅ Модель ru_core_news_sm найдена")
+            except Exception as e:
+                print(f"[PII] ⚠️ Модель ru_core_news_sm не найдена: {e}")
+                print("[PII]    Скачиваем...")
+                spacy.cli.download("ru_core_news_sm")
+                print("[PII] ✅ Модель ru_core_news_sm скачана")
+            
+            try:
+                spacy.load("en_core_web_sm")
+                print("[PII] ✅ Модель en_core_web_sm найдена")
+            except Exception as e:
+                print(f"[PII] ⚠️ Модель en_core_web_sm не найдена: {e}")
+                print("[PII]    Скачиваем...")
+                spacy.cli.download("en_core_web_sm")
+                print("[PII] ✅ Модель en_core_web_sm скачана")
+            
+            # Создаём провайдер
+            provider = NlpEngineProvider(nlp_configuration=configuration)
+            nlp_engine = provider.create_engine()
+            
+            print("[PII] ✅ NLP движок создан с моделями: en_core_web_sm, ru_core_news_sm")
+            return nlp_engine
+            
+        except Exception as e:
+            print(f"[PII] ❌ Ошибка создания NLP движка: {e}")
+            raise
     
     def configure(self, config: Dict[str, Any]) -> None:
-        if self.config:
+        if self._initialized:
             return
-            
+        
         self.config = config
         self._timeout = config.get("worker_timeout", 60.0)
         
-        models_cache = config.get("models_cache")
-        if models_cache:
-            os.environ['HF_HOME'] = models_cache
-            os.environ['HF_HUB_CACHE'] = os.path.join(models_cache, 'hub')
-            os.environ['TRANSFORMERS_CACHE'] = os.path.join(models_cache, 'transformers')
-            os.environ['HF_HUB_DISABLE_SYMLINKS_WARNING'] = '1'
+        # Инициализация Presidio с локальными моделями
+        try:
+            # Создаём NLP движок с локальными моделями
+            nlp_engine = self._get_nlp_engine()
             
-            for d in [models_cache, os.environ['HF_HUB_CACHE'], os.environ['TRANSFORMERS_CACHE']]:
-                os.makedirs(d, exist_ok=True)
-            print(f"[PII] Кэш моделей: {models_cache}")
+            # Создаём анализатор с указанием языков
+            self._analyzer = AnalyzerEngine(
+                nlp_engine=nlp_engine,
+                supported_languages=["ru", "en"]
+            )
+            
+            # Добавляем кастомные распознаватели для РФ
+            self._add_custom_recognizers()
+            
+            print("[PII] ✅ Presidio инициализирован с локальными моделями")
+            
+        except Exception as e:
+            print(f"[PII] ❌ Ошибка инициализации Presidio: {e}")
+            print("[PII]    Установите модели вручную:")
+            print("[PII]    python -m spacy download ru_core_news_sm")
+            print("[PII]    python -m spacy download en_core_web_sm")
+            raise
         
+        # Настройка DocumentExtractor с OCR
         temp_dir = Path(self.config.get("temp_dir", "temp"))
-        
-        # ИСПРАВЛЕНО: берём ocr_enabled из конфига
         ocr_enabled = self.config.get("ocr_enabled", True)
         self.extractor = DocumentExtractor(temp_dir, ocr_enabled, 1)
         
-        self._start_worker()
+        # Запускаем OCRWorker (для изоляции Tesseract)
         if self.config.get("ocr_enabled", True):
             self._start_ocr_worker()
+        
+        self._initialized = True
+    
+    def _add_custom_recognizers(self):
+        """Добавление кастомных распознавателей для РФ"""
+        
+        # 1. Телефоны РФ
+        phone_patterns = [
+            Pattern(
+                name="phone_ru_full",
+                regex=r"\+7\s*[\(\)]?\s*\d{3}\s*[\)]?\s*\d{3}\s*[-]?\s*\d{2}\s*[-]?\s*\d{2}",
+                score=0.9
+            ),
+            Pattern(
+                name="phone_ru_short",
+                regex=r"8\s*[\(\)]?\s*\d{3}\s*[\)]?\s*\d{3}\s*[-]?\s*\d{2}\s*[-]?\s*\d{2}",
+                score=0.85
+            ),
+        ]
+        
+        phone_recognizer = PatternRecognizer(
+            supported_entity="PHONE_NUMBER",
+            name="PhoneRU",
+            patterns=phone_patterns,
+            supported_language="ru"
+        )
+        self._analyzer.registry.add_recognizer(phone_recognizer)
+        
+        # 2. Паспорт
+        passport_patterns = [
+            Pattern(
+                name="passport_ru",
+                regex=r"\b\d{4}\s+\d{6}\b",
+                score=0.85
+            )
+        ]
+        passport_recognizer = PatternRecognizer(
+            supported_entity="PASSPORT",
+            name="PassportRU",
+            patterns=passport_patterns,
+            supported_language="ru"
+        )
+        self._analyzer.registry.add_recognizer(passport_recognizer)
+        
+        # 3. СНИЛС
+        snils_patterns = [
+            Pattern(
+                name="snils_ru",
+                regex=r"\b\d{3}-\d{3}-\d{3}\s+\d{2}\b",
+                score=0.9
+            )
+        ]
+        snils_recognizer = PatternRecognizer(
+            supported_entity="SNILS",
+            name="SnilsRU",
+            patterns=snils_patterns,
+            supported_language="ru"
+        )
+        self._analyzer.registry.add_recognizer(snils_recognizer)
+        
+        # 4. ИНН
+        inn_patterns = [
+            Pattern(
+                name="inn_ru",
+                regex=r"\b\d{10}\b|\b\d{12}\b",
+                score=0.7
+            )
+        ]
+        inn_recognizer = PatternRecognizer(
+            supported_entity="INN",
+            name="InnRU",
+            patterns=inn_patterns,
+            supported_language="ru"
+        )
+        self._analyzer.registry.add_recognizer(inn_recognizer)
+        
+        # 5. Email
+        email_patterns = [
+            Pattern(
+                name="email_ru",
+                regex=r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}",
+                score=0.95
+            )
+        ]
+        email_recognizer = PatternRecognizer(
+            supported_entity="EMAIL_ADDRESS",
+            name="EmailRU",
+            patterns=email_patterns,
+            supported_language="ru"
+        )
+        self._analyzer.registry.add_recognizer(email_recognizer)
+        
+        print("[PII]   Добавлены кастомные распознаватели: PhoneRU, PassportRU, SnilsRU, InnRU, EmailRU")
     
     def can_classify(self, file_context: FileContext) -> bool:
         max_size = self.config.get("max_file_size_mb", 100) * 1024 * 1024
@@ -398,9 +392,10 @@ class PiiClassifier(IClassifier):
         start_time = time.perf_counter()
         findings = []
         file_context = context.file_context
+        
         text = self._get_text(file_context)
         
-        if not text:
+        if not text or len(text.strip()) < 10:
             return ClassificationResult(
                 classifier_name=self.classifier_name,
                 category=self.category,
@@ -408,6 +403,7 @@ class PiiClassifier(IClassifier):
                 processing_time=time.perf_counter() - start_time
             )
         
+        # Быстрый фильтр
         if not self._quick_check(text):
             return ClassificationResult(
                 classifier_name=self.classifier_name,
@@ -416,33 +412,65 @@ class PiiClassifier(IClassifier):
                 processing_time=time.perf_counter() - start_time
             )
         
-        model_result = self._call_model_worker(text)
-        
-        for name, source, confidence in model_result.get("persons", []):
-            if not any(f.value == name for f in findings):
+        try:
+            # Анализ текста через Presidio
+            results = self._analyzer.analyze(
+                text=text,
+                language="ru"
+            )
+            
+            for result in results:
+                entity_type = result.entity_type
+                confidence = result.score
+                value = text[result.start:result.end]
+                position = result.start
+                context_str = self._get_context(text, value)
+                
+                # Маппинг типов Presidio → DCAP
+                category_map = {
+                    "PERSON": "PII_PER",
+                    "LOCATION": "PII_LOC", 
+                    "DATE_TIME": "PII_DATE",
+                    "EMAIL_ADDRESS": "PII_EMAIL",
+                    "PHONE_NUMBER": "PII_PHONE",
+                    "CREDIT_CARD": "PII_CC",
+                    "IP_ADDRESS": "PII_IP",
+                    "URL": "PII_URL",
+                    "IBAN_CODE": "PII_IBAN",
+                    "PhoneRU": "PII_PHONE",
+                    "PassportRU": "PII_PASSPORT",
+                    "SnilsRU": "PII_SNILS",
+                    "InnRU": "PII_INN",
+                    "EmailRU": "PII_EMAIL",
+                }
+                
+                subcategory = category_map.get(entity_type, f"PII_{entity_type.upper()}")
+                
+                min_confidence = self.config.get("min_confidence", 0.5)
+                if confidence < min_confidence:
+                    continue
+                
                 findings.append(ClassificationFinding(
                     category=DataCategory.PII,
-                    subcategory="PII_PER",
-                    value=name,
-                    position=text.find(name) if name in text else 0,
-                    context=self._get_context(text, name),
+                    subcategory=subcategory,
+                    value=value,
+                    position=position,
+                    context=context_str,
                     confidence=confidence,
-                    detection_method=f"ml_{source}"
+                    detection_method="presidio",
+                    metadata={"entity_type": entity_type}
                 ))
+                
+        except Exception as e:
+            print(f"[PII] Ошибка анализа: {e}")
         
-        for loc, source, confidence in model_result.get("locations", []):
-            if not any(f.value == loc for f in findings):
-                findings.append(ClassificationFinding(
-                    category=DataCategory.PII,
-                    subcategory="PII_LOC",
-                    value=loc,
-                    position=text.find(loc) if loc in text else 0,
-                    context=self._get_context(text, loc),
-                    confidence=confidence,
-                    detection_method=f"ml_{source}"
-                ))
-        
-        findings.extend(self._find_dates(text))
+        # Дедупликация
+        unique_findings = {}
+        for f in findings:
+            key = f"{f.subcategory}:{f.value}"
+            if key not in unique_findings or f.confidence > unique_findings[key].confidence:
+                unique_findings[key] = f
+        findings = list(unique_findings.values())
         
         self.stats["files"] += 1
         self.stats["findings"] += len(findings)
@@ -461,69 +489,41 @@ class PiiClassifier(IClassifier):
             return self.cache[cache_key]
         
         ext = Path(file_context.path).suffix.lower().lstrip('.')
+        text = None
         
+        # Изображения -> OCR (через изолированный процесс)
         image_exts = ['png', 'jpg', 'jpeg', 'gif', 'bmp', 'tiff', 'tif', 'webp']
         if ext in image_exts and self.config.get("ocr_enabled", True):
             text = self._call_ocr_worker(file_context.content)
             if text:
-                max_cache = self.config.get("cache_size", 500)
-                if len(self.cache) >= max_cache:
-                    items = list(self.cache.items())[:max_cache//5]
-                    for k, _ in items:
-                        del self.cache[k]
-                    gc.collect()
-                self.cache[cache_key] = text
                 self.ocr_count += 1
+                self.cache[cache_key] = text
                 return text
             else:
                 self.ocr_errors += 1
                 return None
         
+        # Документы -> через DocumentExtractor
         if self.extractor:
             text, error = self.extractor.extract_text(file_context.content, ext, file_context.path)
-            
             if error:
-                # Сохраняем ошибку для логирования в оркестраторе
-                if not hasattr(file_context, '_extract_error'):
-                    file_context._extract_error = error
-                print(f"[PII] Ошибка извлечения текста из {file_context.path}: {error}")
                 return None
-            
             if text:
-                max_cache = self.config.get("cache_size", 500)
-                if len(self.cache) >= max_cache:
-                    items = list(self.cache.items())[:max_cache//5]
-                    for k, _ in items:
-                        del self.cache[k]
-                    gc.collect()
                 self.cache[cache_key] = text
                 return text
-            
-            return None
         
+        # Простые тексты
         text_exts = ['txt', 'csv', 'log', 'json', 'md', 'ini', 'cfg', 'conf', 'yaml', 'yml', 'xml', 'html']
         if ext in text_exts:
             try:
-                text = file_context.content.decode('utf-8', errors='ignore')[:5000]
+                text = file_context.content.decode('utf-8', errors='ignore')[:100000]
                 if text:
-                    max_cache = self.config.get("cache_size", 500)
-                    if len(self.cache) >= max_cache:
-                        items = list(self.cache.items())[:max_cache//5]
-                        for k, _ in items:
-                            del self.cache[k]
-                        gc.collect()
                     self.cache[cache_key] = text
                 return text
             except:
                 try:
-                    text = file_context.content.decode('cp1251', errors='ignore')[:5000]
+                    text = file_context.content.decode('cp1251', errors='ignore')[:100000]
                     if text:
-                        max_cache = self.config.get("cache_size", 500)
-                        if len(self.cache) >= max_cache:
-                            items = list(self.cache.items())[:max_cache//5]
-                            for k, _ in items:
-                                del self.cache[k]
-                            gc.collect()
                         self.cache[cache_key] = text
                     return text
                 except:
@@ -538,40 +538,21 @@ class PiiClassifier(IClassifier):
         if len(text) < 30:
             return False
         
-        has_date = re.search(r'\d{1,2}[./-]\d{1,2}[./-]\d{2,4}', text) is not None
-        has_names = re.search(r'[А-Я][а-я]+\s+[А-Я][а-я]+|[A-Z][a-z]+\s+[A-Z][a-z]+', text) is not None
-        
-        return has_date or has_names
-    
-    def _find_dates(self, text: str) -> List[ClassificationFinding]:
-        findings = []
-        date_set = set()
-        
         patterns = [
-            r'\b\d{1,2}\.\d{1,2}\.\d{2,4}\b',
-            r'\b\d{1,2}\s+(?:января|февраля|марта|апреля|мая|июня|июля|августа|сентября|октября|ноября|декабря)\s+\d{4}\b',
-            r'\b(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\s+\d{1,2},?\s+\d{4}\b',
-            r'\b\d{4}-\d{1,2}-\d{1,2}\b',
-            r'\b\d{4}/\d{1,2}/\d{1,2}\b',
-            r'\b\d{1,2}/\d{1,2}/\d{4}\b',
+            r'\d{1,2}[./-]\d{1,2}[./-]\d{2,4}',
+            r'[A-Za-z][A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}',
+            r'\+7\s*\d{3}\s*\d{3}\s*\d{2}\s*\d{2}',
+            r'8\s*\d{3}\s*\d{3}\s*\d{2}\s*\d{2}',
+            r'[А-Я][а-я]+\s+[А-Я][а-я]+',
+            r'[A-Z][a-z]+\s+[A-Z][a-z]+',
+            r'\b\d{4}\s+\d{6}\b',
+            r'\b\d{3}-\d{3}-\d{3}\s+\d{2}\b',
         ]
         
         for pattern in patterns:
-            for match in re.findall(pattern, text, re.IGNORECASE):
-                date_set.add(match)
-        
-        for date in date_set:
-            findings.append(ClassificationFinding(
-                category=DataCategory.PII,
-                subcategory="PII_DATE",
-                value=date,
-                position=text.find(date),
-                context=self._get_context(text, date),
-                confidence=0.95,
-                detection_method="regex"
-            ))
-        
-        return findings
+            if re.search(pattern, text):
+                return True
+        return False
     
     def _get_context(self, text: str, value: str, window: int = 50) -> str:
         pos = text.find(value)
@@ -584,80 +565,25 @@ class PiiClassifier(IClassifier):
             context = context[:117] + "..."
         return context
     
-    def reset_ocr_engine(self):
-        if self.config.get("ocr_enabled", True):
-            print("[PII] Перезапуск OCRWorker по запросу...")
-            self._stop_ocr_worker()
-            time.sleep(1)
-            self._start_ocr_worker()
-            print(f"[PII] OCRWorker перезапущен")
-    
     def reload_models(self) -> None:
-        """Перезагрузка моделей и OCR процесса"""
-        print(f"[PII] Перезапуск ModelWorker и OCRWorker для освобождения памяти...")
-        
-        cache_size_before = len(self.cache)
-        if cache_size_before > 0:
-            self.cache.clear()
-            print(f"[PII] Очищен кэш текста: {cache_size_before} -> 0")
-        
-        if self.extractor and hasattr(self.extractor, '_ocr_engine'):
-            if self.extractor._ocr_engine and hasattr(self.extractor._ocr_engine, '_cache'):
-                cache_size = len(self.extractor._ocr_engine._cache)
-                if cache_size > 0:
-                    self.extractor._ocr_engine._cache.clear()
-                    print(f"[PII] Очищен кэш OCR: {cache_size} -> 0")
-        
-        self.stats = {"files": 0, "findings": 0, "time": 0.0}
-        self.ocr_count = 0
-        self.ocr_errors = 0
-        self.ocr_time = 0.0
-        
-        for _ in range(3):
-            gc.collect()
-        
-        self._stop_worker()
-        if self.config.get("ocr_enabled", True):
-            self._stop_ocr_worker()
-        
-        for _ in range(3):
-            gc.collect()
-        time.sleep(2)
-        
-        self._start_worker()
-        if self.config.get("ocr_enabled", True):
-            self._start_ocr_worker()
-        
-        for _ in range(3):
-            gc.collect()
-        
-        self._trim_memory_windows()
-        
-        try:
-            import psutil
-            mem = psutil.Process().memory_info().rss / 1024 / 1024
-            print(f"[PII] ModelWorker и OCRWorker перезапущены, память основного процесса: {mem:.0f} MB")
-        except:
-            pass
-        
-        print(f"[PII] ModelWorker и OCRWorker перезапущены")
+        """Перезагрузка (для Presidio не требуется)"""
+        self.cache.clear()
+        print("[PII] Кэш очищен")
+    
+    def shutdown(self):
+        """Завершение работы"""
+        print("[PII] Завершение...")
+        self._stop_ocr_worker()
+        print("[PII] Завершено")
     
     def get_requirements(self) -> Dict[str, Any]:
         return {
-            "memory_mb": 100,
-            "models": ["natasha", "transformers"],
-            "dependencies": ["pypdf", "pillow", "python-docx", "openpyxl"]
+            "memory_mb": 256,
+            "models": ["presidio-analyzer", "spacy"],
+            "dependencies": ["presidio-analyzer", "spacy"]
         }
-    
-    def shutdown(self):
-        print("[PII] Завершение всех рабочих процессов...")
-        self._stop_worker()
-        self._stop_ocr_worker()
-        gc.collect()
-        print("[PII] Завершение выполнено")
 
 
 PIIClassifier = PiiClassifier
-
 
 __all__ = ['PiiClassifier', 'PIIClassifier']

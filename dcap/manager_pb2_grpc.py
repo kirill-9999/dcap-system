@@ -25,7 +25,7 @@ if _version_not_supported:
     )
 
 
-class ManagerStub:
+class ManagerServiceStub:
     """Missing associated documentation comment in .proto file."""
 
     def __init__(self, channel):
@@ -35,73 +35,73 @@ class ManagerStub:
             channel: A grpc.Channel.
         """
         self.Register = channel.unary_unary(
-                '/dcap.Manager/Register',
+                '/dcap.ManagerService/Register',
                 request_serializer=dcap_dot_manager__pb2.RegisterRequest.SerializeToString,
                 response_deserializer=dcap_dot_manager__pb2.RegisterResponse.FromString,
                 _registered_method=True)
         self.Heartbeat = channel.unary_unary(
-                '/dcap.Manager/Heartbeat',
+                '/dcap.ManagerService/Heartbeat',
                 request_serializer=dcap_dot_manager__pb2.HeartbeatRequest.SerializeToString,
                 response_deserializer=dcap_dot_manager__pb2.HeartbeatResponse.FromString,
                 _registered_method=True)
         self.GetTask = channel.unary_unary(
-                '/dcap.Manager/GetTask',
+                '/dcap.ManagerService/GetTask',
                 request_serializer=dcap_dot_manager__pb2.GetTaskRequest.SerializeToString,
                 response_deserializer=dcap_dot_manager__pb2.GetTaskResponse.FromString,
                 _registered_method=True)
         self.CreateResource = channel.unary_unary(
-                '/dcap.Manager/CreateResource',
+                '/dcap.ManagerService/CreateResource',
                 request_serializer=dcap_dot_manager__pb2.CreateResourceRequest.SerializeToString,
                 response_deserializer=dcap_dot_manager__pb2.CreateResourceResponse.FromString,
                 _registered_method=True)
         self.ListResources = channel.unary_unary(
-                '/dcap.Manager/ListResources',
+                '/dcap.ManagerService/ListResources',
                 request_serializer=dcap_dot_manager__pb2.ListResourcesRequest.SerializeToString,
                 response_deserializer=dcap_dot_manager__pb2.ListResourcesResponse.FromString,
                 _registered_method=True)
         self.GetResource = channel.unary_unary(
-                '/dcap.Manager/GetResource',
+                '/dcap.ManagerService/GetResource',
                 request_serializer=dcap_dot_manager__pb2.GetResourceRequest.SerializeToString,
                 response_deserializer=dcap_dot_manager__pb2.GetResourceResponse.FromString,
                 _registered_method=True)
         self.DeleteResource = channel.unary_unary(
-                '/dcap.Manager/DeleteResource',
+                '/dcap.ManagerService/DeleteResource',
                 request_serializer=dcap_dot_manager__pb2.DeleteResourceRequest.SerializeToString,
                 response_deserializer=dcap_dot_manager__pb2.DeleteResourceResponse.FromString,
                 _registered_method=True)
         self.CreateSchedule = channel.unary_unary(
-                '/dcap.Manager/CreateSchedule',
+                '/dcap.ManagerService/CreateSchedule',
                 request_serializer=dcap_dot_manager__pb2.CreateScheduleRequest.SerializeToString,
                 response_deserializer=dcap_dot_manager__pb2.CreateScheduleResponse.FromString,
                 _registered_method=True)
         self.ListSchedules = channel.unary_unary(
-                '/dcap.Manager/ListSchedules',
+                '/dcap.ManagerService/ListSchedules',
                 request_serializer=dcap_dot_manager__pb2.ListSchedulesRequest.SerializeToString,
                 response_deserializer=dcap_dot_manager__pb2.ListSchedulesResponse.FromString,
                 _registered_method=True)
         self.DeleteSchedule = channel.unary_unary(
-                '/dcap.Manager/DeleteSchedule',
+                '/dcap.ManagerService/DeleteSchedule',
                 request_serializer=dcap_dot_manager__pb2.DeleteScheduleRequest.SerializeToString,
                 response_deserializer=dcap_dot_manager__pb2.DeleteScheduleResponse.FromString,
                 _registered_method=True)
         self.ReportBatch = channel.stream_unary(
-                '/dcap.Manager/ReportBatch',
+                '/dcap.ManagerService/ReportBatch',
                 request_serializer=dcap_dot_manager__pb2.ReportChunk.SerializeToString,
                 response_deserializer=dcap_dot_manager__pb2.ReportResponse.FromString,
                 _registered_method=True)
         self.CompleteTask = channel.unary_unary(
-                '/dcap.Manager/CompleteTask',
+                '/dcap.ManagerService/CompleteTask',
                 request_serializer=dcap_dot_manager__pb2.CompleteTaskRequest.SerializeToString,
                 response_deserializer=dcap_dot_manager__pb2.CompleteTaskResponse.FromString,
                 _registered_method=True)
         self.HealthCheck = channel.unary_unary(
-                '/dcap.Manager/HealthCheck',
+                '/dcap.ManagerService/HealthCheck',
                 request_serializer=dcap_dot_manager__pb2.HealthCheckRequest.SerializeToString,
                 response_deserializer=dcap_dot_manager__pb2.HealthCheckResponse.FromString,
                 _registered_method=True)
 
 
-class ManagerServicer:
+class ManagerServiceServicer:
     """Missing associated documentation comment in .proto file."""
 
     def Register(self, request, context):
@@ -181,14 +181,14 @@ class ManagerServicer:
         raise NotImplementedError('Method not implemented!')
 
     def HealthCheck(self, request, context):
-        """HealthCheck
+        """Health
         """
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
 
 
-def add_ManagerServicer_to_server(servicer, server):
+def add_ManagerServiceServicer_to_server(servicer, server):
     rpc_method_handlers = {
             'Register': grpc.unary_unary_rpc_method_handler(
                     servicer.Register,
@@ -257,13 +257,13 @@ def add_ManagerServicer_to_server(servicer, server):
             ),
     }
     generic_handler = grpc.method_handlers_generic_handler(
-            'dcap.Manager', rpc_method_handlers)
+            'dcap.ManagerService', rpc_method_handlers)
     server.add_generic_rpc_handlers((generic_handler,))
-    server.add_registered_method_handlers('dcap.Manager', rpc_method_handlers)
+    server.add_registered_method_handlers('dcap.ManagerService', rpc_method_handlers)
 
 
  # This class is part of an EXPERIMENTAL API.
-class Manager:
+class ManagerService:
     """Missing associated documentation comment in .proto file."""
 
     @staticmethod
@@ -280,7 +280,7 @@ class Manager:
         return grpc.experimental.unary_unary(
             request,
             target,
-            '/dcap.Manager/Register',
+            '/dcap.ManagerService/Register',
             dcap_dot_manager__pb2.RegisterRequest.SerializeToString,
             dcap_dot_manager__pb2.RegisterResponse.FromString,
             options,
@@ -307,7 +307,7 @@ class Manager:
         return grpc.experimental.unary_unary(
             request,
             target,
-            '/dcap.Manager/Heartbeat',
+            '/dcap.ManagerService/Heartbeat',
             dcap_dot_manager__pb2.HeartbeatRequest.SerializeToString,
             dcap_dot_manager__pb2.HeartbeatResponse.FromString,
             options,
@@ -334,7 +334,7 @@ class Manager:
         return grpc.experimental.unary_unary(
             request,
             target,
-            '/dcap.Manager/GetTask',
+            '/dcap.ManagerService/GetTask',
             dcap_dot_manager__pb2.GetTaskRequest.SerializeToString,
             dcap_dot_manager__pb2.GetTaskResponse.FromString,
             options,
@@ -361,7 +361,7 @@ class Manager:
         return grpc.experimental.unary_unary(
             request,
             target,
-            '/dcap.Manager/CreateResource',
+            '/dcap.ManagerService/CreateResource',
             dcap_dot_manager__pb2.CreateResourceRequest.SerializeToString,
             dcap_dot_manager__pb2.CreateResourceResponse.FromString,
             options,
@@ -388,7 +388,7 @@ class Manager:
         return grpc.experimental.unary_unary(
             request,
             target,
-            '/dcap.Manager/ListResources',
+            '/dcap.ManagerService/ListResources',
             dcap_dot_manager__pb2.ListResourcesRequest.SerializeToString,
             dcap_dot_manager__pb2.ListResourcesResponse.FromString,
             options,
@@ -415,7 +415,7 @@ class Manager:
         return grpc.experimental.unary_unary(
             request,
             target,
-            '/dcap.Manager/GetResource',
+            '/dcap.ManagerService/GetResource',
             dcap_dot_manager__pb2.GetResourceRequest.SerializeToString,
             dcap_dot_manager__pb2.GetResourceResponse.FromString,
             options,
@@ -442,7 +442,7 @@ class Manager:
         return grpc.experimental.unary_unary(
             request,
             target,
-            '/dcap.Manager/DeleteResource',
+            '/dcap.ManagerService/DeleteResource',
             dcap_dot_manager__pb2.DeleteResourceRequest.SerializeToString,
             dcap_dot_manager__pb2.DeleteResourceResponse.FromString,
             options,
@@ -469,7 +469,7 @@ class Manager:
         return grpc.experimental.unary_unary(
             request,
             target,
-            '/dcap.Manager/CreateSchedule',
+            '/dcap.ManagerService/CreateSchedule',
             dcap_dot_manager__pb2.CreateScheduleRequest.SerializeToString,
             dcap_dot_manager__pb2.CreateScheduleResponse.FromString,
             options,
@@ -496,7 +496,7 @@ class Manager:
         return grpc.experimental.unary_unary(
             request,
             target,
-            '/dcap.Manager/ListSchedules',
+            '/dcap.ManagerService/ListSchedules',
             dcap_dot_manager__pb2.ListSchedulesRequest.SerializeToString,
             dcap_dot_manager__pb2.ListSchedulesResponse.FromString,
             options,
@@ -523,7 +523,7 @@ class Manager:
         return grpc.experimental.unary_unary(
             request,
             target,
-            '/dcap.Manager/DeleteSchedule',
+            '/dcap.ManagerService/DeleteSchedule',
             dcap_dot_manager__pb2.DeleteScheduleRequest.SerializeToString,
             dcap_dot_manager__pb2.DeleteScheduleResponse.FromString,
             options,
@@ -550,7 +550,7 @@ class Manager:
         return grpc.experimental.stream_unary(
             request_iterator,
             target,
-            '/dcap.Manager/ReportBatch',
+            '/dcap.ManagerService/ReportBatch',
             dcap_dot_manager__pb2.ReportChunk.SerializeToString,
             dcap_dot_manager__pb2.ReportResponse.FromString,
             options,
@@ -577,7 +577,7 @@ class Manager:
         return grpc.experimental.unary_unary(
             request,
             target,
-            '/dcap.Manager/CompleteTask',
+            '/dcap.ManagerService/CompleteTask',
             dcap_dot_manager__pb2.CompleteTaskRequest.SerializeToString,
             dcap_dot_manager__pb2.CompleteTaskResponse.FromString,
             options,
@@ -604,7 +604,7 @@ class Manager:
         return grpc.experimental.unary_unary(
             request,
             target,
-            '/dcap.Manager/HealthCheck',
+            '/dcap.ManagerService/HealthCheck',
             dcap_dot_manager__pb2.HealthCheckRequest.SerializeToString,
             dcap_dot_manager__pb2.HealthCheckResponse.FromString,
             options,

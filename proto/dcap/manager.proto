@@ -2,7 +2,7 @@ syntax = "proto3";
 
 package dcap;
 
-service Manager {
+service ManagerService {
     // Scanner методы
     rpc Register(RegisterRequest) returns (RegisterResponse);
     rpc Heartbeat(HeartbeatRequest) returns (HeartbeatResponse);
@@ -23,24 +23,27 @@ service Manager {
     rpc ReportBatch(stream ReportChunk) returns (ReportResponse);
     rpc CompleteTask(CompleteTaskRequest) returns (CompleteTaskResponse);
     
-    // HealthCheck
+    // Health
     rpc HealthCheck(HealthCheckRequest) returns (HealthCheckResponse);
 }
 
-// ========== Scanner сообщения ==========
+// === SCANNER ===
+
 message RegisterRequest {
     string scanner_name = 1;
     string endpoint = 2;
 }
 
 message RegisterResponse {
-    string scanner_id = 1;
-    bool success = 2;
+    bool success = 1;
+    string scanner_id = 2;  // ← СТРОКА!
     string message = 3;
 }
 
 message HeartbeatRequest {
-    string scanner_id = 1;
+    string scanner_id = 1;  // ← СТРОКА!
+    int32 files_scanned = 2;
+    int32 findings_found = 3;
 }
 
 message HeartbeatResponse {
@@ -49,23 +52,40 @@ message HeartbeatResponse {
 }
 
 message GetTaskRequest {
-    string scanner_id = 1;
+    string scanner_id = 1;  // ← СТРОКА!
 }
 
 message GetTaskResponse {
     bool has_task = 1;
     string task_id = 2;
-    string resource_id = 3;
-    string resource_path = 4;
-    string resource_type = 5;
-    int32 batch_size = 6;
+    string resource_path = 3;
+    string resource_type = 4;
+    int32 batch_size = 5;
+    string resource_id = 6;
 }
 
-// ========== Resource сообщения ==========
+message Task {
+    string id = 1;
+    string resource_path = 2;
+    string resource_type = 3;
+    int32 max_files = 4;
+    int32 priority = 5;
+}
+
+// === RESOURCE ===
+
+message Resource {
+    string id = 1;
+    string type = 2;
+    string path = 3;
+    bool enabled = 4;
+    string config = 5;
+}
+
 message CreateResourceRequest {
     string resource_type = 1;
     string path = 2;
-    map<string, string> config = 3;
+    string config = 3;
 }
 
 message CreateResourceResponse {
@@ -109,7 +129,17 @@ message DeleteResourceResponse {
     string message = 2;
 }
 
-// ========== Schedule сообщения ==========
+// === SCHEDULE ===
+
+message Schedule {
+    string id = 1;
+    string resource_id = 2;
+    string cron_expression = 3;
+    int32 priority = 4;
+    int32 max_files_per_batch = 5;
+    bool enabled = 6;
+}
+
 message CreateScheduleRequest {
     string resource_id = 1;
     string cron_expression = 2;
@@ -152,14 +182,7 @@ message DeleteScheduleResponse {
     string message = 2;
 }
 
-// ========== ReportBatch сообщения ==========
-message ReportChunk {
-    string scanner_id = 1;
-    string task_id = 2;
-    repeated Finding findings = 3;
-    repeated CatalogEntry catalog = 4;
-    repeated FailedFile failed = 5;
-}
+// === REPORT ===
 
 message Finding {
     string file_path = 1;
@@ -170,10 +193,41 @@ message Finding {
     string category = 6;
     string subcategory = 7;
     string value = 8;
-    double confidence = 9;
+    float confidence = 9;
     string detection_method = 10;
     string context = 11;
 }
+
+message ReportChunk {
+    string scanner_id = 1;  // ← СТРОКА!
+    string task_id = 2;     // ← СТРОКА!
+    repeated Finding findings = 3;
+    repeated CatalogEntry catalog = 4;
+    repeated FailedFile failed = 5;
+}
+
+message ReportResponse {
+    bool success = 1;
+    string message = 2;
+    int32 findings_received = 3;
+    int32 catalog_entries_received = 4;
+}
+
+message CompleteTaskRequest {
+    string scanner_id = 1;  // ← СТРОКА!
+    string task_id = 2;     // ← СТРОКА!
+    int32 files_scanned = 3;
+    int32 findings_count = 4;
+    bool success = 5;
+    string error_message = 6;
+}
+
+message CompleteTaskResponse {
+    bool success = 1;
+    string message = 2;
+}
+
+// === CATALOG ===
 
 message CatalogEntry {
     string folder_path = 1;
@@ -189,29 +243,8 @@ message FailedFile {
     string error_type = 3;
 }
 
-message ReportResponse {
-    bool success = 1;
-    string message = 2;
-    int32 findings_received = 3;
-    int32 catalog_entries_received = 4;
-}
+// === HEALTH ===
 
-// ========== CompleteTask сообщения ==========
-message CompleteTaskRequest {
-    string scanner_id = 1;
-    string task_id = 2;
-    int32 files_scanned = 3;
-    int32 findings_count = 4;
-    bool success = 5;
-    string error_message = 6;
-}
-
-message CompleteTaskResponse {
-    bool success = 1;
-    string message = 2;
-}
-
-// ========== HealthCheck сообщения ==========
 message HealthCheckRequest {
     string service = 1;
 }

@@ -1,0 +1,180 @@
+/* Стили для страницы заданий */
+
+.tasks-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(350px, 1fr));
+    gap: 16px;
+}
+
+.task-card {
+    background: white;
+    border-radius: 12px;
+    padding: 16px;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.06);
+    transition: all 0.2s;
+    border: 1px solid #edf2f7;
+    cursor: pointer;
+}
+
+.task-card:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 16px rgba(0,0,0,0.1);
+    border-color: #bee3f8;
+}
+
+.task-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 10px;
+    flex-wrap: wrap;
+    gap: 8px;
+}
+
+.task-info {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.task-id {
+    font-weight: 700;
+    font-size: 1.1rem;
+    color: #2d3748;
+}
+
+.task-status {
+    padding: 2px 12px;
+    border-radius: 20px;
+    font-size: 0.75rem;
+    font-weight: 600;
+}
+
+.status-pending { background: #e2e8f0; color: #4a5568; }
+.status-assigned { background: #bee3f8; color: #2b6cb0; }
+.status-running { background: #fefcbf; color: #975a16; }
+.status-completed { background: #c6f6d5; color: #276749; }
+.status-failed { background: #fed7d7; color: #9b2c2c; }
+.status-canceled { background: #e2e8f0; color: #4a5568; }
+
+.task-actions .btn {
+    padding: 4px 8px;
+    font-size: 0.8rem;
+}
+
+.task-progress-container {
+    position: relative;
+    height: 24px;
+    background: #edf2f7;
+    border-radius: 12px;
+    overflow: hidden;
+    margin: 8px 0;
+}
+
+.task-progress {
+    height: 100%;
+    transition: width 0.5s ease;
+}
+
+.progress-bar {
+    height: 100%;
+    background: linear-gradient(90deg, #48bb78, #38a169);
+    transition: width 0.5s ease;
+    border-radius: 12px;
+}
+
+.progress-text {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    font-size: 0.75rem;
+    font-weight: 600;
+    color: #2d3748;
+}
+
+.task-stats {
+    display: flex;
+    gap: 16px;
+    font-size: 0.85rem;
+    color: #4a5568;
+    margin: 8px 0;
+    flex-wrap: wrap;
+}
+
+.task-stats span {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+}
+
+.task-footer {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-size: 0.75rem;
+    color: #a0aec0;
+    margin-top: 8px;
+    padding-top: 8px;
+    border-top: 1px solid #edf2f7;
+    flex-wrap: wrap;
+    gap: 4px;
+}
+
+/* Детали задания */
+.info-group {
+    margin-bottom: 12px;
+}
+
+.info-group label {
+    font-size: 0.75rem;
+    color: #a0aec0;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    display: block;
+}
+
+.info-value {
+    font-size: 1.1rem;
+    font-weight: 600;
+    color: #2d3748;
+}
+
+.findings-list {
+    max-height: 300px;
+    overflow-y: auto;
+}
+
+.finding-item {
+    padding: 6px 0;
+    border-bottom: 1px solid #edf2f7;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+    font-size: 0.9rem;
+}
+
+.finding-item .confidence {
+    margin-left: auto;
+    font-weight: 600;
+    font-size: 0.8rem;
+    color: #48bb78;
+}
+
+/* Адаптивность */
+@media (max-width: 768px) {
+    .tasks-grid {
+        grid-template-columns: 1fr;
+    }
+    
+    .task-header {
+        flex-direction: column;
+        align-items: stretch;
+    }
+    
+    .task-stats {
+        flex-direction: column;
+        gap: 4px;
+    }
+}
