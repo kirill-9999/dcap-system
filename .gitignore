@@ -52,5 +52,6 @@ docker-compose.override.yml
 # Project specific
 models/
 catalog/
-state.json
+test_files/
+state*.json
 *.jsonl

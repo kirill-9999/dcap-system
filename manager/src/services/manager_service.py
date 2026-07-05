@@ -8,6 +8,8 @@ import logging
 from datetime import datetime
 from typing import Optional
 
+from sqlalchemy.dialects.sqlite import insert as sqlite_insert
+
 import grpc
 
 import sys
@@ -448,18 +450,27 @@ class ManagerService(manager_pb2_grpc.ManagerServiceServicer):
                         session.add(finding_db)
                         findings_received += 1
 
-                    # Сохраняем каталог
+                    # Сохраняем каталог (UPSERT по folder_path — перезапись при повторном скане)
+                    now = datetime.utcnow()
                     for entry in chunk.catalog:
-                        catalog_db = CatalogEntry(
+                        if not entry.folder_path:
+                            continue
+                        stmt = sqlite_insert(CatalogEntry).values(
                             scanner_id=int(scanner_id),
                             folder_path=entry.folder_path,
-                            source_type=entry.source_type,
                             classifiers=list(entry.classifiers) if entry.classifiers else [],
-                            subcategories=list(entry.subcategories) if entry.subcategories else [],
-                            findings_count=entry.findings_count,
-                            last_seen=datetime.utcnow(),
+                            first_seen=now,
+                            updated_at=now,
+                        ).on_conflict_do_update(
+                            index_elements=["folder_path"],
+                            set_={
+                                "scanner_id": int(scanner_id),
+                                "classifiers": list(entry.classifiers) if entry.classifiers else [],
+                                "updated_at": now,
+                                # first_seen не обновляем — сохраняем дату первого обнаружения
+                            }
                         )
-                        session.add(catalog_db)
+                        await session.execute(stmt)
                         catalog_entries_received += 1
 
                     # Сохраняем неудачные файлы

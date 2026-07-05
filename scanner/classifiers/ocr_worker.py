@@ -32,12 +32,15 @@ class OCRWorker:
     
     def _find_tesseract(self) -> str:
         """Поиск tesseract.exe в системе"""
-        env_cmd = os.environ.get("TESSERACT_CMD", "")
-        if env_cmd and os.path.exists(env_cmd):
-            print(f"[OCR_WORKER] Tesseract from env: {env_cmd}")
-            return env_cmd
-        
+        # Проверяем обе переменные окружения (TESSERACT_PATH и TESSERACT_CMD)
+        for env_var in ("TESSERACT_PATH", "TESSERACT_CMD"):
+            env_cmd = os.environ.get(env_var, "")
+            if env_cmd and os.path.exists(env_cmd):
+                print(f"[OCR_WORKER] Tesseract from {env_var}: {env_cmd}")
+                return env_cmd
+
         possible_paths = [
+            r'D:\dev\Tesseract-OCR\tesseract.exe',
             r'E:\Program Files\Tesseract-OCR\tesseract.exe',
             r'C:\Program Files\Tesseract-OCR\tesseract.exe',
             r'C:\Program Files (x86)\Tesseract-OCR\tesseract.exe',
@@ -52,7 +55,7 @@ class OCRWorker:
             result = subprocess.run(
                 ['where', 'tesseract'],
                 capture_output=True,
-                text=True,
+                text=True, encoding="utf-8", errors="replace",
                 timeout=5,
                 shell=True
             )
@@ -72,7 +75,7 @@ class OCRWorker:
             result = subprocess.run(
                 [self._tesseract_cmd, '--list-langs'],
                 capture_output=True,
-                text=True,
+                text=True, encoding="utf-8", errors="replace",
                 timeout=10,
                 shell=False
             )
@@ -128,7 +131,7 @@ class OCRWorker:
             result = subprocess.run(
                 cmd,
                 capture_output=True,
-                text=True,
+                text=True, encoding="utf-8", errors="replace",
                 timeout=timeout,
                 shell=False
             )
@@ -286,6 +289,9 @@ class OCRWorker:
 # Глобальная функция для запуска процесса (должна быть на уровне модуля для pickle)
 def _run_ocr_worker(request_queue: Queue, response_queue: Queue, max_cache_size: int):
     """Целевая функция для процесса"""
+    import signal
+    # Игнорируем Ctrl+C — завершение управляется через очередь родительским процессом
+    signal.signal(signal.SIGINT, signal.SIG_IGN)
     worker = OCRWorker()
     worker.run(request_queue, response_queue, max_cache_size)
 

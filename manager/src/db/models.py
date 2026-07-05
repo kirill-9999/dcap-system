@@ -244,20 +244,23 @@ class Finding(Base):
 
 
 class CatalogEntry(Base):
-    """Запись каталога (папка с находками)"""
+    """Запись каталога — одна папка, глобальная для всех сканеров.
+    folder_path уникален: при повторном скане запись перезаписывается (UPSERT).
+    """
     __tablename__ = "catalog_entries"
 
     id = Column(Integer, primary_key=True, autoincrement=True)
-    scanner_id = Column(Integer, ForeignKey("scanners.id"), nullable=False)
 
-    folder_path = Column(String(500), nullable=False)
-    source_type = Column(String(20), nullable=False)
+    # Глобальный каталог: folder_path уникален, не привязан к конкретному сканеру.
+    # scanner_id — кто последний обновил запись (информационно, nullable).
+    scanner_id = Column(Integer, ForeignKey("scanners.id"), nullable=True)
+    folder_path = Column(String(500), nullable=False, unique=True)
+
+    # Какие классификаторы нашли что-либо в этой папке, напр. ["pii", "credentials"]
     classifiers = Column(JSON, default=list)
-    subcategories = Column(JSON, default=list)
-    findings_count = Column(Integer, default=0)
 
     first_seen = Column(DateTime, default=datetime.utcnow)
-    last_seen = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow)
 
     # Relationships
     scanner = relationship("Scanner", back_populates="catalog_entries")
@@ -267,12 +270,9 @@ class CatalogEntry(Base):
             "id": self.id,
             "scanner_id": self.scanner_id,
             "folder_path": self.folder_path,
-            "source_type": self.source_type,
             "classifiers": self.classifiers,
-            "subcategories": self.subcategories,
-            "findings_count": self.findings_count,
             "first_seen": self.first_seen.isoformat() if self.first_seen else None,
-            "last_seen": self.last_seen.isoformat() if self.last_seen else None,
+            "updated_at": self.updated_at.isoformat() if self.updated_at else None,
         }
 
 

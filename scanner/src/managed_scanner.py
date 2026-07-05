@@ -6,15 +6,24 @@ Managed Scanner — работает в непрерывном цикле, по�
 
 import asyncio
 import sys
+import io
 import logging
 import signal
 import json
 import os
+import time
 from pathlib import Path
 from datetime import datetime
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, Set
 
 import grpc
+
+# Принудительно UTF-8 — обязательно до любого print/logging
+os.environ.setdefault('PYTHONUTF8', '1')
+if sys.stdout.encoding and sys.stdout.encoding.lower() not in ('utf-8', 'utf8'):
+    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='replace', line_buffering=True)
+if sys.stderr.encoding and sys.stderr.encoding.lower() not in ('utf-8', 'utf8'):
+    sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8', errors='replace', line_buffering=True)
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
@@ -29,23 +38,34 @@ import dcap.manager_pb2_grpc as manager_pb2_grpc
 logger = logging.getLogger("dcap-scanner")
 
 
+CATALOG_FLUSH_INTERVAL = 30  # секунд между периодическими сбросами каталога
+
+
 class GrpcHandler:
-    """Обработчик, отправляющий находки в Manager через gRPC"""
-    
-    def __init__(self, stub, scanner_id: int, task_id: int):
-        self.stub = stub
+    """Обработчик, отправляющий находки и каталог в Manager через gRPC"""
+
+    def __init__(self, endpoint: str, scanner_id: int, task_id: int):
+        # Синхронный stub — flush() вызывается из синхронного кода Orchestrator
+        self._sync_channel = grpc.insecure_channel(endpoint)
+        self.stub = manager_pb2_grpc.ManagerServiceStub(self._sync_channel)
         self.scanner_id = scanner_id
         self.task_id = task_id
+
+        # Буфер находок
         self.buffer = []
         self.batch_size = 50
         self.findings_count = 0
         self.sent = False
-    
+
+        # Каталог: папка → множество классификаторов, которые нашли там что-либо
+        self.catalog_dict: Dict[str, Set[str]] = {}
+        self._last_catalog_flush: float = time.time()
+
     def write(self, result: ClassificationResult, file_context: FileContext):
-        """Добавление находки в буфер"""
+        """Добавление находки в буфер и обновление каталога"""
         if not result.findings:
             return
-        
+
         for finding in result.findings[:20]:
             self.buffer.append(manager_pb2.Finding(
                 file_path=file_context.path,
@@ -60,42 +80,85 @@ class GrpcHandler:
                 detection_method=finding.detection_method,
                 context=finding.context[:200] if finding.context else ""
             ))
-        
+
         self.findings_count += len(result.findings)
-        
+
+        # Обновляем каталог: непосредственная папка файла
+        folder = str(Path(file_context.path).parent)
+        if folder not in self.catalog_dict:
+            self.catalog_dict[folder] = set()
+        self.catalog_dict[folder].add(result.classifier_name)
+
+        # Сброс буфера находок при достижении размера батча
         if len(self.buffer) >= self.batch_size:
             self.flush()
-    
+
+        # Периодический сброс каталога
+        if time.time() - self._last_catalog_flush >= CATALOG_FLUSH_INTERVAL:
+            self.flush_catalog()
+
     def flush(self):
-        """Отправка буфера в Manager"""
+        """Отправка буфера находок в Manager"""
         if not self.buffer:
             return
-        
+
+        # Сбрасываем буфер сразу, чтобы не отправить повторно при ошибке
+        batch = self.buffer
+        self.buffer = []
+
         try:
             chunk = manager_pb2.ReportChunk(
                 scanner_id=str(self.scanner_id),
                 task_id=str(self.task_id),
-                findings=self.buffer,
+                findings=batch,
                 catalog=[],
                 failed=[]
             )
-            
             response = self.stub.ReportBatch(iter([chunk]))
             if response.success:
-                logger.info(f"📤 Отправлено {len(self.buffer)} находок в Manager")
+                logger.info(f"Sent {len(batch)} findings to Manager")
                 self.sent = True
             else:
-                logger.warning(f"⚠️ Ошибка отправки: {response.message}")
-            
-            self.buffer = []
-            
+                logger.warning(f"ReportBatch warning: {response.message}")
         except Exception as e:
-            logger.error(f"❌ Ошибка отправки в Manager: {e}")
-    
+            logger.error(f"Error sending findings: {e}")
+
+    def flush_catalog(self):
+        """Отправка текущего снимка каталога в Manager"""
+        if not self.catalog_dict:
+            return
+
+        entries = [
+            manager_pb2.CatalogEntry(
+                folder_path=folder,
+                classifiers=sorted(classifiers),  # сортируем для стабильного порядка
+            )
+            for folder, classifiers in self.catalog_dict.items()
+        ]
+
+        try:
+            chunk = manager_pb2.ReportChunk(
+                scanner_id=str(self.scanner_id),
+                task_id=str(self.task_id),
+                findings=[],
+                catalog=entries,
+                failed=[]
+            )
+            response = self.stub.ReportBatch(iter([chunk]))
+            if response.success:
+                logger.info(f"Catalog sent: {len(entries)} folders")
+            else:
+                logger.warning(f"Catalog flush warning: {response.message}")
+        except Exception as e:
+            logger.error(f"Error sending catalog: {e}")
+        finally:
+            self._last_catalog_flush = time.time()
+
     def close(self):
-        """Закрытие обработчика с отправкой остатков"""
+        """Закрытие: сброс остатков находок, затем финальный сброс каталога"""
         if self.buffer:
             self.flush()
+        self.flush_catalog()
         return self.sent
 
 
@@ -329,7 +392,7 @@ class ManagedScanner:
         self.current_task = task
         
         # Создаём обработчик
-        handler = GrpcHandler(self.stub, self.scanner_id, task_id)
+        handler = GrpcHandler(self.manager_endpoint, self.scanner_id, task_id)
         self.current_handler = handler
         
         # Создаём Orchestrator
