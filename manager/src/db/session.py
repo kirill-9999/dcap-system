@@ -1,61 +1,31 @@
-# -*- coding: utf-8 -*-
-"""
-Database session management for SQLite (разработка)
-"""
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker, Session
+from sqlalchemy.ext.declarative import declarative_base
+import os
 
-from pathlib import Path
-from contextlib import asynccontextmanager
-from typing import AsyncGenerator
+# Создаем директорию для базы данных, если её нет
+db_path = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "dcap.db")
+# Или используем относительный путь
+# db_path = "dcap.db"
 
-from sqlalchemy.ext.asyncio import (
-    AsyncSession,
-    create_async_engine,
-    async_sessionmaker,
+SQLALCHEMY_DATABASE_URL = f"sqlite:///{db_path}"
+
+engine = create_engine(
+    SQLALCHEMY_DATABASE_URL,
+    connect_args={"check_same_thread": False}  # Для SQLite
 )
 
-from manager.src.db.models import Base
+SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
-# SQLite для разработки
-DB_PATH = Path(__file__).parent / "dcap.db"
-DATABASE_URL = f"sqlite+aiosqlite:///{DB_PATH}"
+def get_db():
+    """Генератор для получения сессии базы данных"""
+    db = SessionLocal()
+    try:
+        yield db
+    finally:
+        db.close()
 
-print(f"[DB] Используется SQLite: {DB_PATH}")
-
-# Создание engine
-engine = create_async_engine(
-    DATABASE_URL,
-    echo=True,  # SQL логи в консоль (полезно для отладки)
-)
-
-async_session_maker = async_sessionmaker(
-    engine,
-    class_=AsyncSession,
-    expire_on_commit=False
-)
-
-
-async def init_db() -> None:
-    """Инициализация БД — создание таблиц"""
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
-    print(f"[DB] Инициализирована SQLite: {DB_PATH}")
-
-
-async def close_db() -> None:
-    """Закрытие соединения"""
-    await engine.dispose()
-    print("[DB] Соединение закрыто")
-
-
-@asynccontextmanager
-async def get_session() -> AsyncGenerator[AsyncSession, None]:
-    """Получение сессии БД"""
-    async with async_session_maker() as session:
-        try:
-            yield session
-            await session.commit()
-        except Exception:
-            await session.rollback()
-            raise
-        finally:
-            await session.close()
+def init_db():
+    """Инициализация базы данных (создание таблиц)"""
+    from . import models
+    models.Base.metadata.create_all(bind=engine)

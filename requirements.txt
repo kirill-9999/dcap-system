@@ -1,11 +1,24 @@
-setuptools>=68.0.0
-wheel>=0.41.0
-grpcio>=1.81.0
-grpcio-tools>=1.81.0
-sqlalchemy>=2.0.25
-aiosqlite>=0.19.0
-croniter>=1.4.1
-fastapi>=0.104.1
+# Веб-фреймворк
+fastapi>=0.104.0
 uvicorn[standard]>=0.24.0
-pydantic>=2.5.0
-python-dotenv>=1.0.0
+
+# База данных
+sqlalchemy>=2.0.0
+aiosqlite>=0.19.0
+
+# HTTP клиент для Scanner
+requests>=2.31.0
+
+# Дополнительно
+python-multipart>=0.0.6
+croniter>=1.4.0
+pydantic>=2.0.0
+pydantic-settings>=2.0.0
+
+# Обработка файлов (для Scanner)
+python-magic>=0.4.27
+pdfplumber>=0.10.0
+python-docx>=1.0.0
+openpyxl>=3.1.0
+Pillow>=10.0.0
+pytesseract>=0.3.10

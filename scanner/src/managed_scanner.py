@@ -1,610 +1,691 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Managed Scanner — работает в непрерывном цикле, получает задания от Manager
+Managed Scanner — работает в непрерывном цикле, получает задания от Manager через REST API
 """
 
-import asyncio
+import os
 import sys
-import io
+import json
+import time
 import logging
 import signal
-import json
-import os
-import time
+import socket
+import warnings
 from pathlib import Path
 from datetime import datetime
-from typing import Optional, Dict, Any, Set
+from typing import Optional, Dict, Any, List
+import requests
 
-import grpc
+# ============================================================
+# ПОДАВЛЕНИЕ ШУМНЫХ ЛОГОВ И ПРЕДУПРЕЖДЕНИЙ
+# ============================================================
+warnings.filterwarnings("ignore", category=DeprecationWarning)
+warnings.filterwarnings("ignore", category=UserWarning)
+warnings.filterwarnings("ignore", message="Multiple definitions in dictionary")
 
-# Принудительно UTF-8 — обязательно до любого print/logging
-os.environ.setdefault('PYTHONUTF8', '1')
-if sys.stdout.encoding and sys.stdout.encoding.lower() not in ('utf-8', 'utf8'):
-    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='replace', line_buffering=True)
-if sys.stderr.encoding and sys.stderr.encoding.lower() not in ('utf-8', 'utf8'):
-    sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8', errors='replace', line_buffering=True)
+logging.getLogger("presidio-analyzer").setLevel(logging.WARNING)
+logging.getLogger("presidio-analyzer").disabled = True
+logging.getLogger("presidio-analyzer").propagate = False
+logging.getLogger("pypdf").setLevel(logging.ERROR)
+logging.getLogger("pypdf.generic").setLevel(logging.ERROR)
+logging.getLogger("pypdf._reader").setLevel(logging.ERROR)
+logging.getLogger("PdfReader").setLevel(logging.ERROR)
+logging.getLogger("urllib3").setLevel(logging.WARNING)
+
+# ============================================================
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from scanner.core.orchestrator import Orchestrator
-from scanner.core.base import FileContext, ClassificationResult
+from scanner.core.base import FileContext, ClassificationResult, ClassificationFinding, DataCategory
 from scanner.connectors.filesystem import FileSystemConnector
-
-sys.path.insert(0, str(Path(__file__).parent.parent.parent))
-import dcap.manager_pb2 as manager_pb2
-import dcap.manager_pb2_grpc as manager_pb2_grpc
+from scanner.handlers.finding_collector import FindingCollector
+from scanner.src.config_loader import AppConfig
 
 logger = logging.getLogger("dcap-scanner")
 
 
-CATALOG_FLUSH_INTERVAL = 30  # секунд между периодическими сбросами каталога
-
-
-class GrpcHandler:
-    """Обработчик, отправляющий находки и каталог в Manager через gRPC"""
-
-    def __init__(self, endpoint: str, scanner_id: int, task_id: int):
-        # Синхронный stub — flush() вызывается из синхронного кода Orchestrator
-        self._sync_channel = grpc.insecure_channel(endpoint)
-        self.stub = manager_pb2_grpc.ManagerServiceStub(self._sync_channel)
+class ManagerClient:
+    def __init__(self, base_url: str, scanner_id: Optional[int] = None, config: AppConfig = None):
+        self.base_url = base_url.rstrip('/')
         self.scanner_id = scanner_id
-        self.task_id = task_id
-
-        # Буфер находок
-        self.buffer = []
-        self.batch_size = 50
-        self.findings_count = 0
-        self.sent = False
-
-        # Каталог: папка → множество классификаторов, которые нашли там что-либо
-        self.catalog_dict: Dict[str, Set[str]] = {}
-        self._last_catalog_flush: float = time.time()
-
-    def write(self, result: ClassificationResult, file_context: FileContext):
-        """Добавление находки в буфер и обновление каталога"""
-        if not result.findings:
-            return
-
-        for finding in result.findings[:20]:
-            self.buffer.append(manager_pb2.Finding(
-                file_path=file_context.path,
-                file_hash="",
-                file_size=file_context.size_bytes,
-                file_modified=file_context.modified_time.isoformat() if file_context.modified_time else "",
-                classifier_name=result.classifier_name,
-                category=result.category.value,
-                subcategory=finding.subcategory,
-                value=finding.value[:200],
-                confidence=finding.confidence,
-                detection_method=finding.detection_method,
-                context=finding.context[:200] if finding.context else ""
-            ))
-
-        self.findings_count += len(result.findings)
-
-        # Обновляем каталог: непосредственная папка файла
-        folder = str(Path(file_context.path).parent)
-        if folder not in self.catalog_dict:
-            self.catalog_dict[folder] = set()
-        self.catalog_dict[folder].add(result.classifier_name)
-
-        # Сброс буфера находок при достижении размера батча
-        if len(self.buffer) >= self.batch_size:
-            self.flush()
-
-        # Периодический сброс каталога
-        if time.time() - self._last_catalog_flush >= CATALOG_FLUSH_INTERVAL:
-            self.flush_catalog()
-
-    def flush(self):
-        """Отправка буфера находок в Manager"""
-        if not self.buffer:
-            return
-
-        # Сбрасываем буфер сразу, чтобы не отправить повторно при ошибке
-        batch = self.buffer
-        self.buffer = []
-
-        try:
-            chunk = manager_pb2.ReportChunk(
-                scanner_id=str(self.scanner_id),
-                task_id=str(self.task_id),
-                findings=batch,
-                catalog=[],
-                failed=[]
-            )
-            response = self.stub.ReportBatch(iter([chunk]))
-            if response.success:
-                logger.info(f"Sent {len(batch)} findings to Manager")
-                self.sent = True
-            else:
-                logger.warning(f"ReportBatch warning: {response.message}")
-        except Exception as e:
-            logger.error(f"Error sending findings: {e}")
-
-    def flush_catalog(self):
-        """Отправка текущего снимка каталога в Manager"""
-        if not self.catalog_dict:
-            return
-
-        entries = [
-            manager_pb2.CatalogEntry(
-                folder_path=folder,
-                classifiers=sorted(classifiers),  # сортируем для стабильного порядка
-            )
-            for folder, classifiers in self.catalog_dict.items()
-        ]
-
-        try:
-            chunk = manager_pb2.ReportChunk(
-                scanner_id=str(self.scanner_id),
-                task_id=str(self.task_id),
-                findings=[],
-                catalog=entries,
-                failed=[]
-            )
-            response = self.stub.ReportBatch(iter([chunk]))
-            if response.success:
-                logger.info(f"Catalog sent: {len(entries)} folders")
-            else:
-                logger.warning(f"Catalog flush warning: {response.message}")
-        except Exception as e:
-            logger.error(f"Error sending catalog: {e}")
-        finally:
-            self._last_catalog_flush = time.time()
-
-    def close(self):
-        """Закрытие: сброс остатков находок, затем финальный сброс каталога"""
-        if self.buffer:
-            self.flush()
-        self.flush_catalog()
-        return self.sent
-
-
-class ScannerState:
-    """Состояние сканера для восстановления после перезапуска"""
-    
-    def __init__(self, state_dir: Path = Path("scanner_state")):
-        self.state_dir = Path(state_dir)
-        self.state_dir.mkdir(parents=True, exist_ok=True)
-        self.state_file = self.state_dir / "state.json"
-        self.task_file = self.state_dir / "current_task.json"
-        self.offline_findings = self.state_dir / "offline_findings.jsonl"
+        self.config = config
+        self.session = requests.Session()
+        self.session.headers.update({
+            'Content-Type': 'application/json',
+            'Accept': 'application/json'
+        })
         
-        self.current_task: Optional[Dict[str, Any]] = None
-        self.is_processing = False
+        if config and config.client:
+            self.timeout = config.client.timeout
+            self.heartbeat_timeout = config.client.heartbeat_timeout
+            self.submit_timeout = config.client.submit_timeout
+        else:
+            self.timeout = 30
+            self.heartbeat_timeout = 10
+            self.submit_timeout = 60
+        
+        self.files_scanned = 0
+        self.findings_found = 0
+        
+        logger.info(f"[ManagerClient] Initialized: URL={base_url}, ScannerID={scanner_id}")
     
-    def load(self) -> Dict[str, Any]:
-        """Загрузка состояния"""
-        if self.state_file.exists():
+    def register(self, name: str, hostname: str = None, ip_address: str = None, scan_interval: int = 10) -> Optional[int]:
+        url = f"{self.base_url}/api/scanner/register"
+        
+        if hostname is None:
             try:
-                with open(self.state_file, 'r') as f:
-                    return json.load(f)
+                hostname = socket.gethostname()
             except:
-                pass
-        return {"scanner_id": None, "last_heartbeat": None}
-    
-    def save(self, state: Dict[str, Any]):
-        """Сохранение состояния"""
-        with open(self.state_file, 'w') as f:
-            json.dump(state, f, indent=2)
-    
-    def save_current_task(self, task: Dict[str, Any]):
-        """Сохранение текущего задания"""
-        self.current_task = task
-        with open(self.task_file, 'w') as f:
-            json.dump(task, f, indent=2)
-    
-    def load_current_task(self) -> Optional[Dict[str, Any]]:
-        """Загрузка текущего задания"""
-        if self.task_file.exists():
+                hostname = "unknown"
+        
+        if ip_address is None:
             try:
-                with open(self.task_file, 'r') as f:
-                    return json.load(f)
+                ip_address = socket.gethostbyname(hostname)
             except:
-                pass
-        return None
+                ip_address = "127.0.0.1"
+        
+        data = {
+            "name": name,
+            "hostname": hostname,
+            "ip_address": ip_address,
+            "scan_interval": scan_interval
+        }
+        
+        try:
+            logger.info(f"[Register] Registering scanner: {name}")
+            response = self.session.post(url, json=data, timeout=self.timeout)
+            
+            if response.status_code == 200:
+                result = response.json()
+                scanner_id = result.get("scanner_id")
+                logger.info(f"[Register] ✅ Scanner registered: ID={scanner_id}, name={result.get('name')}")
+                self.scanner_id = scanner_id
+                return scanner_id
+            else:
+                logger.error(f"[Register] ❌ Failed: {response.status_code} - {response.text}")
+                return None
+                
+        except requests.exceptions.Timeout:
+            logger.error("[Register] ❌ Timeout")
+            return None
+        except requests.exceptions.RequestException as e:
+            logger.error(f"[Register] ❌ Error: {e}")
+            return None
     
-    def clear_current_task(self):
-        """Очистка текущего задания"""
-        self.current_task = None
-        if self.task_file.exists():
-            self.task_file.unlink()
+    def heartbeat(self, status: str = "idle", task_id: Optional[int] = None) -> bool:
+        if self.scanner_id is None:
+            logger.warning("[Heartbeat] Scanner not registered")
+            return False
+            
+        url = f"{self.base_url}/api/scanner/heartbeat"
+        data = {
+            "scanner_id": self.scanner_id,
+            "status": status,
+            "current_task_id": task_id
+        }
+        
+        try:
+            response = self.session.post(url, json=data, timeout=self.heartbeat_timeout)
+            if response.status_code == 200:
+                logger.debug(f"[Heartbeat] OK: {status}")
+                return True
+            else:
+                logger.warning(f"[Heartbeat] Failed: {response.status_code}")
+                return False
+        except requests.exceptions.Timeout:
+            logger.debug("[Heartbeat] Timeout")
+            return False
+        except requests.exceptions.RequestException as e:
+            logger.error(f"[Heartbeat] Error: {e}")
+            return False
     
-    def save_offline_finding(self, finding: Dict[str, Any]):
-        """Сохранение находки в оффлайн-режиме"""
-        with open(self.offline_findings, 'a', encoding='utf-8') as f:
-            f.write(json.dumps(finding, ensure_ascii=False) + '\n')
+    def get_task(self) -> Optional[Dict[str, Any]]:
+        if self.scanner_id is None:
+            logger.warning("[GetTask] Scanner not registered")
+            return None
+            
+        url = f"{self.base_url}/api/scanner/tasks/pending"
+        params = {"scanner_id": self.scanner_id}
+        
+        try:
+            response = self.session.get(url, params=params, timeout=self.timeout)
+            if response.status_code == 200:
+                data = response.json()
+                task = data.get("task")
+                if task:
+                    logger.info(f"[GetTask] Received task {task['id']}")
+                    return task
+                else:
+                    logger.debug("[GetTask] No pending tasks")
+                    return None
+            else:
+                logger.warning(f"[GetTask] Failed: {response.status_code}")
+                return None
+        except requests.exceptions.Timeout:
+            logger.warning("[GetTask] Timeout")
+            return None
+        except requests.exceptions.RequestException as e:
+            logger.error(f"[GetTask] Error: {e}")
+            return None
     
-    def get_offline_findings(self) -> list:
-        """Получение оффлайн-находок"""
-        findings = []
-        if self.offline_findings.exists():
-            with open(self.offline_findings, 'r', encoding='utf-8') as f:
-                for line in f:
-                    line = line.strip()
-                    if line:
-                        try:
-                            findings.append(json.loads(line))
-                        except:
-                            pass
-        return findings
+    def submit_results(
+        self,
+        task_id: int,
+        findings: List[Dict[str, Any]],
+        catalog_entries: List[Dict[str, Any]],
+        failed_files: List[Dict[str, Any]],
+        stats: Dict[str, Any]
+    ) -> bool:
+        if self.scanner_id is None:
+            logger.warning("[SubmitResults] Scanner not registered")
+            return False
+            
+        url = f"{self.base_url}/api/scanner/tasks/{task_id}/results"
+        data = {
+            "findings": findings,
+            "catalog_entries": catalog_entries,
+            "failed_files": failed_files,
+            "stats": stats
+        }
+        
+        try:
+            response = self.session.post(url, json=data, timeout=self.submit_timeout)
+            if response.status_code == 200:
+                result = response.json()
+                logger.info(f"[SubmitResults] OK: {result.get('findings_count', 0)} findings, {result.get('catalog_entries_count', 0)} catalog entries")
+                return True
+            else:
+                logger.error(f"[SubmitResults] Failed: {response.status_code}")
+                logger.error(f"[SubmitResults] Response: {response.text[:200]}")
+                return False
+        except Exception as e:
+            logger.error(f"[SubmitResults] Error: {e}")
+            return False
     
-    def clear_offline_findings(self):
-        """Очистка оффлайн-находок"""
-        if self.offline_findings.exists():
-            self.offline_findings.unlink()
+    def get_scanner_info(self) -> Optional[Dict[str, Any]]:
+        if self.scanner_id is None:
+            logger.warning("[GetScannerInfo] Scanner not registered")
+            return None
+            
+        url = f"{self.base_url}/api/scanner/{self.scanner_id}"
+        
+        try:
+            response = self.session.get(url, timeout=self.timeout)
+            if response.status_code == 200:
+                return response.json()
+            else:
+                logger.warning(f"[GetScannerInfo] Failed: {response.status_code}")
+                return None
+        except Exception as e:
+            logger.error(f"[GetScannerInfo] Error: {e}")
+            return None
 
 
 class ManagedScanner:
-    """Управляемый сканер — непрерывный цикл"""
-    
-    def __init__(self, name: str, manager_endpoint: str = "localhost:50051", 
-                 state_dir: Path = Path("scanner_state")):
+    def __init__(
+        self,
+        name: str,
+        manager_url: str = "http://localhost:8000",
+        scanner_id: Optional[int] = None,
+        interval: int = 10,
+        config: Optional[AppConfig] = None
+    ):
         self.name = name
-        self.manager_endpoint = manager_endpoint
-        self.scanner_id = None
-        self.stub = None
-        self.channel = None
-        
-        self.state = ScannerState(state_dir)
+        self.manager_url = manager_url
+        self.scanner_id = scanner_id
+        self.interval = interval
+        self.config = config
         self._should_exit = False
-        self._is_running = False
         
-        # Текущее задание
-        self.current_task = None
-        self.current_handler = None
-        self.current_orchestrator = None
-        
-        # Классификаторы (загружаются один раз)
+        self.client = None
         self.classifiers = []
         self._load_classifiers()
     
     def _load_classifiers(self):
-        """Загрузка классификаторов"""
         try:
             from scanner.classifiers.pii_classifier import PiiClassifier
             from scanner.classifiers.credentials_classifier import CredentialsClassifier
             from scanner.classifiers.code_classifier import CodeClassifier
             
-            pii = PiiClassifier()
-            pii.configure({"ocr_enabled": True})
-            self.classifiers.append(pii)
+            if self.config and self.config.classifiers:
+                pii_config = self.config.classifiers.pii
+                cred_config = self.config.classifiers.credentials
+                code_config = self.config.classifiers.code
+            else:
+                pii_config = None
+                cred_config = None
+                code_config = None
             
-            cred = CredentialsClassifier()
-            cred.configure({})
-            self.classifiers.append(cred)
+            if not pii_config or pii_config.enabled:
+                pii = PiiClassifier()
+                pii_config_dict = {}
+                if pii_config:
+                    pii_config_dict = {
+                        "ocr_enabled": pii_config.ocr_enabled,
+                        "min_confidence": pii_config.min_confidence,
+                        "ocr_languages": pii_config.ocr_languages,
+                        "ocr_psm": pii_config.ocr_psm,
+                        "ocr_timeout": pii_config.ocr_timeout,
+                        "max_file_size_mb": pii_config.max_file_size_mb,
+                        "quick_filter_enabled": pii_config.quick_filter_enabled
+                    }
+                pii.configure(pii_config_dict)
+                self.classifiers.append(pii)
+                logger.info(f"✅ PII Classifier loaded (OCR enabled: {pii_config_dict.get('ocr_enabled', True)})")
             
-            code = CodeClassifier()
-            code.configure({})
-            self.classifiers.append(code)
+            if not cred_config or cred_config.enabled:
+                cred = CredentialsClassifier()
+                cred_config_dict = {}
+                if cred_config:
+                    cred_config_dict = {
+                        "entropy_threshold": cred_config.entropy_threshold,
+                        "max_file_size_mb": cred_config.max_file_size_mb
+                    }
+                cred.configure(cred_config_dict)
+                self.classifiers.append(cred)
+                logger.info(f"✅ Credentials Classifier loaded")
+            
+            if not code_config or code_config.enabled:
+                code = CodeClassifier()
+                code_config_dict = {}
+                if code_config:
+                    code_config_dict = {
+                        "max_file_size_mb": code_config.max_file_size_mb
+                    }
+                code.configure(code_config_dict)
+                self.classifiers.append(code)
+                logger.info(f"✅ Code Classifier loaded")
             
             logger.info(f"✅ Загружено {len(self.classifiers)} классификаторов")
             
         except Exception as e:
             logger.error(f"❌ Ошибка загрузки классификаторов: {e}")
     
-    async def connect(self) -> bool:
-        """Подключение к Manager с восстановлением ID"""
-        self.channel = grpc.aio.insecure_channel(self.manager_endpoint)
-        self.stub = manager_pb2_grpc.ManagerServiceStub(self.channel)
+    def _register_scanner(self) -> bool:
+        if self.client is None:
+            logger.error("[Register] Client not initialized")
+            return False
         
-        # Загружаем сохранённое состояние
-        saved_state = self.state.load()
-        saved_scanner_id = saved_state.get("scanner_id")
-        
-        # Пробуем восстановить регистрацию
-        if saved_scanner_id:
-            logger.info(f"♻️ Восстановление сканера ID: {saved_scanner_id}")
-            try:
-                # Проверяем, жив ли сканер через Heartbeat
-                response = await self.stub.Heartbeat(manager_pb2.HeartbeatRequest(
-                    scanner_id=str(saved_scanner_id)
-                ))
-                if response.success:
-                    self.scanner_id = int(saved_scanner_id)
-                    logger.info(f"✅ Сканер восстановлен! ID: {self.scanner_id}")
-                    return True
-            except Exception as e:
-                logger.warning(f"⚠️ Не удалось восстановить сканер: {e}")
-        
-        # Регистрируем новый сканер
-        logger.info(f"📝 Регистрация сканера '{self.name}'...")
-        try:
-            response = await self.stub.Register(manager_pb2.RegisterRequest(
-                scanner_name=self.name,
-                endpoint="localhost:0"
-            ))
-            
-            if response.success:
-                self.scanner_id = int(response.scanner_id)
-                logger.info(f"✅ Зарегистрирован! ID: {self.scanner_id}")
-                
-                # Сохраняем ID
-                saved_state["scanner_id"] = self.scanner_id
-                self.state.save(saved_state)
-                
+        if self.scanner_id is not None:
+            logger.info(f"[Register] Using existing scanner ID: {self.scanner_id}")
+            info = self.client.get_scanner_info()
+            if info:
+                logger.info(f"[Register] Scanner found: {info.get('name')}, status={info.get('status')}")
                 return True
             else:
-                logger.error(f"❌ Ошибка регистрации: {response.message}")
-                return False
-                
-        except Exception as e:
-            logger.error(f"❌ Ошибка подключения: {e}")
-            return False
-    
-    async def restore_task(self) -> Optional[Dict]:
-        """Восстановление прерванного задания"""
-        saved_task = self.state.load_current_task()
+                logger.warning(f"[Register] Scanner ID {self.scanner_id} not found, re-registering...")
         
-        if not saved_task:
-            return None
-        
-        task_id = saved_task.get("task_id")
-        logger.info(f"♻️ Обнаружено незавершённое задание: {task_id}")
-        
-        # Проверяем статус задания в Manager
-        try:
-            # Пытаемся получить статус (если есть такой метод)
-            # Или просто пробуем продолжить
-            logger.info(f"   Продолжаем выполнение задания {task_id}...")
-            return saved_task
-        except Exception as e:
-            logger.warning(f"⚠️ Не удалось проверить статус задания: {e}")
-            return saved_task
-    
-    async def get_task(self) -> Optional[Dict]:
-        """Получение задания от Manager"""
-        try:
-            response = await self.stub.GetTask(manager_pb2.GetTaskRequest(
-                scanner_id=str(self.scanner_id)
-            ))
-            
-            if response.has_task:
-                task = {
-                    "task_id": int(response.task_id),
-                    "resource_id": int(response.resource_id),
-                    "resource_path": response.resource_path,
-                    "resource_type": response.resource_type,
-                    "batch_size": response.batch_size,
-                    "assigned_at": datetime.now().isoformat()
-                }
-                logger.info(f"📋 Получено задание: {task['task_id']}")
-                logger.info(f"   Ресурс: {task['resource_path']}")
-                return task
-            else:
-                return None
-                
-        except Exception as e:
-            logger.error(f"❌ Ошибка получения задания: {e}")
-            return None
-    
-    async def execute_task(self, task: Dict) -> bool:
-        """Выполнение задания"""
-        task_id = task["task_id"]
-        resource_path = task["resource_path"]
-        
-        logger.info(f"🔍 Начало сканирования: {resource_path}")
-        
-        # Сохраняем текущее задание
-        self.state.save_current_task(task)
-        self.current_task = task
-        
-        # Создаём обработчик
-        handler = GrpcHandler(self.manager_endpoint, self.scanner_id, task_id)
-        self.current_handler = handler
-        
-        # Создаём Orchestrator
-        orchestrator = Orchestrator(
-            config={
-                "state_file": f"state_{task_id}.json",
-                "logs_folder": "logs",
-                "catalog_dir": f"catalog_{task_id}"
-            },
-            shared_classifiers=self.classifiers,
-            shared_handlers=[handler]
+        scanner_id = self.client.register(
+            name=self.name,
+            scan_interval=self.interval
         )
-        self.current_orchestrator = orchestrator
         
-        # Настраиваем коннектор
-        connector = FileSystemConnector()
-        connector.configure({
-            "extensions": ["txt", "pdf", "docx", "xlsx", "png", "jpg", "jpeg", "json", "csv", "log"],
-            "max_file_size_mb": 50
-        })
+        if scanner_id is not None:
+            self.scanner_id = scanner_id
+            return True
         
-        orchestrator.configure(connector)
-        
-        try:
-            # Запускаем сканирование
-            orchestrator.process_source(resource_path)
-            
-            # Отправляем остатки
-            handler.close()
-            
-            # Получаем статистику
-            stats = orchestrator.get_statistics()
-            
-            logger.info(f"✅ Сканирование завершено!")
-            logger.info(f"   Обработано: {stats.get('processed_files', 0)} файлов")
-            logger.info(f"   Находок: {handler.findings_count}")
-            
-            # Завершаем задание
-            success = await self.complete_task(task_id, stats, handler.findings_count)
-            
-            # Очищаем состояние
-            self.state.clear_current_task()
-            self.current_task = None
-            self.current_handler = None
-            self.current_orchestrator = None
-            
-            return success
-            
-        except Exception as e:
-            logger.error(f"❌ Ошибка сканирования: {e}")
-            
-            # Пытаемся завершить с ошибкой
-            await self.complete_task(task_id, {}, 0, success=False, error=str(e))
-            
-            # Задание остаётся в состоянии для восстановления
-            # При следующем запуске будет продолжено
-            return False
+        logger.error("[Register] ❌ Registration failed")
+        return False
     
-    async def complete_task(self, task_id: int, stats: Dict, findings_count: int,
-                           success: bool = True, error: str = ""):
-        """Завершение задания в Manager"""
-        try:
-            response = await self.stub.CompleteTask(manager_pb2.CompleteTaskRequest(
-                scanner_id=str(self.scanner_id),
-                task_id=str(task_id),
-                files_scanned=stats.get('processed_files', 0),
-                findings_count=findings_count,
-                success=success,
-                error_message=error[:500]  # Ограничиваем длину
-            ))
+    def _get_connector_config(self) -> Dict[str, Any]:
+        if self.config and self.config.connector:
+            return {
+                "extensions": self.config.connector.extensions,
+                "max_file_size_mb": self.config.connector.max_file_size_mb or 500,
+                "recursive": self.config.connector.recursive,
+                "skip_dirs": self.config.connector.skip_dirs
+            }
+        return {
+            "extensions": ["*"],
+            "max_file_size_mb": 500,
+            "recursive": True,
+            "skip_dirs": ["$Recycle.Bin", "System Volume Information", "tmp", "temp", "cache", "__pycache__", "node_modules", "venv", "logs", ".git"]
+        }
+    
+    def _get_orchestrator_config(self) -> Dict[str, Any]:
+        return {
+            "state_file": "state.json",
+            "logs_folder": "logs",
+            "catalog_dir": "catalog",
+            "max_failed_log": 100000,
+            "performance": {
+                "save_interval": 1000,
+                "cache_cleanup_interval": 10000,
+                "models_reload_after_files": 50000,
+                "cache_memory_threshold_rss": 4096,
+                "models_memory_threshold_rss": 6144,
+            }
+        }
+    
+    def _get_collector_config(self) -> Dict[str, Any]:
+        return {
+            "max_findings": 10000000,
+            "max_failed_files": 100000
+        }
+    
+    def _collect_catalog_entries(self, resource_path: str, findings: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """Собрать записи каталога - папки, в которых есть находки."""
+        catalog_entries = {}
+        
+        for finding in findings:
+            file_path = finding.get("file_path", "")
+            if not file_path:
+                continue
             
-            if response.success:
-                logger.info(f"📋 Задание {task_id} завершено!")
-                return True
+            folder_path = str(Path(file_path).parent)
+            category = finding.get("category", "unknown")
+            
+            if folder_path not in catalog_entries:
+                catalog_entries[folder_path] = {
+                    "path": folder_path,
+                    "classifiers": {},
+                    "total_findings": 0,
+                    "file_count": 0,
+                    "files": set()
+                }
+            
+            if category not in catalog_entries[folder_path]["classifiers"]:
+                catalog_entries[folder_path]["classifiers"][category] = {
+                    "count": 0,
+                    "last_detected": datetime.utcnow().isoformat()
+                }
+            catalog_entries[folder_path]["classifiers"][category]["count"] += 1
+            catalog_entries[folder_path]["total_findings"] += 1
+            catalog_entries[folder_path]["files"].add(file_path)
+        
+        result = []
+        for folder_path, data in catalog_entries.items():
+            result.append({
+                "path": folder_path,
+                "metadata": {
+                    "classifiers": data["classifiers"],
+                    "total_findings": data["total_findings"],
+                    "file_count": len(data["files"]),
+                    "last_scanned": datetime.utcnow().isoformat()
+                }
+            })
+        
+        logger.info(f"[Catalog] Collected {len(result)} folders with findings")
+        return result
+    
+    def _execute_task(self, task: Dict[str, Any]) -> Dict[str, Any]:
+        task_id = task["id"]
+        resource_path = task["path"]
+        scan_config = task.get("scan_config", {})
+        
+        logger.info(f"[Scanner] Executing task {task_id} on {resource_path}")
+        
+        collector = FindingCollector()
+        collector_config = self._get_collector_config()
+        collector.configure(collector_config)
+        collector.start_collection()
+        
+        orchestrator = None
+        connector = None
+        
+        try:
+            orchestrator_config = self._get_orchestrator_config()
+            orchestrator = Orchestrator(
+                config=orchestrator_config,
+                shared_classifiers=self.classifiers,
+                shared_handlers=[collector]
+            )
+            
+            connector = FileSystemConnector()
+            connector_config = self._get_connector_config()
+            connector.configure(connector_config)
+            
+            orchestrator.configure(connector)
+            
+            logger.info(f"[Scanner] Checking connector on {resource_path}")
+            test_files = list(connector.list_files(resource_path))
+            logger.info(f"[Scanner] Connector found {len(test_files)} files")
+            
+            if not test_files:
+                logger.warning(f"[Scanner] No files found!")
+                return {
+                    "findings": [],
+                    "catalog_entries": [],
+                    "failed_files": [{"path": resource_path, "error": "No files found"}],
+                    "stats": {"files_scanned": 0, "files_failed": 1, "total_findings": 0}
+                }
+            
+            logger.info(f"[Scanner] Starting scan of {resource_path}")
+            
+            if hasattr(orchestrator, 'process_source'):
+                orchestrator.process_source(resource_path)
             else:
-                logger.warning(f"⚠️ Ошибка завершения задания: {response.message}")
-                return False
-                
+                logger.warning("[Scanner] process_source not available, using manual processing")
+                self._manual_scan(resource_path, orchestrator, connector)
+            
+            collector.finish_collection()
+            
+            results = collector.get_results()
+            
+            findings = results.get("findings", [])
+            failed_files = results.get("failed_files", [])
+            stats = results.get("stats", {})
+            
+            # Собираем каталог (папки с находками)
+            catalog_entries = self._collect_catalog_entries(resource_path, findings)
+            
+            stats["started_at"] = task.get("assigned_at", datetime.utcnow().isoformat())
+            stats["completed_at"] = datetime.utcnow().isoformat()
+            
+            logger.info(f"[Scanner] Task {task_id} completed:")
+            logger.info(f"  - Files scanned: {stats.get('files_scanned', 0)}")
+            logger.info(f"  - Files with findings: {stats.get('files_with_findings', 0)}")
+            logger.info(f"  - Total findings: {stats.get('total_findings', 0)}")
+            logger.info(f"  - Folders with findings: {len(catalog_entries)}")
+            logger.info(f"  - Failed files: {stats.get('files_failed', 0)}")
+            
+            if findings:
+                logger.info(f"[Scanner] Sample findings (first 5):")
+                for i, f in enumerate(findings[:5]):
+                    logger.info(f"  {i+1}. [{f.get('category')}] {f.get('value', '')[:50]} in {f.get('file_path', '')}")
+            
+            return {
+                "findings": findings,
+                "catalog_entries": catalog_entries,
+                "failed_files": failed_files,
+                "stats": stats
+            }
+            
         except Exception as e:
-            logger.error(f"❌ Ошибка CompleteTask: {e}")
-            return False
+            logger.error(f"[Scanner] Task {task_id} failed: {e}", exc_info=True)
+            if collector:
+                try:
+                    collector.finish_collection()
+                except:
+                    pass
+            
+            results = collector.get_results() if collector else {"findings": [], "failed_files": [], "stats": {}}
+            findings = results.get("findings", [])
+            
+            catalog_entries = []
+            if findings:
+                catalog_entries = self._collect_catalog_entries(resource_path, findings)
+            
+            return {
+                "findings": findings,
+                "catalog_entries": catalog_entries,
+                "failed_files": results.get("failed_files", []) + [{
+                    "path": resource_path,
+                    "error": str(e),
+                    "error_type": "scan_exception"
+                }],
+                "stats": {
+                    "files_scanned": results.get("stats", {}).get("files_scanned", 0),
+                    "files_failed": results.get("stats", {}).get("files_failed", 0) + 1,
+                    "total_findings": results.get("stats", {}).get("total_findings", 0),
+                    "started_at": task.get("assigned_at", datetime.utcnow().isoformat()),
+                    "completed_at": datetime.utcnow().isoformat(),
+                    "error": str(e)
+                }
+            }
+        finally:
+            if orchestrator:
+                try:
+                    if hasattr(orchestrator, 'stop'):
+                        orchestrator.stop()
+                except Exception as e:
+                    logger.debug(f"Error stopping orchestrator: {e}")
     
-    async def heartbeat_loop(self):
-        """Фоновый heartbeat"""
-        while not self._should_exit:
-            try:
-                await asyncio.sleep(10)
-                if self.scanner_id:
-                    response = await self.stub.Heartbeat(manager_pb2.HeartbeatRequest(
-                        scanner_id=str(self.scanner_id)
-                    ))
-                    if not response.success:
-                        logger.warning(f"⚠️ Heartbeat failed: {response.message}")
-                    else:
-                        logger.debug("💓 Heartbeat OK")
-            except Exception as e:
-                logger.warning(f"⚠️ Heartbeat error: {e}")
+    def _manual_scan(self, resource_path: str, orchestrator, connector):
+        logger.info(f"[ManualScan] Starting manual scan of {resource_path}")
+        
+        try:
+            files = list(connector.list_files(resource_path))
+            logger.info(f"[ManualScan] Found {len(files)} files")
+            
+            for i, file_ctx in enumerate(files):
+                try:
+                    file_with_content = connector.get_content(file_ctx)
+                    if not file_with_content or not file_with_content.content:
+                        continue
+                    
+                    from scanner.core.base import ProcessingContext
+                    context = ProcessingContext(file_context=file_with_content)
+                    
+                    if hasattr(orchestrator, '_process_file'):
+                        orchestrator._process_file(context, len(files))
+                    
+                    if (i + 1) % 10 == 0:
+                        logger.info(f"[ManualScan] Processed {i + 1}/{len(files)} files")
+                        
+                except Exception as e:
+                    logger.debug(f"[ManualScan] Error processing file: {e}")
+            
+            logger.info(f"[ManualScan] Completed: {len(files)} files processed")
+            
+        except Exception as e:
+            logger.error(f"[ManualScan] Error: {e}")
     
-    async def run_continuous(self):
-        """Непрерывный цикл работы Scanner"""
+    def run_loop(self):
         print("=" * 60)
-        print("🔍 DCAP MANAGED SCANNER (непрерывный режим)")
+        print("🔍 DCAP MANAGED SCANNER (REST API)")
         print("=" * 60)
         print(f"   Имя: {self.name}")
-        print(f"   Manager: {self.manager_endpoint}")
-        print("   Режим: получение и выполнение заданий")
+        print(f"   Manager: {self.manager_url}")
+        print(f"   Scanner ID: {self.scanner_id or 'auto-register'}")
+        print(f"   Интервал: {self.interval} сек")
         print("   Для остановки: Ctrl+C")
         print("=" * 60)
         
-        # Подключаемся к Manager
-        if not await self.connect():
-            logger.error("❌ Не удалось подключиться к Manager")
+        self.client = ManagerClient(
+            base_url=self.manager_url,
+            scanner_id=self.scanner_id,
+            config=self.config
+        )
+        
+        if not self._register_scanner():
+            logger.error("❌ Ошибка регистрации сканера")
             return
         
-        # Запускаем heartbeat
-        asyncio.create_task(self.heartbeat_loop())
+        logger.info(f"🔄 Сканер {self.name} запущен (ID: {self.scanner_id})")
         
-        # Проверяем, есть ли незавершённое задание
-        restored_task = await self.restore_task()
-        if restored_task:
-            logger.info("🔄 Продолжение прерванного задания...")
-            await self.execute_task(restored_task)
+        self.client.heartbeat(status="idle")
         
-        # Основной цикл
         while not self._should_exit:
             try:
-                # Получаем задание
-                task = await self.get_task()
+                heartbeat_ok = False
+                for attempt in range(3):
+                    if self.client.heartbeat(status="idle"):
+                        heartbeat_ok = True
+                        break
+                    if attempt < 2:
+                        time.sleep(1)
+                
+                if not heartbeat_ok:
+                    logger.warning("⚠️ Heartbeat не удался после 3 попыток")
+                
+                task = self.client.get_task()
                 
                 if task:
-                    # Выполняем задание
-                    await self.execute_task(task)
-                    await asyncio.sleep(1)
+                    self.client.heartbeat(status="busy", task_id=task["id"])
+                    
+                    result = self._execute_task(task)
+                    
+                    success = self.client.submit_results(
+                        task_id=task["id"],
+                        findings=result.get("findings", []),
+                        catalog_entries=result.get("catalog_entries", []),
+                        failed_files=result.get("failed_files", []),
+                        stats=result.get("stats", {})
+                    )
+                    
+                    if success:
+                        logger.info(f"✅ Task {task['id']} completed successfully")
+                    else:
+                        logger.error(f"❌ Failed to submit results for task {task['id']}")
+                    
+                    self.client.heartbeat(status="idle")
                 else:
-                    # Нет заданий — ждём
-                    if self._is_running:
-                        logger.debug("⏳ Нет заданий, ожидание...")
-                    await asyncio.sleep(5)
+                    time.sleep(self.interval)
                     
             except KeyboardInterrupt:
                 break
-            except grpc.RpcError as e:
-                logger.error(f"❌ gRPC ошибка: {e.code()} - {e.details()}")
-                if e.code() == grpc.StatusCode.UNAVAILABLE:
-                    logger.warning("⚠️ Manager недоступен, повторная попытка через 10 сек...")
-                    await asyncio.sleep(10)
             except Exception as e:
                 logger.error(f"❌ Ошибка в основном цикле: {e}")
-                await asyncio.sleep(5)
+                time.sleep(5)
         
-        await self.stop()
+        self.client.heartbeat(status="offline")
+        logger.info("👋 Сканер остановлен")
     
-    async def stop(self):
-        """Корректная остановка"""
+    def stop(self):
         self._should_exit = True
-        self._is_running = False
-        
-        # Если есть текущее задание — сохраняем состояние
-        if self.current_task:
-            logger.info(f"💾 Сохранение состояния задания {self.current_task['task_id']}")
-            self.state.save_current_task(self.current_task)
-        
-        # Останавливаем оркестратор
-        if self.current_orchestrator:
-            try:
-                self.current_orchestrator.stop()
-            except:
-                pass
-        
-        # Закрываем канал
-        if self.channel:
-            await self.channel.close()
-        
-        logger.info("👋 Scanner остановлен")
-    
-    async def run(self):
-        """Основной метод запуска (совместимость)"""
-        await self.run_continuous()
 
 
-async def main():
-    """Точка входа"""
-    # Настройка логирования
+def main():
     logging.basicConfig(
         level=logging.INFO,
         format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
     )
     
-    # Создаём сканер
-    scanner = ManagedScanner(
-        name=os.environ.get("SCANNER_NAME", f"scanner-{os.getpid()}"),
-        manager_endpoint=os.environ.get("MANAGER_ENDPOINT", "localhost:50051")
-    )
+    for name in logging.root.manager.loggerDict:
+        if 'presidio' in name.lower() or 'pypdf' in name.lower():
+            logging.getLogger(name).setLevel(logging.WARNING)
+            logging.getLogger(name).disabled = True
     
-    # Обработка сигналов
-    loop = asyncio.get_event_loop()
-    
-    def signal_handler():
-        print("\n⏹️ Получен сигнал остановки...")
-        asyncio.create_task(scanner.stop())
-    
-    if sys.platform != "win32":
-        loop.add_signal_handler(signal.SIGTERM, signal_handler)
-        loop.add_signal_handler(signal.SIGINT, signal_handler)
+    config_path = "scanner/config/scanner_config.json"
+    if len(sys.argv) > 1:
+        config_path = sys.argv[1]
     
     try:
-        await scanner.run_continuous()
+        from scanner.src.config_loader import load_config
+        config = load_config(config_path)
+    except Exception as e:
+        logger.error(f"Ошибка загрузки конфигурации: {e}")
+        config = None
+    
+    if config:
+        name = config.scanner.name
+        manager_url = config.scanner.manager_url
+        scanner_id = config.scanner.scanner_id
+        interval = config.scanner.scan_interval
+    else:
+        name = "scanner-1"
+        manager_url = "http://localhost:8000"
+        scanner_id = None
+        interval = 10
+    
+    scanner = ManagedScanner(
+        name=name,
+        manager_url=manager_url,
+        scanner_id=scanner_id,
+        interval=interval,
+        config=config
+    )
+    
+    try:
+        scanner.run_loop()
     except KeyboardInterrupt:
         print("\n⏹️ Прервано пользователем")
     finally:
-        await scanner.stop()
+        scanner.stop()
 
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    main()

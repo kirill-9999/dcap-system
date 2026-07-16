@@ -10,6 +10,7 @@ import psutil
 import sys
 import ctypes
 import json
+import logging
 from pathlib import Path
 from typing import Dict, Any, List, Optional
 from collections import defaultdict
@@ -24,6 +25,9 @@ from core.catalog_manager import CatalogManager
 from core.adaptive_cache_manager import AdaptiveCacheManager
 from utils.performance_monitor import PerformanceMonitor
 from utils.file_hasher import FileHasher
+
+# Настройка логгера
+logger = logging.getLogger(__name__)
 
 
 class ProgressDisplay:
@@ -419,6 +423,7 @@ class Orchestrator:
                             print(f"[CACHE] Очищен кэш OCR: {cache_size} -> 0")
         
         # Принудительный GC
+        start_time = time.time()
         self.memory_manager.check_and_collect(force=True)
         
         after_mem = self.memory_manager.get_memory_usage()
@@ -511,71 +516,60 @@ class Orchestrator:
         sys.exit(99)
     
     def _check_and_cleanup(self):
-        """Адаптивная проверка и очистка с использованием AdaptiveCacheManager"""
-        mem = self.memory_manager.get_memory_usage()
-        current_rss = mem.get("process_rss_mb", 0)
-        current_vms = mem.get("process_vms_mb", 0)
-        system_commit = mem.get("system_commit_percent", 0)
+        """Проверка необходимости очистки кэша и перезагрузки моделей"""
+        current_files = self.processed_count
         
-        files_since_cache_cleanup = self.processed_count - self.last_cache_cleanup
-        files_since_models_reload = self.processed_count - self.last_models_reload
+        # Проверка очистки кэша
+        if current_files - self.last_cache_cleanup >= self.cache_cleanup_interval:
+            logger.info(f"[CACHE] Требуется очистка: интервал {self.cache_cleanup_interval} >= {current_files - self.last_cache_cleanup} файлов")
+            self._cleanup_cache()
+            self.last_cache_cleanup = current_files
         
-        # Отладка каждые 500 файлов
-        if self.processed_count % 500 == 0 and self.processed_count > 0:
-            stats = self.adaptive_manager.get_efficiency_stats()
-            print(f"\n[DEBUG] Статус памяти на {self.processed_count} файлах:")
-            print(f"[DEBUG]   RSS: {current_rss:.0f} MB")
-            print(f"[DEBUG]   VMS: {current_vms:.0f} MB")
-            print(f"[DEBUG]   System Commit: {system_commit:.1f}%")
-            print(f"[DEBUG]   Скорость роста памяти: {stats['memory_growth_rate_mb_per_file']:.2f} MB/файл")
-            print(f"[DEBUG]   Прогноз пика: {stats['predicted_peak_mb']:.0f} MB")
-            print(f"[DEBUG]   Эффективность очисток: {stats['cleanup_effectiveness_percent']:.1f}%")
-            print(f"[DEBUG]   Текущий интервал очистки: {stats['current_cleanup_interval']} файлов")
-            print(f"[DEBUG]   Текущий интервал перезагрузки: {stats['current_reload_interval']} файлов\n")
-        
-        # Аварийная проверка
-        if system_commit > self.emergency_restart_threshold:
-            print(f"\n⚠️ [EMERGENCY] System Commit достиг {system_commit:.1f}%! Принудительная перезагрузка моделей...")
+        # Проверка перезагрузки моделей
+        if current_files - self.last_models_reload >= self.models_reload_after_files:
+            logger.info(f"[RELOAD] Требуется перезагрузка моделей: интервал {self.models_reload_after_files} >= {current_files - self.last_models_reload} файлов")
             self._reload_models()
-            return
-        
-        # 1. Очистка кэшей (не чаще чем раз в 50 файлов после превышения порога)
-        need_cleanup = False
-        cleanup_reason = ""
-        
-        if current_rss > self.cache_memory_threshold_rss and files_since_cache_cleanup >= 50:
-            need_cleanup = True
-            cleanup_reason = f"RSS {current_rss:.0f} MB > {self.cache_memory_threshold_rss} MB"
-        elif current_vms > self.cache_memory_threshold_vms and files_since_cache_cleanup >= 50:
-            need_cleanup = True
-            cleanup_reason = f"VMS {current_vms:.0f} MB > {self.cache_memory_threshold_vms} MB"
-        elif files_since_cache_cleanup >= self.cache_cleanup_interval and self.last_cache_cleanup > 0:
-            need_cleanup = True
-            cleanup_reason = f"интервал {files_since_cache_cleanup} >= {self.cache_cleanup_interval} файлов"
-        
-        if need_cleanup:
-            print(f"\n[CACHE] Требуется очистка: {cleanup_reason}")
-            self._adaptive_cleanup_caches(cleanup_reason)
-            self._save_state(force=True)
-        
-        # 2. Перезагрузка моделей (не чаще чем раз в 100 файлов после превышения порога)
-        need_reload = False
-        reload_reason = ""
-        
-        if current_rss > self.models_memory_threshold_rss and files_since_models_reload >= 100:
-            need_reload = True
-            reload_reason = f"RSS {current_rss:.0f} MB > {self.models_memory_threshold_rss} MB"
-        elif current_vms > self.models_memory_threshold_vms and files_since_models_reload >= 100:
-            need_reload = True
-            reload_reason = f"VMS {current_vms:.0f} MB > {self.models_memory_threshold_vms} MB"
-        elif files_since_models_reload >= self.models_reload_after_files and self.last_models_reload > 0:
-            need_reload = True
-            reload_reason = f"интервал {files_since_models_reload} >= {self.models_reload_after_files} файлов"
-        
-        if need_reload:
-            print(f"\n[RELOAD] Требуется перезагрузка моделей: {reload_reason}")
-            self._reload_models()
-            self._save_state(force=True)    
+            self.last_models_reload = current_files
+
+    def _cleanup_cache(self):
+        """Очистка кэша классификаторов"""
+        try:
+            logger.info("[CACHE] Очистка кэша...")
+            
+            for classifier in self.classifiers:
+                if hasattr(classifier, 'cleanup_cache'):
+                    classifier.cleanup_cache()
+                elif hasattr(classifier, 'clear_cache'):
+                    classifier.clear_cache()
+            
+            import gc
+            gc.collect()
+            
+            logger.info("[CACHE] Очистка кэша завершена")
+            
+        except Exception as e:
+            logger.error(f"[CACHE] Ошибка очистки кэша: {e}")
+
+    def _reload_models(self):
+        """Перезагрузка моделей классификаторов"""
+        try:
+            logger.info("[RELOAD] Перезагрузка моделей классификаторов...")
+            
+            for classifier in self.classifiers:
+                if hasattr(classifier, 'reload_models'):
+                    classifier.reload_models()
+                elif hasattr(classifier, 'reload'):
+                    classifier.reload()
+                elif hasattr(classifier, 'load_models'):
+                    classifier.load_models()
+            
+            import gc
+            gc.collect()
+            
+            logger.info("[RELOAD] Модели перезагружены")
+            
+        except Exception as e:
+            logger.error(f"[RELOAD] Ошибка перезагрузки моделей: {e}")
     
     def _collect_findings_types(self, context: ProcessingContext) -> Dict[str, List[str]]:
         findings_types = {}
@@ -787,7 +781,6 @@ class Orchestrator:
         
         context.shared_cache.clear()
         
-        # ========== ДОБАВИТЬ ЭТОТ БЛОК ==========
         # Обновление монитора производительности
         if self.monitor and self.monitor.enabled:
             processing_time = sum(r.processing_time for r in context.classifier_results.values())
@@ -798,7 +791,6 @@ class Orchestrator:
                 has_findings=has_findings,
                 findings_count=total_findings
             )
-        # =======================================
         
         return total_findings
     

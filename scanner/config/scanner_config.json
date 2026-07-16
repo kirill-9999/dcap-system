@@ -1,0 +1,54 @@
+{
+    "scanner": {
+        "name": "scanner-1",
+        "manager_url": "http://localhost:8000",
+        "scanner_id": null,
+        "scan_interval": 10,
+        "state_dir": "scanner_state",
+        "log_level": "INFO"
+    },
+    "performance": {
+        "max_file_size_mb": 500,
+        "cache_cleanup_interval": 10000,
+        "models_reload_after_files": 50000,
+        "memory_limit_rss_mb": 16384,
+        "emergency_restart_threshold": 90,
+        "save_interval": 1000,
+        "catalog_save_interval": 1000,
+        "max_parallel_files": 8,
+        "timeout_per_file_sec": 60
+    },
+    "classifiers": {
+        "pii_classifier": {
+            "enabled": true,
+            "min_confidence": 0.3,
+            "ocr_enabled": true
+        },
+        "credentials_classifier": {
+            "enabled": true
+        },
+        "code_classifier": {
+            "enabled": true
+        }
+    },
+    "connector": {
+        "skip_dirs": ["$Recycle.Bin", "System Volume Information", "tmp", "temp", "cache", "__pycache__", "node_modules", "venv", "logs"],
+        "follow_symlinks": false,
+        "scan_hidden": true
+    },
+    "logging": {
+        "level": "INFO",
+        "file": "logs/scanner.log",
+        "max_size_mb": 100,
+        "backup_count": 5
+    },
+    "finding_collector": {
+        "max_findings": 10000000,
+        "max_failed_files": 100000
+    },
+    "client": {
+        "timeout": 30,
+        "heartbeat_timeout": 10,
+        "submit_timeout": 60
+    }
+}
