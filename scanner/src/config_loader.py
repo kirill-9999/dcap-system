@@ -21,6 +21,7 @@ class ScannerConfig:
     scanner_id: Optional[int] = None
     scan_interval: int = 10
     log_level: str = "INFO"
+    state_dir: str = "scanner_state"  # <-- ДОБАВЛЕНО
     
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> 'ScannerConfig':
@@ -29,7 +30,8 @@ class ScannerConfig:
             manager_url=data.get("manager_url", "http://localhost:8000"),
             scanner_id=data.get("scanner_id"),
             scan_interval=data.get("scan_interval", 10),
-            log_level=data.get("log_level", "INFO")
+            log_level=data.get("log_level", "INFO"),
+            state_dir=data.get("state_dir", "scanner_state")  # <-- ДОБАВЛЕНО
         )
 
 
@@ -246,7 +248,8 @@ class AppConfig:
                 "manager_url": self.scanner.manager_url,
                 "scanner_id": self.scanner.scanner_id,
                 "scan_interval": self.scanner.scan_interval,
-                "log_level": self.scanner.log_level
+                "log_level": self.scanner.log_level,
+                "state_dir": self.scanner.state_dir  # <-- ДОБАВЛЕНО
             },
             "connector": {
                 "extensions": self.connector.extensions,

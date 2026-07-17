@@ -4,7 +4,7 @@
         "manager_url": "http://localhost:8000",
         "scanner_id": null,
         "scan_interval": 10,
-        "state_dir": "scanner_state",
+        "state_dir": "scanner/state",
         "log_level": "INFO"
     },
     "performance": {

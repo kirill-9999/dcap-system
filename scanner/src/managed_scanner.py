@@ -345,8 +345,14 @@ class ManagedScanner:
         }
     
     def _get_orchestrator_config(self) -> Dict[str, Any]:
+        """Получить конфигурацию оркестратора"""
+        # Получаем state_dir из конфига сканера
+        state_dir = "scanner_state"  # значение по умолчанию
+        if self.config and self.config.scanner:
+            state_dir = self.config.scanner.state_dir or "scanner_state"
+        
         return {
-            "state_file": "state.json",
+            "state_file": str(Path(state_dir) / "state.json"),  # Полный путь к state.json
             "logs_folder": "logs",
             "catalog_dir": "catalog",
             "max_failed_log": 100000,
@@ -365,6 +371,16 @@ class ManagedScanner:
             "max_failed_files": 100000
         }
     
+    def _get_state_dir(self) -> Path:
+        """Получить путь к директории состояния"""
+        state_dir = "scanner_state"
+        if self.config and self.config.scanner:
+            state_dir = self.config.scanner.state_dir or "scanner_state"
+        
+        state_path = Path(state_dir)
+        state_path.mkdir(parents=True, exist_ok=True)
+        return state_path
+
     def _collect_catalog_entries(self, resource_path: str, findings: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         """Собрать записи каталога - папки, в которых есть находки."""
         catalog_entries = {}
