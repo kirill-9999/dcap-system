@@ -1,23 +1,22 @@
+# manager/src/main.py
+
 from fastapi import FastAPI
-from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
-import uvicorn
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse
 import os
 
-from .db import init_db
-from .api import (
-    resources_router,
-    scanner_router,
-    tasks_router,
-    findings_router,
-    catalog_router
-)
+from manager.src.api.resources import router as resources_router
+from manager.src.api.tasks import router as tasks_router
+from manager.src.api.findings import router as findings_router
+from manager.src.api.catalog import router as catalog_router
+from manager.src.api.scanner import router as scanner_router
+from manager.src.api.permissions import router as permissions_router
 
-# Инициализация FastAPI
 app = FastAPI(
-    title="DCAP Manager API",
-    description="Data Classification and Protection System - Manager",
-    version="1.0.0"
+    title="DCAP System Manager",
+    description="Data-Centric Audit and Protection System",
+    version="2.0.0-alpha"
 )
 
 # CORS
@@ -29,39 +28,92 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Подключаем роутеры
-app.include_router(resources_router)
-app.include_router(scanner_router)
-app.include_router(tasks_router)
-app.include_router(findings_router)
-app.include_router(catalog_router)
+# ============================================================
+# ПОДКЛЮЧЕНИЕ WEBUI
+# ============================================================
 
-# Статические файлы WebUI
-webui_path = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "webui", "static")
-if os.path.exists(webui_path):
-    app.mount("/static", StaticFiles(directory=webui_path), name="static")
+# Определяем путь к static
+base_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+webui_static = os.path.join(base_dir, "webui", "static")
+webui_static = os.path.normpath(webui_static)
+
+print(f"📁 WebUI static: {webui_static}")
+print(f"📁 Exists: {os.path.exists(webui_static)}")
+
+# Проверяем наличие файлов
+index_path = os.path.join(webui_static, "index.html")
+css_path = os.path.join(webui_static, "css", "style.css")
+js_path = os.path.join(webui_static, "js", "app.js")
+
+print(f"📁 index.html: {index_path} ({'✅' if os.path.exists(index_path) else '❌'})")
+print(f"📁 style.css: {css_path} ({'✅' if os.path.exists(css_path) else '❌'})")
+print(f"📁 app.js: {js_path} ({'✅' if os.path.exists(js_path) else '❌'})")
+
+if os.path.exists(webui_static):
+    # ✅ 1. Монтируем ВСЮ папку static на /static
+    app.mount("/static", StaticFiles(directory=webui_static), name="static")
+    print("✅ Static files mounted on /static")
+    
+    # ✅ 2. Отдаем index.html на корневой путь
+    @app.get("/")
+    async def serve_index():
+        if os.path.exists(index_path):
+            return FileResponse(index_path)
+        return {"error": "index.html not found", "path": index_path}
+    
+    # ✅ 3. Если нужен прямой доступ к index.html
+    @app.get("/index.html")
+    async def serve_index_html():
+        if os.path.exists(index_path):
+            return FileResponse(index_path)
+        return {"error": "index.html not found"}
+    
+    print("✅ WebUI настроен")
+else:
+    print(f"❌ WebUI не найден по пути: {webui_static}")
     
     @app.get("/")
     async def root():
-        from fastapi.responses import FileResponse
-        index_path = os.path.join(webui_path, "index.html")
-        if os.path.exists(index_path):
-            return FileResponse(index_path)
-        return {"message": "DCAP Manager API", "docs": "/docs"}
+        return {
+            "message": "DCAP System Manager API",
+            "docs": "/docs",
+            "error": "WebUI not found",
+            "path": webui_static
+        }
 
-@app.on_event("startup")
-async def startup_event():
-    """Инициализация при запуске"""
-    print("🚀 DCAP Manager starting...")
-    init_db()
-    print("✅ Database initialized")
+# ============================================================
+# ПОДКЛЮЧЕНИЕ РОУТЕРОВ
+# ============================================================
 
-@app.get("/health")
+app.include_router(resources_router)
+app.include_router(tasks_router)
+app.include_router(findings_router)
+app.include_router(catalog_router)
+app.include_router(scanner_router)
+app.include_router(permissions_router)
+
+
+# ============================================================
+# API ЭНДПОИНТЫ
+# ============================================================
+
+@app.get("/api/health")
 async def health_check():
-    """Проверка здоровья"""
-    return {"status": "healthy", "version": "1.0.0"}
+    return {"status": "healthy", "version": "2.0.0-alpha"}
+
+
+@app.get("/api/root")
+async def api_root():
+    return {"message": "DCAP System Manager API", "docs": "/docs"}
+
+
+# ============================================================
+# ЗАПУСК СЕРВЕРА
+# ============================================================
 
 if __name__ == "__main__":
+    import uvicorn
+    
     uvicorn.run(
         "manager.src.main:app",
         host="0.0.0.0",

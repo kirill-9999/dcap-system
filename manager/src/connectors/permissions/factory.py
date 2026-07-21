@@ -6,7 +6,7 @@ from .base import PermissionCollector
 from .local import LocalPermissionCollector
 from .remote import RemotePermissionCollector
 from .ad import ADPermissionCollector
-from manager.src.services.access_config import get_access_config
+from manager.src.services.access_config import get_access_config  # ← абсолютный импорт
 
 logger = logging.getLogger(__name__)
 
@@ -45,8 +45,8 @@ class PermissionCollectorFactory:
         # Для удаленного режима нужен endpoint
         if source_type == "remote":
             config = get_access_config()
-            if "manager_endpoint" not in kwargs:
-                kwargs["manager_endpoint"] = config.scanner_endpoint or "http://manager:8000"
+            if "scanner_endpoint" not in kwargs:
+                kwargs["scanner_endpoint"] = config.scanner_endpoint or "http://scanner:8000"
             if "timeout" not in kwargs:
                 kwargs["timeout"] = config.timeout_seconds
         
@@ -67,7 +67,7 @@ class PermissionCollectorFactory:
             try:
                 if name == "remote":
                     collector = collector_class(
-                        manager_endpoint=config.scanner_endpoint or "http://manager:8000"
+                        scanner_endpoint=config.scanner_endpoint or "http://scanner:8000"
                     )
                 else:
                     collector = collector_class()

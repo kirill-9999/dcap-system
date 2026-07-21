@@ -1,3 +1,5 @@
+# manager/src/api/scanner.py
+
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy.orm import Session
 from sqlalchemy import and_, or_
@@ -10,9 +12,15 @@ from ..db import models, session
 from .resources import get_default_config, deep_merge
 
 logger = logging.getLogger(__name__)
+
+# ============================================================
+# ✅ РОУТЕР (ДОЛЖЕН БЫТЬ ПЕРВЫМ)
+# ============================================================
 router = APIRouter(prefix="/api/scanner", tags=["scanner"])
 
-# ==================== МОДЕЛИ ДЛЯ SCANNER ====================
+# ============================================================
+# МОДЕЛИ
+# ============================================================
 
 class RegisterRequest(BaseModel):
     name: str
@@ -60,10 +68,14 @@ class ResultsPayload(BaseModel):
     failed_files: List[FailedFilePayload] = []
     stats: ScanStats = ScanStats()
 
-# ==================== КОНСТАНТЫ ====================
-TASK_TIMEOUT_MINUTES = 30  # Задание считается зависшим через 30 минут
+# ============================================================
+# КОНСТАНТЫ
+# ============================================================
+TASK_TIMEOUT_MINUTES = 30
 
-# ==================== ЭНДПОИНТЫ ====================
+# ============================================================
+# ЭНДПОИНТЫ
+# ============================================================
 
 @router.post("/register")
 async def register_scanner(
@@ -86,18 +98,16 @@ async def register_scanner(
     if not name:
         raise HTTPException(400, "Missing 'name' field")
     
-    if hostname:
-        manager_url = f"http://{hostname}:8000"
-    elif ip_address:
-        manager_url = f"http://{ip_address}:8000"
-    else:
-        manager_url = "http://localhost:8000"
-    
     existing = db.query(models.Scanner).filter(models.Scanner.name == name).first()
     if existing:
-        existing.manager_url = manager_url
         existing.status = "active"
         existing.last_heartbeat = datetime.utcnow()
+        if hostname:
+            existing.hostname = hostname
+        if ip_address:
+            existing.ip_address = ip_address
+        if scan_interval:
+            existing.scan_interval = scan_interval
         db.commit()
         db.refresh(existing)
         return {
@@ -109,7 +119,9 @@ async def register_scanner(
     
     scanner = models.Scanner(
         name=name,
-        manager_url=manager_url,
+        hostname=hostname,
+        ip_address=ip_address,
+        scan_interval=scan_interval,
         status="active",
         last_heartbeat=datetime.utcnow()
     )
@@ -123,6 +135,7 @@ async def register_scanner(
         "message": f"Scanner '{name}' registered",
         "name": name
     }
+
 
 @router.post("/heartbeat")
 async def heartbeat(
@@ -149,26 +162,21 @@ async def heartbeat(
     
     return {"status": "ok"}
 
+
 @router.get("/tasks/pending")
 def get_pending_task(
     scanner_id: int = Query(..., description="ID сканера"),
     db: Session = Depends(session.get_db)
 ):
-    """
-    Получить следующее задание для сканера.
-    Задание блокируется для других сканеров.
-    """
-    # Проверяем сканер
+    """Получить следующее задание для сканера"""
     scanner = db.query(models.Scanner).filter(models.Scanner.id == scanner_id).first()
     if not scanner:
         raise HTTPException(404, "Scanner not found")
     
-    # Обновляем heartbeat
     scanner.last_heartbeat = datetime.utcnow()
     db.commit()
     
-    # ========== БЛОКИРОВКА ЗАДАНИЙ ==========
-    # 1. Сначала освобождаем зависшие задания (таймаут)
+    # Освобождаем зависшие задания
     timeout_threshold = datetime.utcnow() - timedelta(minutes=TASK_TIMEOUT_MINUTES)
     stale_tasks = db.query(models.ScanTask).filter(
         and_(
@@ -178,14 +186,12 @@ def get_pending_task(
     ).all()
     
     for task in stale_tasks:
-        logger.warning(f"[Task] Releasing stale task {task.id} (assigned to {task.assigned_to} at {task.assigned_at})")
+        logger.warning(f"[Task] Releasing stale task {task.id}")
         task.status = "pending"
         task.assigned_to = None
         task.assigned_at = None
     db.commit()
     
-    # 2. Ищем задание со статусом pending (используем FOR UPDATE для блокировки)
-    # В SQLite это не поддерживается, поэтому используем SELECT и UPDATE в транзакции
     task = db.query(models.ScanTask).filter(
         models.ScanTask.status == "pending"
     ).order_by(models.ScanTask.created_at).first()
@@ -193,8 +199,6 @@ def get_pending_task(
     if not task:
         return {"task": None}
     
-    # 3. Проверяем, что задание действительно еще pending (защита от race condition)
-    # Перечитываем задание с блокировкой
     task = db.query(models.ScanTask).filter(
         and_(
             models.ScanTask.id == task.id,
@@ -203,24 +207,19 @@ def get_pending_task(
     ).first()
     
     if not task:
-        # Задание уже заблокировано другим сканером
         return {"task": None}
     
-    # 4. Получаем ресурс
     resource = db.query(models.Resource).filter(models.Resource.id == task.resource_id).first()
     if not resource:
         task.status = "failed"
         db.commit()
         raise HTTPException(404, "Resource not found")
     
-    # 5. Формируем конфиг
     default_config = get_default_config()
     scan_config = default_config
-    
     if resource.scan_config:
         scan_config = deep_merge(default_config, resource.scan_config)
     
-    # 6. Блокируем задание для этого сканера
     task.status = "assigned"
     task.assigned_to = scanner_id
     task.assigned_at = datetime.utcnow()
@@ -237,6 +236,7 @@ def get_pending_task(
         }
     }
 
+
 @router.post("/tasks/{task_id}/results")
 async def submit_results(
     task_id: int,
@@ -251,13 +251,10 @@ async def submit_results(
     
     logger.info(f"Results for task {task_id}: {len(payload.get('findings', []))} findings")
     
-    # Находим задание
     task = db.query(models.ScanTask).filter(models.ScanTask.id == task_id).first()
     if not task:
         raise HTTPException(404, "Task not found")
     
-    # Проверяем, что задание принадлежит этому сканеру
-    # (защита от случайной отправки результатов от другого сканера)
     if task.status != "assigned":
         raise HTTPException(400, f"Task status is {task.status}, expected 'assigned'")
     
@@ -284,7 +281,7 @@ async def submit_results(
         )
         db.add(finding)
     
-    # Сохраняем catalog_entries (папки с находками)
+    # Сохраняем catalog_entries
     for entry in payload.get("catalog_entries", []):
         folder_path = entry.get("path", "")
         if not folder_path:
@@ -333,7 +330,6 @@ async def submit_results(
         )
         db.add(failed_file)
     
-    # Обновляем задание
     stats = payload.get("stats", {})
     task.status = "completed"
     task.completed_at = datetime.utcnow()
@@ -341,7 +337,6 @@ async def submit_results(
     task.files_scanned = stats.get("files_scanned", 0)
     task.files_failed = stats.get("files_failed", 0)
     
-    # Обновляем ресурс
     resource = db.query(models.Resource).filter(models.Resource.id == task.resource_id).first()
     if resource:
         resource.last_scanned_at = datetime.utcnow()
@@ -359,6 +354,7 @@ async def submit_results(
         "failed_files_count": len(payload.get("failed_files", []))
     }
 
+
 @router.get("/{scanner_id}")
 def get_scanner_info(
     scanner_id: int,
@@ -369,7 +365,6 @@ def get_scanner_info(
     if not scanner:
         raise HTTPException(404, "Scanner not found")
     
-    # Получаем текущее задание сканера
     current_task = db.query(models.ScanTask).filter(
         and_(
             models.ScanTask.assigned_to == scanner_id,
@@ -380,16 +375,16 @@ def get_scanner_info(
     return {
         "id": scanner.id,
         "name": scanner.name,
-        "manager_url": scanner.manager_url,
         "status": scanner.status,
         "last_heartbeat": scanner.last_heartbeat.isoformat() if scanner.last_heartbeat else None,
-        "created_at": scanner.created_at.isoformat() if scanner.created_at else None,
+        "created_at": scanner.created_at.isoformat() if hasattr(scanner, 'created_at') and scanner.created_at else None,
         "current_task": {
             "id": current_task.id,
             "resource_id": current_task.resource_id,
             "assigned_at": current_task.assigned_at.isoformat() if current_task.assigned_at else None
         } if current_task else None
     }
+
 
 @router.get("/tasks/assigned")
 def get_assigned_tasks(
@@ -411,15 +406,13 @@ def get_assigned_tasks(
         for t in tasks
     ]
 
+
 @router.post("/tasks/{task_id}/release")
 def release_task(
     task_id: int,
     db: Session = Depends(session.get_db)
 ):
-    """
-    Принудительно освободить задание (для администратора).
-    Используется если сканер завис и не может выполнить задание.
-    """
+    """Принудительно освободить задание (для администратора)"""
     task = db.query(models.ScanTask).filter(models.ScanTask.id == task_id).first()
     if not task:
         raise HTTPException(404, "Task not found")
