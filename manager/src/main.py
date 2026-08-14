@@ -4,6 +4,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
+from fastapi import HTTPException
 import os
 
 from manager.src.api.resources import router as resources_router
@@ -100,6 +101,24 @@ app.include_router(permissions_router)
 @app.get("/api/health")
 async def health_check():
     return {"status": "healthy", "version": "2.0.0-alpha"}
+
+
+@app.post("/api/folders/pick")
+def pick_folder():
+    """Открыть нативный диалог выбора папки (Windows)"""
+    try:
+        import tkinter
+        from tkinter import filedialog
+        root = tkinter.Tk()
+        root.withdraw()
+        root.attributes("-topmost", True)
+        path = filedialog.askdirectory(title="Выбор папки для сканирования")
+        root.destroy()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Невозможно открыть диалог выбора папки: {e}")
+    if not path:
+        return {"success": False, "path": None}
+    return {"success": True, "path": path}
 
 
 @app.get("/api/root")

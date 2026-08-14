@@ -188,7 +188,7 @@ def get_pending_task(
     for task in stale_tasks:
         logger.warning(f"[Task] Releasing stale task {task.id}")
         task.status = "pending"
-        task.assigned_to = None
+        task.scanner_id = None
         task.assigned_at = None
     db.commit()
     
@@ -221,7 +221,7 @@ def get_pending_task(
         scan_config = deep_merge(default_config, resource.scan_config)
     
     task.status = "assigned"
-    task.assigned_to = scanner_id
+    task.scanner_id = scanner_id
     task.assigned_at = datetime.utcnow()
     db.commit()
     
@@ -344,7 +344,7 @@ async def submit_results(
     
     db.commit()
     
-    logger.info(f"[Task] Task {task_id} completed by scanner {task.assigned_to}")
+    logger.info(f"[Task] Task {task_id} completed by scanner {task.scanner_id}")
     
     return {
         "status": "accepted",
@@ -367,7 +367,7 @@ def get_scanner_info(
     
     current_task = db.query(models.ScanTask).filter(
         and_(
-            models.ScanTask.assigned_to == scanner_id,
+            models.ScanTask.scanner_id == scanner_id,
             models.ScanTask.status == "assigned"
         )
     ).first()
@@ -399,7 +399,7 @@ def get_assigned_tasks(
         {
             "id": t.id,
             "resource_id": t.resource_id,
-            "assigned_to": t.assigned_to,
+            "assigned_to": t.scanner_id,
             "assigned_at": t.assigned_at.isoformat() if t.assigned_at else None,
             "created_at": t.created_at.isoformat()
         }
@@ -420,10 +420,10 @@ def release_task(
     if task.status != "assigned":
         raise HTTPException(400, f"Task is not assigned (status: {task.status})")
     
-    old_scanner_id = task.assigned_to
+    old_scanner_id = task.scanner_id
     
     task.status = "pending"
-    task.assigned_to = None
+    task.scanner_id = None
     task.assigned_at = None
     db.commit()
     

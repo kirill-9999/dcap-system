@@ -55,3 +55,10 @@ catalog/
 test_files/
 state*.json
 *.jsonl
+
+# Отчеты могут содержать конфиденциальные данные (опционально)
+# prompts/reports/*
+
+# Копии БД
+manager/src/db/dcap.db
+

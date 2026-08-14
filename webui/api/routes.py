@@ -8,7 +8,7 @@ import json
 from webui.api.schemas import (
     FindingResponse, TaskResponse, ScannerResponse, 
     ResourceResponse, StatsResponse, CreateTaskRequest,
-    CreateResourceRequest, UpdateResourceRequest
+    CreateResourceRequest, UpdateResourceRequest, UpdateAlertStatusRequest
 )
 from webui.config import DATABASE_URL
 
@@ -17,7 +17,7 @@ router = APIRouter(prefix="/api")
 
 def get_db():
     """Получение соединения с БД"""
-    db_path = Path("manager/src/db/dcap.db")
+    db_path = Path("manager/dcap.db")
     if not db_path.exists():
         raise HTTPException(status_code=500, detail="Database not found")
     conn = sqlite3.connect(str(db_path))
@@ -43,19 +43,19 @@ async def get_stats():
     
     # Задания по статусам
     pending_tasks = cursor.execute(
-        "SELECT COUNT(*) FROM scan_tasks WHERE status = 'PENDING'"
+        "SELECT COUNT(*) FROM scan_tasks WHERE status = 'pending'"
     ).fetchone()[0] or 0
     
     running_tasks = cursor.execute(
-        "SELECT COUNT(*) FROM scan_tasks WHERE status = 'RUNNING'"
+        "SELECT COUNT(*) FROM scan_tasks WHERE status = 'running'"
     ).fetchone()[0] or 0
     
     completed_tasks = cursor.execute(
-        "SELECT COUNT(*) FROM scan_tasks WHERE status = 'COMPLETED'"
+        "SELECT COUNT(*) FROM scan_tasks WHERE status = 'completed'"
     ).fetchone()[0] or 0
     
     failed_tasks = cursor.execute(
-        "SELECT COUNT(*) FROM scan_tasks WHERE status = 'FAILED'"
+        "SELECT COUNT(*) FROM scan_tasks WHERE status = 'failed'"
     ).fetchone()[0] or 0
     
     # Всего отсканированных файлов
@@ -80,7 +80,8 @@ async def get_stats():
     findings_by_scanner = {}
     rows = cursor.execute(
         "SELECT scanners.name, COUNT(findings.id) FROM findings "
-        "LEFT JOIN scanners ON scanners.id = findings.scanner_id "
+        "LEFT JOIN scan_tasks ON scan_tasks.id = findings.task_id "
+        "LEFT JOIN scanners ON scanners.id = scan_tasks.scanner_id "
         "GROUP BY scanners.name"
     ).fetchall()
     for row in rows:
@@ -89,10 +90,10 @@ async def get_stats():
     
     # Задания по статусам
     tasks_by_status = {
-        "PENDING": pending_tasks,
-        "RUNNING": running_tasks,
-        "COMPLETED": completed_tasks,
-        "FAILED": failed_tasks
+        "pending": pending_tasks,
+        "running": running_tasks,
+        "completed": completed_tasks,
+        "failed": failed_tasks
     }
     
     conn.close()
@@ -139,7 +140,7 @@ async def get_findings(
         conditions.append("file_path LIKE ?")
         params.append(f"%{file_path}%")
     if scanner_id:
-        conditions.append("scanner_id = ?")
+        conditions.append("task_id IN (SELECT id FROM scan_tasks WHERE scanner_id = ?)")
         params.append(scanner_id)
     if task_id:
         conditions.append("task_id = ?")
@@ -184,7 +185,7 @@ async def get_findings_count(
         conditions.append("file_path LIKE ?")
         params.append(f"%{file_path}%")
     if scanner_id:
-        conditions.append("scanner_id = ?")
+        conditions.append("task_id IN (SELECT id FROM scan_tasks WHERE scanner_id = ?)")
         params.append(scanner_id)
     if task_id:
         conditions.append("task_id = ?")
@@ -314,7 +315,7 @@ async def create_task(request: CreateTaskRequest):
         }
         cursor.execute(
             """
-            INSERT INTO resources (type, path, enabled, config, created_at)
+            INSERT INTO resources (type, path, enabled, scan_config, created_at)
             VALUES (?, ?, 1, ?, datetime('now'))
             """,
             (request.resource_type, request.resource_path, json.dumps(config))
@@ -324,10 +325,10 @@ async def create_task(request: CreateTaskRequest):
     # Создаём задание
     cursor.execute(
         """
-        INSERT INTO scan_tasks (resource_id, status, files_total, files_scanned, findings_count, created_at)
-        VALUES (?, 'PENDING', 0, 0, 0, datetime('now'))
+        INSERT INTO scan_tasks (resource_id, source_path, status, files_scanned, files_failed, findings_count, created_at)
+        VALUES (?, ?, 'pending', 0, 0, 0, datetime('now'))
         """,
-        (resource_id,)
+        (resource_id, request.resource_path)
     )
     task_id = cursor.lastrowid
     
@@ -352,8 +353,8 @@ async def cancel_task(task_id: int):
     cursor.execute(
         """
         UPDATE scan_tasks 
-        SET status = 'FAILED', completed_at = datetime('now')
-        WHERE id = ? AND status IN ('PENDING', 'ASSIGNED')
+        SET status = 'failed', completed_at = datetime('now')
+        WHERE id = ? AND status IN ('pending', 'assigned')
         """,
         (task_id,)
     )
@@ -504,7 +505,7 @@ async def create_resource(request: CreateResourceRequest):
     
     cursor.execute(
         """
-        INSERT INTO resources (type, path, enabled, config, created_at)
+        INSERT INTO resources (type, path, enabled, scan_config, created_at)
         VALUES (?, ?, ?, ?, datetime('now'))
         """,
         (request.type, request.path, request.enabled, json.dumps(config))
@@ -535,7 +536,7 @@ async def update_resource(resource_id: int, request: UpdateResourceRequest):
         params.append(1 if request.enabled else 0)
     
     if request.config is not None:
-        updates.append("config = ?")
+        updates.append("scan_config = ?")
         params.append(json.dumps(request.config))
     
     if not updates:
@@ -566,7 +567,7 @@ async def delete_resource(resource_id: int, force: bool = False):
     
     # Проверяем, есть ли задания
     cursor.execute(
-        "SELECT COUNT(*) FROM scan_tasks WHERE resource_id = ? AND status IN ('PENDING', 'ASSIGNED', 'RUNNING')",
+        "SELECT COUNT(*) FROM scan_tasks WHERE resource_id = ? AND status IN ('pending', 'assigned', 'running')",
         (resource_id,)
     )
     if cursor.fetchone()[0] > 0 and not force:
@@ -598,8 +599,257 @@ async def get_classifiers():
     cursor = conn.cursor()
     
     rows = cursor.execute(
-        "SELECT DISTINCT classifier_name FROM findings ORDER BY classifier_name"
+        "SELECT DISTINCT category FROM findings ORDER BY category"
     ).fetchall()
     conn.close()
     
     return [row[0] for row in rows]
+
+
+# ==================== ВЫБОР ПАПКИ ====================
+
+@router.post("/folders/pick")
+def pick_folder():
+    """Открыть нативный диалог выбора папки (Windows)"""
+    try:
+        import tkinter
+        from tkinter import filedialog
+        root = tkinter.Tk()
+        root.withdraw()
+        root.attributes("-topmost", True)
+        path = filedialog.askdirectory(title="Выбор папки для сканирования")
+        root.destroy()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Невозможно открыть диалог выбора папки: {e}")
+    if not path:
+        return {"success": False, "path": None}
+    return {"success": True, "path": path}
+
+
+# ==================== УПРАВЛЕНИЕ ДОСТУПОМ ====================
+
+@router.get("/access/resources")
+async def get_access_resources():
+    """Список ресурсов с информацией о правах доступа"""
+    conn = get_db()
+    cursor = conn.cursor()
+
+    cursor.execute("""
+        SELECT r.id, r.type, r.path, r.enabled,
+               r.owner, r.owner_sid,
+               r.is_sensitive, r.classification_level,
+               r.permission_source, r.permission_last_synced,
+               (SELECT COUNT(*) FROM access_entries ae
+                 WHERE ae.resource_id = r.id AND ae.is_active = 1) as entries_count,
+               (SELECT COUNT(*) FROM access_alerts aa
+                 WHERE aa.resource_id = r.id) as alerts_count,
+               (SELECT COUNT(*) FROM access_alerts aa2
+                 WHERE aa2.resource_id = r.id AND aa2.status = 'open') as open_alerts_count
+        FROM resources r
+        ORDER BY r.path
+    """)
+    rows = cursor.fetchall()
+    conn.close()
+
+    return {"total": len(rows), "resources": [dict(row) for row in rows]}
+
+
+@router.get("/access/resources/{resource_id}/entries")
+async def get_access_entries(
+    resource_id: int,
+    principal: Optional[str] = None,
+    principal_type: Optional[str] = None,
+    permission_type: Optional[str] = None,
+    limit: int = Query(50, ge=1, le=500),
+    offset: int = Query(0, ge=0)
+):
+    """Права доступа к ресурсу с фильтрацией и пагинацией"""
+    conn = get_db()
+    cursor = conn.cursor()
+
+    cursor.execute("SELECT path FROM resources WHERE id = ?", (resource_id,))
+    row = cursor.fetchone()
+    if not row:
+        conn.close()
+        raise HTTPException(status_code=404, detail="Resource not found")
+    resource_path = row[0]
+
+    query = """
+        SELECT * FROM access_entries
+        WHERE resource_id = ? AND is_active = 1
+    """
+    params = [resource_id]
+    conditions = []
+
+    if principal:
+        conditions.append("principal_name LIKE ?")
+        params.append(f"%{principal}%")
+    if principal_type:
+        conditions.append("principal_type = ?")
+        params.append(principal_type)
+    if permission_type:
+        conditions.append("permission_type = ?")
+        params.append(permission_type)
+
+    if conditions:
+        query += " AND " + " AND ".join(conditions)
+
+    total = cursor.execute(
+        "SELECT COUNT(*) FROM (" + query + ")",
+        params
+    ).fetchone()[0] or 0
+
+    query += " ORDER BY principal_name LIMIT ? OFFSET ?"
+    params.append(limit)
+    params.append(offset)
+
+    rows = cursor.execute(query, params).fetchall()
+    conn.close()
+
+    return {
+        "resource_id": resource_id,
+        "resource_path": resource_path,
+        "total": total,
+        "limit": limit,
+        "offset": offset,
+        "entries": [dict(row) for row in rows]
+    }
+
+
+@router.get("/access/alerts")
+async def get_access_alerts(
+    resource_id: Optional[int] = None,
+    severity: Optional[str] = None,
+    status: Optional[str] = None,
+    alert_type: Optional[str] = None,
+    limit: int = Query(100, ge=1, le=500),
+    offset: int = Query(0, ge=0)
+):
+    """Список алертов по доступам с фильтрацией"""
+    conn = get_db()
+    cursor = conn.cursor()
+
+    query = """
+        SELECT aa.*, r.path as resource_path
+        FROM access_alerts aa
+        LEFT JOIN resources r ON r.id = aa.resource_id
+        WHERE 1 = 1
+    """
+    params = []
+    conditions = []
+
+    if resource_id:
+        conditions.append("aa.resource_id = ?")
+        params.append(resource_id)
+    if severity:
+        conditions.append("aa.severity = ?")
+        params.append(severity)
+    if status:
+        conditions.append("aa.status = ?")
+        params.append(status)
+    if alert_type:
+        conditions.append("aa.alert_type = ?")
+        params.append(alert_type)
+
+    if conditions:
+        query += " AND " + " AND ".join(conditions)
+
+    total = cursor.execute(
+        "SELECT COUNT(*) FROM (" + query + ")",
+        params
+    ).fetchone()[0] or 0
+
+    query += """
+        ORDER BY
+            CASE aa.severity WHEN 'critical' THEN 0 WHEN 'warning' THEN 1 ELSE 2 END,
+            aa.created_at DESC
+        LIMIT ? OFFSET ?
+    """
+    params.append(limit)
+    params.append(offset)
+
+    rows = cursor.execute(query, params).fetchall()
+    conn.close()
+
+    return {
+        "total": total,
+        "limit": limit,
+        "offset": offset,
+        "alerts": [dict(row) for row in rows]
+    }
+
+
+@router.get("/access/alerts/stats")
+async def get_access_alerts_stats():
+    """Статистика по алертам доступа"""
+    conn = get_db()
+    cursor = conn.cursor()
+
+    stats = {"total": 0, "by_severity": {}, "by_status": {}, "by_type": {}}
+
+    stats["total"] = cursor.execute(
+        "SELECT COUNT(*) FROM access_alerts"
+    ).fetchone()[0] or 0
+
+    for severity in ["critical", "warning", "info"]:
+        stats["by_severity"][severity] = cursor.execute(
+            "SELECT COUNT(*) FROM access_alerts WHERE severity = ? AND status = 'open'",
+            (severity,)
+        ).fetchone()[0] or 0
+
+    for status in ["open", "acknowledged", "resolved", "ignored"]:
+        stats["by_status"][status] = cursor.execute(
+            "SELECT COUNT(*) FROM access_alerts WHERE status = ?",
+            (status,)
+        ).fetchone()[0] or 0
+
+    rows = cursor.execute(
+        "SELECT alert_type, COUNT(*) as cnt FROM access_alerts "
+        "WHERE status = 'open' GROUP BY alert_type ORDER BY cnt DESC LIMIT 5"
+    ).fetchall()
+    stats["by_type"] = {r[0]: r[1] for r in rows}
+
+    conn.close()
+    return stats
+
+
+@router.put("/access/alerts/{alert_id}")
+async def update_access_alert_status(alert_id: int, request: UpdateAlertStatusRequest):
+    """Обновить статус алерта (open/acknowledged/resolved/ignored)"""
+    if request.status not in ["open", "acknowledged", "resolved", "ignored"]:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid status: {request.status}. Supported: open, acknowledged, resolved, ignored"
+        )
+
+    conn = get_db()
+    cursor = conn.cursor()
+
+    cursor.execute("SELECT status FROM access_alerts WHERE id = ?", (alert_id,))
+    row = cursor.fetchone()
+    if not row:
+        conn.close()
+        raise HTTPException(status_code=404, detail="Alert not found")
+
+    old_status = row["status"]
+
+    if request.status == "resolved" or request.status == "ignored":
+        cursor.execute(
+            "UPDATE access_alerts SET status = ?, resolved_at = datetime('now') WHERE id = ?",
+            (request.status, alert_id)
+        )
+    else:
+        cursor.execute(
+            "UPDATE access_alerts SET status = ? WHERE id = ?",
+            (request.status, alert_id)
+        )
+
+    conn.commit()
+    conn.close()
+
+    return {
+        "status": "updated",
+        "alert_id": alert_id,
+        "old_status": old_status,
+        "new_status": request.status
+    }

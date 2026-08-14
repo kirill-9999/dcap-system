@@ -102,6 +102,19 @@ function showAddResourceModal() {
     document.getElementById('resource-path').focus();
 }
 
+async function pickFolder() {
+    try {
+        const response = await fetch('/api/folders/pick', { method: 'POST' });
+        const data = await response.json();
+        if (data.success && data.path) {
+            document.getElementById('resource-path').value = data.path;
+        }
+    } catch (error) {
+        alert('Ошибка выбора папки: ' + error.message);
+        console.error(error);
+    }
+}
+
 async function addResource(event) {
     event.preventDefault();
     

@@ -3,7 +3,7 @@ import os
 # База данных
 DATABASE_URL = os.getenv(
     "DATABASE_URL",
-    "sqlite+aiosqlite:///manager/src/db/dcap.db"
+    "sqlite+aiosqlite:///manager/dcap.db"
 )
 
 # WebUI настройки

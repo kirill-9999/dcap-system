@@ -130,6 +130,7 @@ def scan_resource(resource_id: int, db: Session = Depends(session.get_db)):
     # Создаем задание
     task = models.ScanTask(
         resource_id=resource_id,
+        source_path=resource.path,
         status="pending",
         created_at=datetime.utcnow()
     )

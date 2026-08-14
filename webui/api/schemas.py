@@ -115,3 +115,9 @@ class CreateResourceRequest(BaseModel):
 class UpdateResourceRequest(BaseModel):
     enabled: Optional[bool] = None
     config: Optional[Dict[str, Any]] = None
+
+
+# ==================== УПРАВЛЕНИЕ ДОСТУПОМ ====================
+
+class UpdateAlertStatusRequest(BaseModel):
+    status: str  # open, acknowledged, resolved, ignored
