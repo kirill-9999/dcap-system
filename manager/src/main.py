@@ -13,6 +13,7 @@ from manager.src.api.findings import router as findings_router
 from manager.src.api.catalog import router as catalog_router
 from manager.src.api.scanner import router as scanner_router
 from manager.src.api.permissions import router as permissions_router
+from manager.src.api.audit import router as audit_router
 
 app = FastAPI(
     title="DCAP System Manager",
@@ -92,6 +93,7 @@ app.include_router(findings_router)
 app.include_router(catalog_router)
 app.include_router(scanner_router)
 app.include_router(permissions_router)
+app.include_router(audit_router)
 
 
 # ============================================================

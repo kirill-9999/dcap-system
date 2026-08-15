@@ -338,6 +338,67 @@ class AccessAlert(Base):
         }
 
 
+class AuditAgent(Base):
+    __tablename__ = "audit_agents"
+
+    id = Column(Integer, primary_key=True)
+    name = Column(String(100), unique=True, nullable=False)   # например: server01-audit
+    hostname = Column(String(200), nullable=False)
+    ip_address = Column(String(45), nullable=True)
+    status = Column(String(20), default="offline")   # offline, online, error, updating
+
+    version = Column(String(20), default="1.0.0")
+
+    # Конфигурация агента (передается из Manager)
+    config = Column(JSON, default={
+        "read_interval": 60,          # секунд между чтением Security Log
+        "batch_size": 100,            # сколько событий за раз
+        "buffer_size": 10000,         # сколько хранить локально при потере связи
+        "event_filters": [],          # список Event ID для сбора
+        "paths": []                   # какие папки аудировать (SACL)
+    })
+
+    # Мониторинг
+    last_heartbeat = Column(DateTime, nullable=True)
+    registered_at = Column(DateTime, default=datetime.utcnow)
+    last_error = Column(Text, nullable=True)
+
+    # Статистика
+    events_sent = Column(Integer, default=0)
+    events_failed = Column(Integer, default=0)
+    last_event_at = Column(DateTime, nullable=True)
+
+    # Связи
+    audit_logs = relationship("AuditLog", back_populates="agent", cascade="all, delete-orphan")
+
+    def __repr__(self):
+        return f"<AuditAgent(id={self.id}, name='{self.name}', status='{self.status}')>"
+
+
+class AuditLog(Base):
+    __tablename__ = "audit_logs"
+
+    id = Column(Integer, primary_key=True)
+    agent_id = Column(Integer, ForeignKey("audit_agents.id"), nullable=True, index=True)
+
+    event_type = Column(String(50), nullable=False)      # read, write, delete, move, rename
+    event_source = Column(String(50), default="agent")   # agent, scanner, api, system
+    user = Column(String(200), nullable=True)
+    user_sid = Column(String(100), nullable=True)
+    file_path = Column(String(500), nullable=False)
+    old_path = Column(String(500), nullable=True)        # для move/rename
+    source_host = Column(String(100), nullable=True)     # откуда пришло событие
+
+    metadata_json = Column("metadata", JSON, default={})
+    created_at = Column(DateTime, default=datetime.utcnow, index=True)
+
+    # Связи
+    agent = relationship("AuditAgent", back_populates="audit_logs")
+
+    def __repr__(self):
+        return f"<AuditLog(id={self.id}, event_type='{self.event_type}', file='{self.file_path}')>"
+
+
 # Словарь для удобного импорта всех моделей
 __all__ = [
     "Base",
@@ -351,4 +412,6 @@ __all__ = [
     "AccessEntry",
     "PermissionChange",
     "AccessAlert",
+    "AuditAgent",
+    "AuditLog",
 ]

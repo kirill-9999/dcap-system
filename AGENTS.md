@@ -43,8 +43,9 @@ Pytest отсутствует (папка `manager/tests/` пуста). Тест
 
 ## Структура и границы
 
-- `manager/src/api/` — REST-роутеры (resources, tasks, findings, catalog, scanner, permissions).
+- `manager/src/api/` — REST-роутеры (resources, tasks, findings, catalog, scanner, permissions, audit).
 - `manager/src/connectors/permissions/` — коллекторы прав (Strategy): `local` (icacls), `remote`, `ad` — заглушка. `services/access_service.py` — логика прав.
+- `manager/src/connectors/audit/` — коллектор событий Windows (`windows_audit.py`, wevtutil Security Log). API: `manager/src/api/audit.py` (агентная модель: `POST /api/audit/agents/register`, `/agents/heartbeat`, `/events`; просмотр `GET /api/audit`, `/stats`). Таблицы `audit_agents`/`audit_logs` создаются автоматически (create_all); чтение журнала Security требует прав администратора, иначе агент получит 0 событий.
 - `scanner/src/managed_scanner.py` — агент; конфиг `scanner/config/scanner_config.json`; состояние `scanner/state/state.json`.
 - `webui/main.py` — актуальный WebUI (весь HTML инлайн в Python). `main_final.py`, `main_simple.py`, `main_static.py` — ❌ устаревшие эксперименты, не трогать. `run_webui.py` запускает именно `webui.main:app`.
 - `structure.txt` и `project_context.md` частично устарели — сверяйся с кодом, а не с ними.
