@@ -1,0 +1,12 @@
+{
+    "manager_url": "http://localhost:8000",
+    "agent_name": "audit-agent-01",
+    "hostname": "SERVER01",
+    "read_interval": 60,
+    "batch_size": 100,
+    "buffer_size": 10000,
+    "heartbeat_interval": 30,
+    "event_filters": [4656, 4660, 4663, 4670, 5140, 5145],
+    "paths": ["D:\\test_audit"],
+    "log_level": "INFO"
+}
