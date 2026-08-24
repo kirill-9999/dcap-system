@@ -47,6 +47,7 @@ class AuditAgent:
             datefmt="%H:%M:%S"
         )
         self.log = logging.getLogger("audit-agent")
+        self.logger = self.log  # алиас для совместимости со службой (service.py)
 
     def _load_config(self, path: Path) -> Dict:
         with open(path, 'r', encoding='utf-8') as f:
@@ -183,7 +184,8 @@ class AuditAgent:
         self.log.info("Завершен")
 
 
-if __name__ == "__main__":
+def main():
+    """Точка входа агента аудита"""
     config_path = Path("config.json")
     if not config_path.exists():
         print("config.json не найден")
@@ -191,3 +193,7 @@ if __name__ == "__main__":
 
     agent = AuditAgent(config_path)
     agent.run()
+
+
+if __name__ == "__main__":
+    main()
