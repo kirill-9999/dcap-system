@@ -2,10 +2,8 @@
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse
+from fastapi.responses import RedirectResponse
 from fastapi import HTTPException
-import os
 
 from manager.src.api.resources import router as resources_router
 from manager.src.api.tasks import router as tasks_router
@@ -31,57 +29,14 @@ app.add_middleware(
 )
 
 # ============================================================
-# ПОДКЛЮЧЕНИЕ WEBUI
+# UI
+# Каноничный WebUI — webui/main.py на порту :8001 (python run_webui.py).
+# Manager — чистое API: легаси-статика удалена, корень редиректит на UI.
 # ============================================================
 
-# Определяем путь к static
-base_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-webui_static = os.path.join(base_dir, "webui", "static")
-webui_static = os.path.normpath(webui_static)
-
-print(f"📁 WebUI static: {webui_static}")
-print(f"📁 Exists: {os.path.exists(webui_static)}")
-
-# Проверяем наличие файлов
-index_path = os.path.join(webui_static, "index.html")
-css_path = os.path.join(webui_static, "css", "style.css")
-js_path = os.path.join(webui_static, "js", "app.js")
-
-print(f"📁 index.html: {index_path} ({'✅' if os.path.exists(index_path) else '❌'})")
-print(f"📁 style.css: {css_path} ({'✅' if os.path.exists(css_path) else '❌'})")
-print(f"📁 app.js: {js_path} ({'✅' if os.path.exists(js_path) else '❌'})")
-
-if os.path.exists(webui_static):
-    # ✅ 1. Монтируем ВСЮ папку static на /static
-    app.mount("/static", StaticFiles(directory=webui_static), name="static")
-    print("✅ Static files mounted on /static")
-    
-    # ✅ 2. Отдаем index.html на корневой путь
-    @app.get("/")
-    async def serve_index():
-        if os.path.exists(index_path):
-            return FileResponse(index_path)
-        return {"error": "index.html not found", "path": index_path}
-    
-    # ✅ 3. Если нужен прямой доступ к index.html
-    @app.get("/index.html")
-    async def serve_index_html():
-        if os.path.exists(index_path):
-            return FileResponse(index_path)
-        return {"error": "index.html not found"}
-    
-    print("✅ WebUI настроен")
-else:
-    print(f"❌ WebUI не найден по пути: {webui_static}")
-    
-    @app.get("/")
-    async def root():
-        return {
-            "message": "DCAP System Manager API",
-            "docs": "/docs",
-            "error": "WebUI not found",
-            "path": webui_static
-        }
+@app.get("/", include_in_schema=False)
+async def root():
+    return RedirectResponse(url="http://localhost:8001")
 
 # ============================================================
 # ПОДКЛЮЧЕНИЕ РОУТЕРОВ

@@ -35,9 +35,9 @@ HTML = """<!DOCTYPE html>
 <head>
 <meta charset="UTF-8">
 <title>DCAP v3.0</title>
-<link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
-<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<link href="/static/vendor/css/bootstrap.min.css" rel="stylesheet">
+<link rel="stylesheet" href="/static/vendor/css/fontawesome.min.css">
+<script src="/static/vendor/js/chart.umd.min.js"></script>
 <style>
 body{background:#f5f7fa;font-family:system-ui,-apple-system,sans-serif;}
 .stat-card{background:white;padding:1.5rem;border-radius:12px;box-shadow:0 2px 8px rgba(0,0,0,0.06);height:100%;transition:all 0.2s;}
@@ -60,6 +60,19 @@ body{background:#f5f7fa;font-family:system-ui,-apple-system,sans-serif;}
 .modal{display:none;position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.5);z-index:1000;align-items:center;justify-content:center;}
 .modal.show{display:flex;}
 .modal-content{background:white;max-width:500px;width:90%;padding:2rem;border-radius:12px;max-height:90vh;overflow-y:auto;}
+.event-type-read{color:#17a2b8;font-weight:600;}
+.event-type-write{color:#28a745;font-weight:600;}
+.event-type-delete{color:#dc3545;font-weight:600;}
+.event-type-move{color:#b58900;font-weight:600;}
+.event-type-rename{color:#6f42c1;font-weight:600;}
+.detail-row{padding:6px 0;border-bottom:1px solid #eee;}
+.detail-row pre{background:#f8f9fa;padding:8px 12px;border-radius:4px;font-size:0.85em;overflow-x:auto;max-height:200px;margin:4px 0 0 0;}
+.audit-status{font-size:0.85rem;color:#718096;font-weight:400;text-transform:none;letter-spacing:0;}
+.toast{position:fixed;bottom:20px;right:20px;padding:12px 24px;border-radius:8px;color:white;font-weight:500;z-index:9999;animation:slideIn 0.3s ease;}
+.toast-success{background:#28a745;}
+.toast-error{background:#dc3545;}
+.toast-info{background:#17a2b8;}
+@keyframes slideIn{from{transform:translateX(100%);opacity:0;}to{transform:translateX(0);opacity:1;}}
 </style>
 </head>
 <body>
@@ -77,6 +90,7 @@ body{background:#f5f7fa;font-family:system-ui,-apple-system,sans-serif;}
 <li class="nav-item"><a class="nav-link" data-page="scanners" onclick="switchPage('scanners')"><i class="fas fa-server"></i> Сканеры</a></li>
 <li class="nav-item"><a class="nav-link" data-page="resources" onclick="switchPage('resources')"><i class="fas fa-folder"></i> Ресурсы</a></li>
 <li class="nav-item"><a class="nav-link" data-page="access" onclick="switchPage('access')"><i class="fas fa-user-shield"></i> Управление доступом</a></li>
+<li class="nav-item"><a class="nav-link" data-page="audit" onclick="switchPage('audit')"><i class="fas fa-clipboard-list"></i> Аудит</a></li>
 </ul>
 <span class="text-muted small" id="update-time"></span>
 </div>
@@ -181,6 +195,42 @@ body{background:#f5f7fa;font-family:system-ui,-apple-system,sans-serif;}
 </div>
 </div>
 
+<!-- AUDIT -->
+<div id="page-audit" class="page-content">
+<h2 class="mb-4"><i class="fas fa-clipboard-list text-primary"></i> Аудит файловой системы <span class="audit-status" id="audit-status"></span><button class="btn btn-primary btn-sm float-end" id="refresh-audit-btn"><i class="fas fa-sync-alt"></i> Обновить</button></h2>
+<div class="filter-card">
+<div class="row g-3 align-items-end">
+<div class="col-md-2"><label class="form-label">Период</label><select class="form-select" id="audit-days-filter"><option value="1">Последний день</option><option value="7" selected>Последние 7 дней</option><option value="30">Последние 30 дней</option><option value="90">Последние 90 дней</option></select></div>
+<div class="col-md-2"><label class="form-label">Тип события</label><select class="form-select" id="audit-type-filter"><option value="">Все типы</option><option value="read">📖 Чтение</option><option value="write">✏️ Запись</option><option value="delete">🗑️ Удаление</option><option value="move">📦 Перемещение</option><option value="rename">📝 Переименование</option></select></div>
+<div class="col-md-3"><label class="form-label">Пользователь</label><input type="text" class="form-control" id="audit-user-filter" placeholder="Введите имя пользователя..."></div>
+<div class="col-md-3"><label class="form-label">Файл/путь</label><input type="text" class="form-control" id="audit-path-filter" placeholder="Поиск по пути..."></div>
+<div class="col-md-2"><button class="btn btn-primary me-2" id="apply-audit-filters"><i class="fas fa-filter"></i> Применить</button><button class="btn btn-outline-secondary" id="reset-audit-filters"><i class="fas fa-undo"></i> Сброс</button></div>
+</div>
+</div>
+<div class="row g-3 mb-4" id="audit-stats">
+<div class="col-md-2 col-sm-4"><div class="stat-card text-center"><div class="stat-value" id="stat-total">0</div><div class="stat-label">Всего событий</div></div></div>
+<div class="col-md-2 col-sm-4"><div class="stat-card text-center"><div class="stat-value event-type-read" id="stat-read">0</div><div class="stat-label">📖 Чтение</div></div></div>
+<div class="col-md-2 col-sm-4"><div class="stat-card text-center"><div class="stat-value event-type-write" id="stat-write">0</div><div class="stat-label">✏️ Запись</div></div></div>
+<div class="col-md-2 col-sm-4"><div class="stat-card text-center"><div class="stat-value event-type-delete" id="stat-delete">0</div><div class="stat-label">🗑️ Удаление</div></div></div>
+<div class="col-md-2 col-sm-4"><div class="stat-card text-center"><div class="stat-value event-type-move" id="stat-move">0</div><div class="stat-label">📦 Перемещение</div></div></div>
+<div class="col-md-2 col-sm-4"><div class="stat-card text-center"><div class="stat-value" id="stat-top-user" style="font-size:1.1rem;">—</div><div class="stat-label">👤 Топ-пользователь</div></div></div>
+</div>
+<div class="table-wrapper">
+<div class="d-flex justify-content-between align-items-center px-3 py-2 border-bottom" style="background:#f8f9fa;">
+<span class="small text-muted" id="audit-count">Показано: 0</span>
+<div class="d-flex align-items-center gap-2">
+<button class="btn btn-sm btn-outline-secondary" id="audit-prev-page" disabled>◀</button>
+<span class="small" id="audit-page-info">Страница 1</span>
+<button class="btn btn-sm btn-outline-secondary" id="audit-next-page">▶</button>
+</div>
+</div>
+<table class="table table-hover table-sm mb-0 audit-table">
+<thead class="table-light"><tr><th>⏱️ Время</th><th>📋 Тип</th><th>👤 Пользователь</th><th>📁 Файл/путь</th><th>💻 Источник</th><th>🔄 Действие</th></tr></thead>
+<tbody id="audit-table-body"><tr><td colspan="6" class="text-center py-4 text-muted">Загрузка событий...</td></tr></tbody>
+</table>
+</div>
+</div>
+
 </div>
 
 <!-- MODAL: Create Task -->
@@ -228,6 +278,15 @@ body{background:#f5f7fa;font-family:system-ui,-apple-system,sans-serif;}
 </div>
 </div>
 
+<!-- MODAL: Audit Event Detail -->
+<div class="modal" id="audit-event-modal">
+<div class="modal-content" style="max-width:620px;">
+<h4 class="mb-3"><i class="fas fa-clipboard-list"></i> Детали события</h4>
+<div id="audit-event-details"></div>
+<div class="d-flex gap-2 mt-3"><button class="btn btn-secondary" onclick="closeAuditModal()">Закрыть</button></div>
+</div>
+</div>
+
 <script>
 // ===== ГЛОБАЛЬНЫЕ =====
 var currentPage = 'dashboard';
@@ -261,6 +320,7 @@ function switchPage(page) {
     else if (page === 'scanners') loadScanners();
     else if (page === 'resources') loadResources();
     else if (page === 'access') loadAccess();
+    else if (page === 'audit') initAuditPage();
 }
 
 function showModal(id) {
@@ -480,7 +540,7 @@ async function showFindingDetail(id) {
     try {
         var r = await fetch('/api/findings/' + id);
         var d = await r.json();
-        alert('📄 Находка #' + d.id + '\n\nФайл: ' + d.file_path + '\nКатегория: ' + d.category + '\nПодкатегория: ' + (d.subcategory || '-') + '\nЗначение: ' + (d.value || '-') + '\nКлассификатор: ' + d.classifier_name + '\nДоверие: ' + (d.confidence * 100).toFixed(0) + '%');
+        alert('📄 Находка #' + d.id + '\\n\\nФайл: ' + d.file_path + '\\nКатегория: ' + d.category + '\\nПодкатегория: ' + (d.subcategory || '-') + '\\nЗначение: ' + (d.value || '-') + '\\nКлассификатор: ' + d.classifier_name + '\\nДоверие: ' + (d.confidence * 100).toFixed(0) + '%');
     } catch(e) { console.error(e); }
 }
 
@@ -503,7 +563,7 @@ async function createTask() {
         });
         var res = await r.json();
         if (res.success) {
-            alert('✅ Задание создано!\nID: ' + res.task_id + '\nПуть: ' + res.resource_path);
+            alert('✅ Задание создано!\\nID: ' + res.task_id + '\\nПуть: ' + res.resource_path);
             closeModal('create-task-modal');
             loadTasks();
         } else {
@@ -545,16 +605,16 @@ async function showTaskDetail(id) {
         var r = await fetch('/api/tasks/' + id);
         var d = await r.json();
         var t = d.task;
-        var msg = '📋 Задание #' + t.id + '\n\nСтатус: ' + t.status + '\nФайлов: ' + (t.files_scanned || 0) + '/' + (t.files_total || 0) + '\nНаходок: ' + (t.findings_count || 0) + '\nСоздано: ' + (t.created_at ? new Date(t.created_at).toLocaleString('ru-RU') : '-') + '\nЗавершено: ' + (t.completed_at ? new Date(t.completed_at).toLocaleString('ru-RU') : '-');
+        var msg = '📋 Задание #' + t.id + '\\n\\nСтатус: ' + t.status + '\\nФайлов: ' + (t.files_scanned || 0) + '/' + (t.files_total || 0) + '\\nНаходок: ' + (t.findings_count || 0) + '\\nСоздано: ' + (t.created_at ? new Date(t.created_at).toLocaleString('ru-RU') : '-') + '\\nЗавершено: ' + (t.completed_at ? new Date(t.completed_at).toLocaleString('ru-RU') : '-');
         if (d.findings && d.findings.length) {
-            msg += '\n\nНаходки:';
+            msg += '\\n\\nНаходки:';
             var limit = Math.min(5, d.findings.length);
             for (var i = 0; i < limit; i++) {
                 var f = d.findings[i];
                 var fname = (f.file_path || '').split('\\\\').pop() || f.file_path || 'unknown';
-                msg += '\n- ' + f.category + ': ' + fname + ' (' + (f.confidence * 100).toFixed(0) + '%)';
+                msg += '\\n- ' + f.category + ': ' + fname + ' (' + (f.confidence * 100).toFixed(0) + '%)';
             }
-            if (d.findings.length > 5) msg += '\n... и еще ' + (d.findings.length - 5);
+            if (d.findings.length > 5) msg += '\\n... и еще ' + (d.findings.length - 5);
         }
         alert(msg);
     } catch(e) { console.error(e); }
@@ -613,7 +673,7 @@ async function createResource() {
         });
         var res = await r.json();
         if (res.success) {
-            alert('✅ Ресурс добавлен!\nID: ' + res.resource_id);
+            alert('✅ Ресурс добавлен!\\nID: ' + res.resource_id);
             closeModal('create-resource-modal');
             loadResources();
         } else {
@@ -819,9 +879,9 @@ async function loadAccessAlerts() {
             var sev = sevIcons[a.severity] || ['secondary','circle'];
             var created = a.created_at ? new Date(a.created_at).toLocaleString('ru-RU') : '-';
             var actions = '';
-            if (a.status === 'open') actions += '<button class="btn btn-sm btn-outline-warning me-1" onclick="updateAlertStatus(' + a.id + ',\'acknowledged\')">Подтвердить</button>';
-            if (a.status !== 'resolved') actions += '<button class="btn btn-sm btn-outline-success me-1" onclick="updateAlertStatus(' + a.id + ',\'resolved\')">Решить</button>';
-            if (a.status !== 'ignored') actions += '<button class="btn btn-sm btn-outline-secondary" onclick="updateAlertStatus(' + a.id + ',\'ignored\')">Игнор</button>';
+            if (a.status === 'open') actions += '<button class="btn btn-sm btn-outline-warning me-1" onclick="updateAlertStatus(' + a.id + ',\\'acknowledged\\')">Подтвердить</button>';
+            if (a.status !== 'resolved') actions += '<button class="btn btn-sm btn-outline-success me-1" onclick="updateAlertStatus(' + a.id + ',\\'resolved\\')">Решить</button>';
+            if (a.status !== 'ignored') actions += '<button class="btn btn-sm btn-outline-secondary" onclick="updateAlertStatus(' + a.id + ',\\'ignored\\')">Игнор</button>';
             html += '<tr><td>#' + a.id + '</td><td><span class="badge bg-' + sev[0] + '"><i class="fas fa-' + sev[1] + '"></i> ' + a.severity + '</span></td><td><span class="badge bg-secondary">' + a.alert_type + '</span></td><td class="small"><code>' + (a.resource_path || ('#' + (a.resource_id || '-'))) + '</code></td><td>' + (a.principal_name || '-') + '</td><td class="small">' + (a.description || '') + '</td><td><span class="badge bg-' + (statusBadges[a.status] || 'secondary') + '">' + a.status + '</span></td><td class="text-muted small">' + created + '</td><td>' + (actions || '<span class="text-muted small">—</span>') + '</td></tr>';
         }
         html += '</tbody></table></div>';
@@ -854,6 +914,227 @@ function resetAlertFilters() {
     loadAccessAlerts();
 }
 
+// ===== АУДИТ =====
+var AUDIT_API = '/api/audit';
+var auditCurrentPage = 0;
+var AUDIT_PAGE_SIZE = 50;
+var auditEventsCache = {};
+var auditInitialized = false;
+
+function showToast(message, type) {
+    var toast = document.createElement('div');
+    toast.className = 'toast toast-' + (type || 'info');
+    toast.textContent = message;
+    document.body.appendChild(toast);
+    setTimeout(function() { toast.remove(); }, 3000);
+}
+
+function escapeHtml(s) {
+    return String(s === null || s === undefined ? '' : s).replace(/[&<>"']/g, function(c) {
+        return { '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' }[c];
+    });
+}
+
+async function loadAuditEvents() {
+    var days = document.getElementById('audit-days-filter').value;
+    var eventType = document.getElementById('audit-type-filter').value;
+    var user = document.getElementById('audit-user-filter').value.trim();
+    var filePath = document.getElementById('audit-path-filter').value.trim();
+
+    var since = new Date();
+    since.setDate(since.getDate() - parseInt(days));
+    var sinceStr = since.toISOString();
+
+    var params = new URLSearchParams({
+        limit: AUDIT_PAGE_SIZE,
+        offset: auditCurrentPage * AUDIT_PAGE_SIZE,
+        since: sinceStr
+    });
+    if (eventType) params.append('event_type', eventType);
+    if (user) params.append('user', user);
+    if (filePath) params.append('file_path', filePath);
+
+    try {
+        var r = await fetch(AUDIT_API + '?' + params.toString());
+        if (!r.ok) throw new Error('HTTP ' + r.status);
+        var data = await r.json();
+        renderAuditTable(data);
+    } catch (e) {
+        console.error('Ошибка загрузки аудита:', e);
+        showToast('Ошибка загрузки событий', 'error');
+    }
+}
+
+async function loadAuditStats() {
+    var days = document.getElementById('audit-days-filter').value;
+
+    try {
+        var r = await fetch(AUDIT_API + '/stats?days=' + days);
+        if (!r.ok) throw new Error('HTTP ' + r.status);
+        var stats = await r.json();
+        renderAuditStats(stats);
+    } catch (e) {
+        console.error('Ошибка загрузки статистики:', e);
+    }
+}
+
+function renderAuditStats(stats) {
+    document.getElementById('stat-total').textContent = stats.total || 0;
+
+    var byType = stats.by_type || [];
+    var typeMap = {};
+    byType.forEach(function(item) { typeMap[item.type] = item.count; });
+
+    document.getElementById('stat-read').textContent = typeMap['read'] || 0;
+    document.getElementById('stat-write').textContent = typeMap['write'] || 0;
+    document.getElementById('stat-delete').textContent = typeMap['delete'] || 0;
+    document.getElementById('stat-move').textContent = typeMap['move'] || 0;
+
+    var topUser = stats.top_users && stats.top_users.length > 0 ? stats.top_users[0].user : '—';
+    document.getElementById('stat-top-user').textContent = topUser;
+
+    var status = document.getElementById('audit-status');
+    if (status) {
+        var online = stats.agents_online || 0;
+        var totalAgents = stats.agents_total || 0;
+        status.textContent = 'агентов: ' + online + ' онлайн / ' + totalAgents;
+    }
+}
+
+function renderAuditTable(data) {
+    var tbody = document.getElementById('audit-table-body');
+    var count = document.getElementById('audit-count');
+    var total = data.total || 0;
+    var events = data.events || [];
+
+    count.textContent = 'Показано: ' + events.length + ' из ' + total;
+    auditEventsCache = {};
+
+    var totalPages = Math.ceil(total / AUDIT_PAGE_SIZE);
+    document.getElementById('audit-page-info').textContent = 'Страница ' + (auditCurrentPage + 1) + ' из ' + (totalPages || 1);
+    document.getElementById('audit-prev-page').disabled = auditCurrentPage === 0;
+    document.getElementById('audit-next-page').disabled = auditCurrentPage >= totalPages - 1;
+
+    if (events.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="6" class="text-center py-4 text-muted">Нет событий за выбранный период</td></tr>';
+        return;
+    }
+
+    var html = '';
+    for (var i = 0; i < events.length; i++) {
+        var event = events[i];
+        auditEventsCache[event.id] = event;
+        var typeIcon = getEventTypeIcon(event.event_type);
+        var time = event.created_at ? new Date(event.created_at).toLocaleString('ru-RU') : '—';
+        var user = event.user || '—';
+        var source = event.source_host || '—';
+        var filePath = event.file_path || '—';
+        var eventType = event.event_type || 'unknown';
+
+        html += '<tr onclick="showAuditDetail(' + event.id + ')" style="cursor:pointer;">'
+            + '<td class="small text-nowrap">' + time + '</td>'
+            + '<td><span class="event-type-' + escapeHtml(eventType) + '">' + typeIcon + ' ' + escapeHtml(eventType) + '</span></td>'
+            + '<td>' + escapeHtml(user) + '</td>'
+            + '<td><span class="file-path" title="' + escapeHtml(filePath) + '">' + escapeHtml(truncatePath(filePath, 50)) + '</span></td>'
+            + '<td>' + escapeHtml(source) + '</td>'
+            + '<td><button class="btn btn-sm btn-outline-primary" onclick="event.stopPropagation(); showAuditDetail(' + event.id + ')"><i class="fas fa-search"></i></button></td>'
+            + '</tr>';
+    }
+    tbody.innerHTML = html;
+}
+
+function showAuditDetail(eventId) {
+    var event = auditEventsCache[eventId];
+    if (!event) {
+        showToast('Событие не найдено', 'error');
+        return;
+    }
+
+    var container = document.getElementById('audit-event-details');
+    container.innerHTML = ''
+        + '<div class="detail-row"><strong>ID:</strong> ' + event.id + '</div>'
+        + '<div class="detail-row"><strong>⏱️ Время:</strong> ' + (event.created_at ? new Date(event.created_at).toLocaleString('ru-RU') : '—') + '</div>'
+        + '<div class="detail-row"><strong>📋 Тип:</strong> ' + getEventTypeIcon(event.event_type) + ' ' + escapeHtml(event.event_type || '') + '</div>'
+        + '<div class="detail-row"><strong>👤 Пользователь:</strong> ' + escapeHtml(event.user || '—') + '</div>'
+        + '<div class="detail-row"><strong>📁 Файл:</strong> <code>' + escapeHtml(event.file_path || '—') + '</code></div>'
+        + '<div class="detail-row"><strong>📦 Старый путь:</strong> <code>' + escapeHtml(event.old_path || '—') + '</code></div>'
+        + '<div class="detail-row"><strong>💻 Источник:</strong> ' + escapeHtml(event.source_host || '—') + '</div>'
+        + '<div class="detail-row"><strong>🤖 Агент:</strong> #' + (event.agent_id || '—') + ' (' + escapeHtml(event.event_source || 'agent') + ')</div>'
+        + '<div class="detail-row"><strong>📊 Метаданные:</strong> <pre>' + escapeHtml(JSON.stringify(event.metadata || {}, null, 2)) + '</pre></div>';
+    showModal('audit-event-modal');
+}
+
+function closeAuditModal() {
+    closeModal('audit-event-modal');
+}
+
+function getEventTypeIcon(type) {
+    var icons = {
+        'read': '📖',
+        'write': '✏️',
+        'delete': '🗑️',
+        'move': '📦',
+        'rename': '📝'
+    };
+    return icons[type] || '📋';
+}
+
+function truncatePath(path, maxLen) {
+    if (!path) return '—';
+    if (path.length <= maxLen) return path;
+    return '...' + path.slice(-maxLen);
+}
+
+function initAuditPage() {
+    loadAuditStats();
+    loadAuditEvents();
+
+    if (auditInitialized) return;
+    auditInitialized = true;
+
+    document.getElementById('apply-audit-filters').addEventListener('click', function() {
+        auditCurrentPage = 0;
+        loadAuditStats();
+        loadAuditEvents();
+    });
+
+    document.getElementById('reset-audit-filters').addEventListener('click', function() {
+        document.getElementById('audit-days-filter').value = '7';
+        document.getElementById('audit-type-filter').value = '';
+        document.getElementById('audit-user-filter').value = '';
+        document.getElementById('audit-path-filter').value = '';
+        auditCurrentPage = 0;
+        loadAuditStats();
+        loadAuditEvents();
+    });
+
+    document.getElementById('refresh-audit-btn').addEventListener('click', function() {
+        loadAuditStats();
+        loadAuditEvents();
+        showToast('Обновлено', 'success');
+    });
+
+    document.getElementById('audit-prev-page').addEventListener('click', function() {
+        if (auditCurrentPage > 0) {
+            auditCurrentPage--;
+            loadAuditEvents();
+        }
+    });
+
+    document.getElementById('audit-next-page').addEventListener('click', function() {
+        auditCurrentPage++;
+        loadAuditEvents();
+    });
+
+    ['audit-user-filter', 'audit-path-filter'].forEach(function(id) {
+        document.getElementById(id).addEventListener('keypress', function(e) {
+            if (e.key === 'Enter') {
+                document.getElementById('apply-audit-filters').click();
+            }
+        });
+    });
+}
+
 // ===== АВТООБНОВЛЕНИЕ =====
 setInterval(function() {
     if (currentPage === 'dashboard') loadDashboard();
@@ -877,7 +1158,10 @@ document.addEventListener('DOMContentLoaded', function() {
 
 @app.get("/", response_class=HTMLResponse)
 async def index():
-    return HTML
+    return HTMLResponse(
+        content=HTML,
+        headers={"Cache-Control": "no-store"}  # свежая разметка, без устаревшего кэша
+    )
 
 
 @app.get("/findings", response_class=HTMLResponse)

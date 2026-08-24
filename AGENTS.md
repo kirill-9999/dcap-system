@@ -23,7 +23,8 @@ python run_scanner.py scanner/config/scanner_config.json   # сканер, жд�
 Manager и WebUI работают с **одной** БД — `manager/dcap.db` (создаётся `init_db.py`):
 
 - Manager — `manager/src/db/session.py` (SQLAlchemy).
-- WebUI на :8001 — `webui/api/routes.py` `get_db()` (raw sqlite) пишет/читает тот же `manager/dcap.db`. Задания и ресурсы, созданные через WebUI, сразу видны Manager и сканеру.
+- WebUI на :8001 — `webui/api/routes.py` `get_db()` (raw sqlite) пишет/читает тот же `manager/dcap.db`. Задания и ресурсы, созданные через WebUI, сразу видны Manager и сканеру. WebUI также сам отдаёт аудит: `GET /api/audit`, `/api/audit/stats` (те же таблицы `audit_logs`/`audit_agents`, форматы ответов как у Manager).
+- Актуальный WebUI (`webui/main.py`) — каноничный, весь HTML/CSS/JS инлайн в Python-строке; страница «Аудит» тоже там. Легаси-файлы удалены (День 19.5): `main_final/simple/static.py`, `static/index*.html`, `static/js/*`, `static/css/*`, `templates/` — не восстанавливать. Bootstrap/Font Awesome/Chart.js — локальные копии в `webui/static/vendor/` (без CDN: антивирусы блокируют jsdelivr/cdnjs); WebUI слушает только `127.0.0.1` (`webui/config.py`). Manager на :8000 — чистое API, `/` редиректит на :8001. ВАЖНО: JS внутри Python-строки — `\n` и `\'` надо писать как `\\n` и `\\'` (Python съедает одинарный бэкслэш и ломает синтаксис всего скрипта — было причиной «неработающих ссылок»).
 
 Копировать `manager/src/db/dcap.db` не нужно. Корневой `dcap.db` — устаревший/легаси, не трогать.
 
@@ -47,12 +48,13 @@ Pytest отсутствует (папка `manager/tests/` пуста). Тест
 - `manager/src/connectors/permissions/` — коллекторы прав (Strategy): `local` (icacls), `remote`, `ad` — заглушка. `services/access_service.py` — логика прав.
 - `manager/src/connectors/audit/` — коллектор событий Windows (`windows_audit.py`, wevtutil Security Log). API: `manager/src/api/audit.py` (агентная модель: `POST /api/audit/agents/register`, `/agents/heartbeat`, `/events`; просмотр `GET /api/audit`, `/stats`). Таблицы `audit_agents`/`audit_logs` создаются автоматически (create_all); чтение журнала Security требует прав администратора, иначе агент получит 0 событий.
 - `scanner/src/managed_scanner.py` — агент; конфиг `scanner/config/scanner_config.json`; состояние `scanner/state/state.json`.
-- `audit-agent/` — лёгкий агент аудита (Windows): `main.py` (цикл), `collector.py` (wevtutil Security Log), `buffer.py` (SQLite-буфер), `sender.py`/`heartbeat.py` (HTTP в Manager). Конфиг `config.json`; состояние `state.json` и буфер `buffer/` генерируются при запуске и игнорируются git. Запуск: `cd audit-agent; python main.py`. События отправляются в `POST /api/audit/events` батчами, при недоступности Manager копятся в буфере.
-- `webui/main.py` — актуальный WebUI (весь HTML инлайн в Python). `main_final.py`, `main_simple.py`, `main_static.py` — ❌ устаревшие эксперименты, не трогать. `run_webui.py` запускает именно `webui.main:app`.
+- `audit-agent/` — лёгкий агент аудита (Windows): `main.py` (цикл), `collector.py` (wevtutil Security Log), `buffer.py` (SQLite-буфер), `sender.py`/`heartbeat.py` (HTTP в Manager), `config_loader.py` (конфиг с дефолтами). Конфиг `config.json`; состояние `state.json` и буфер `buffer/` генерируются при запуске и игнорируются git. Запуск: `cd audit-agent; python main.py`. Windows-служба: `service.py` (pywin32, `python service.py install|start|stop|remove`) + бат-файлы `*_service.bat`; логи службы — `audit-agent/logs/audit_agent.log`. Установка службы требует прав администратора. События отправляются в `POST /api/audit/events` батчами, при недоступности Manager копятся в буфере.
+- `webui/main.py` — актуальный WebUI (весь HTML инлайн в Python), единственный UI проекта. `run_webui.py` запускает именно `webui.main:app`. Легаси (`main_final.py`, `main_simple.py`, `main_static.py`, старые `static/`/`templates/`) удалены — не восстанавливать.
 - `structure.txt` и `project_context.md` частично устарели — сверяйся с кодом, а не с ними.
 
 ## Ограничения платформы
 
+- Временные файлы/скрипты — только в `D:\Projects\dcap-system\temp` (в .gitignore), не в системном %TEMP%.
 - Нет Active Directory: `ad.py` — заглушка, локальный сбор прав через `icacls` / `net localgroup`.
 - Тестовые данные: `D:\Projects\dcap-system\test_files`.
 

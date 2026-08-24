@@ -1,5 +1,5 @@
 from fastapi import APIRouter, Query, HTTPException
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Optional, List, Dict, Any
 import sqlite3
@@ -852,4 +852,135 @@ async def update_access_alert_status(alert_id: int, request: UpdateAlertStatusRe
         "alert_id": alert_id,
         "old_status": old_status,
         "new_status": request.status
+    }
+
+
+# ==================== АУДИТ ====================
+
+def _parse_since(since: Optional[str]) -> Optional[str]:
+    """ISO-строка (в т.ч. с Z/таймзоной) -> 'YYYY-MM-DD HH:MM:SS' для сравнения в SQLite"""
+    if not since:
+        return None
+    try:
+        dt = datetime.fromisoformat(str(since).replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if dt.tzinfo is not None:
+        dt = dt.astimezone(timezone.utc).replace(tzinfo=None)
+    return dt.strftime("%Y-%m-%d %H:%M:%S")
+
+
+@router.get("/audit")
+async def get_audit_events(
+    agent_id: Optional[int] = None,
+    user: Optional[str] = None,
+    event_type: Optional[str] = None,
+    file_path: Optional[str] = None,
+    since: Optional[str] = None,   # ISO формат
+    limit: int = Query(100, ge=1, le=1000),
+    offset: int = Query(0, ge=0)
+):
+    """Аудит-события с фильтрацией (те же таблицы audit_logs, что у Manager)"""
+    conn = get_db()
+    cursor = conn.cursor()
+
+    query = "SELECT * FROM audit_logs"
+    params: list = []
+    conditions = []
+
+    if agent_id:
+        conditions.append("agent_id = ?")
+        params.append(agent_id)
+    if user:
+        conditions.append("user LIKE ?")
+        params.append(f"%{user}%")
+    if event_type:
+        conditions.append("event_type = ?")
+        params.append(event_type)
+    if file_path:
+        conditions.append("file_path LIKE ?")
+        params.append(f"%{file_path}%")
+    since_dt = _parse_since(since)
+    if since_dt:
+        conditions.append("created_at >= ?")
+        params.append(since_dt)
+
+    if conditions:
+        query += " WHERE " + " AND ".join(conditions)
+
+    total = cursor.execute(
+        "SELECT COUNT(*) FROM (" + query + ")",
+        params
+    ).fetchone()[0] or 0
+
+    query += " ORDER BY created_at DESC LIMIT ? OFFSET ?"
+    params.extend([limit, offset])
+    rows = cursor.execute(query, params).fetchall()
+    conn.close()
+
+    events = []
+    for row in rows:
+        event = dict(row)
+        # metadata_json хранится в колонке metadata (JSON-строка) — отдаем объектом
+        raw_meta = event.get("metadata")
+        if isinstance(raw_meta, str):
+            try:
+                event["metadata"] = json.loads(raw_meta)
+            except (ValueError, TypeError):
+                event["metadata"] = {}
+        elif raw_meta is None:
+            event["metadata"] = {}
+        events.append(event)
+
+    return {
+        "total": total,
+        "limit": limit,
+        "offset": offset,
+        "events": events
+    }
+
+
+@router.get("/audit/stats")
+async def get_audit_stats(days: int = Query(7, ge=1, le=30)):
+    """Статистика по аудиту за N дней"""
+    conn = get_db()
+    cursor = conn.cursor()
+
+    since = (datetime.utcnow() - timedelta(days=days)).strftime("%Y-%m-%d %H:%M:%S")
+
+    total = cursor.execute(
+        "SELECT COUNT(*) FROM audit_logs WHERE created_at >= ?",
+        (since,)
+    ).fetchone()[0] or 0
+
+    by_type = cursor.execute(
+        "SELECT event_type AS type, COUNT(*) AS count FROM audit_logs "
+        "WHERE created_at >= ? GROUP BY event_type ORDER BY count DESC",
+        (since,)
+    ).fetchall()
+
+    top_users = cursor.execute(
+        "SELECT user, COUNT(*) AS count FROM audit_logs "
+        "WHERE created_at >= ? AND user IS NOT NULL "
+        "GROUP BY user ORDER BY count DESC LIMIT 10",
+        (since,)
+    ).fetchall()
+
+    agents_online = cursor.execute(
+        "SELECT COUNT(*) FROM audit_agents WHERE status = 'online'"
+    ).fetchone()[0] or 0
+
+    agents_total = cursor.execute(
+        "SELECT COUNT(*) FROM audit_agents"
+    ).fetchone()[0] or 0
+
+    conn.close()
+
+    return {
+        "total": total,
+        "days": days,
+        "by_type": [dict(row) for row in by_type],
+        "top_users": [dict(row) for row in top_users],
+        "agents_total": agents_total,
+        "agents_online": agents_online
     }
