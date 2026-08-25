@@ -62,3 +62,15 @@ state*.json
 # Копии БД
 manager/src/db/dcap.db
 
+# Агент аудита (runtime)
+audit-agent/state.json
+audit-agent/state*.json
+audit-agent/buffer/
+audit-agent/logs/
+audit-agent/*.db
+audit-agent/*.log
+audit-agent/*.exe
+audit-agent/build/
+audit-agent/dist/
+audit-agent/*.spec
+

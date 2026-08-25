@@ -19,11 +19,12 @@ from heartbeat import HeartbeatSender
 class AuditAgent:
     def __init__(self, config_path: Path):
         self.config = self._load_config(config_path)
+        self.base_dir = config_path.parent
         self.state = self._load_state()
 
         self.collector = WindowsAuditCollector()
         self.buffer = BufferManager(
-            buffer_dir=Path(self.config.get("buffer_dir", "buffer")),
+            buffer_dir=self.base_dir / self.config.get("buffer_dir", "buffer"),
             max_size=self.config.get("buffer_size", 10000)
         )
         self.sender = Sender(
@@ -54,14 +55,14 @@ class AuditAgent:
             return json.load(f)
 
     def _load_state(self) -> Dict:
-        state_path = Path("state.json")
+        state_path = self.base_dir / "state.json" if hasattr(self, 'base_dir') else Path("state.json")
         if state_path.exists():
             with open(state_path, 'r', encoding='utf-8') as f:
                 return json.load(f)
         return {"agent_id": 0, "last_read": None}
 
     def _save_state(self):
-        state_path = Path("state.json")
+        state_path = self.base_dir / "state.json"
         with open(state_path, 'w', encoding='utf-8') as f:
             json.dump(self.state, f, ensure_ascii=False, indent=2)
 
