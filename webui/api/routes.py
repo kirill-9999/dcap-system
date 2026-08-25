@@ -984,3 +984,39 @@ async def get_audit_stats(days: int = Query(7, ge=1, le=30)):
         "agents_total": agents_total,
         "agents_online": agents_online
     }
+
+
+# ==================== АГЕНТЫ АУДИТА ====================
+
+@router.get("/audit/agents")
+async def get_audit_agents():
+    """Список всех агентов аудита со статусом"""
+    conn = get_db()
+    cursor = conn.cursor()
+
+    rows = cursor.execute(
+        "SELECT id, name, hostname, status, last_heartbeat, "
+        "events_sent, registered_at, version FROM audit_agents ORDER BY id"
+    ).fetchall()
+
+    conn.close()
+
+    agents = [dict(row) for row in rows]
+    total = len(agents)
+    online = sum(1 for a in agents if a["status"] == "online")
+    offline = sum(1 for a in agents if a["status"] == "offline")
+    error = sum(1 for a in agents if a["status"] == "error")
+
+    for a in agents:
+        if a["last_heartbeat"]:
+            a["last_heartbeat"] = a["last_heartbeat"]
+        if a["registered_at"]:
+            a["registered_at"] = a["registered_at"]
+
+    return {
+        "total": total,
+        "online": online,
+        "offline": offline,
+        "error": error,
+        "agents": agents
+    }

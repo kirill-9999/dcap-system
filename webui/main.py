@@ -73,6 +73,16 @@ body{background:#f5f7fa;font-family:system-ui,-apple-system,sans-serif;}
 .toast-error{background:#dc3545;}
 .toast-info{background:#17a2b8;}
 @keyframes slideIn{from{transform:translateX(100%);opacity:0;}to{transform:translateX(0);opacity:1;}}
+.agents-stats span{font-size:0.95em;color:#495057;}
+.agents-stats strong{color:#2c3e50;}
+.agents-table{width:100%;border-collapse:collapse;font-size:0.9em;}
+.agents-table th{background:#f8f9fa;padding:10px 12px;text-align:left;border-bottom:2px solid #dee2e6;}
+.agents-table td{padding:8px 12px;border-bottom:1px solid #eee;}
+.agents-table tr:hover td{background:#f5f7fa;}
+.status-badge{padding:2px 10px;border-radius:12px;font-size:0.8em;font-weight:500;}
+.status-online{background:#d4edda;color:#155724;}
+.status-offline{background:#f8d7da;color:#721c24;}
+.status-error{background:#f8d7da;color:#721c24;}
 </style>
 </head>
 <body>
@@ -87,7 +97,7 @@ body{background:#f5f7fa;font-family:system-ui,-apple-system,sans-serif;}
 <li class="nav-item"><a class="nav-link active" data-page="dashboard" onclick="switchPage('dashboard')"><i class="fas fa-chart-pie"></i> Дашборд</a></li>
 <li class="nav-item"><a class="nav-link" data-page="findings" onclick="switchPage('findings')"><i class="fas fa-search"></i> Находки</a></li>
 <li class="nav-item"><a class="nav-link" data-page="tasks" onclick="switchPage('tasks')"><i class="fas fa-tasks"></i> Задания</a></li>
-<li class="nav-item"><a class="nav-link" data-page="scanners" onclick="switchPage('scanners')"><i class="fas fa-server"></i> Сканеры</a></li>
+<li class="nav-item"><a class="nav-link" data-page="scanners" onclick="switchPage('scanners')"><i class="fas fa-server"></i> Сканеры и агенты</a></li>
 <li class="nav-item"><a class="nav-link" data-page="resources" onclick="switchPage('resources')"><i class="fas fa-folder"></i> Ресурсы</a></li>
 <li class="nav-item"><a class="nav-link" data-page="access" onclick="switchPage('access')"><i class="fas fa-user-shield"></i> Управление доступом</a></li>
 <li class="nav-item"><a class="nav-link" data-page="audit" onclick="switchPage('audit')"><i class="fas fa-clipboard-list"></i> Аудит</a></li>
@@ -109,6 +119,7 @@ body{background:#f5f7fa;font-family:system-ui,-apple-system,sans-serif;}
 <div class="col-md-2 col-sm-4"><div class="stat-card text-center"><div class="stat-icon text-success"><i class="fas fa-check-circle"></i></div><div class="stat-value" id="completed-tasks">-</div><div class="stat-label">Завершено</div></div></div>
 <div class="col-md-2 col-sm-4"><div class="stat-card text-center"><div class="stat-icon text-danger"><i class="fas fa-exclamation-triangle"></i></div><div class="stat-value" id="failed-tasks">-</div><div class="stat-label">Провалено</div></div></div>
 <div class="col-md-2 col-sm-4"><div class="stat-card text-center"><div class="stat-icon text-info"><i class="fas fa-folder-open"></i></div><div class="stat-value" id="total-files">-</div><div class="stat-label">Файлов</div></div></div>
+<div class="col-md-2 col-sm-4"><div class="stat-card text-center"><div class="stat-icon" style="color:#6f42c1;"><i class="fas fa-robot"></i></div><div class="stat-value" id="dashboard-audit-agents">0</div><div class="stat-label">Агентов аудита</div><div class="stat-label" style="text-transform:none;letter-spacing:0;"><span id="dashboard-audit-online" style="color:#38a169;">0</span> онлайн, <span id="dashboard-audit-offline" style="color:#e53e3e;">0</span> офлайн</div></div></div>
 </div>
 <div class="row g-3 mb-4">
 <div class="col-md-6"><div class="card"><div class="card-header"><i class="fas fa-chart-bar"></i> Находки по категориям</div><div class="card-body"><canvas id="categoryChart" height="250"></canvas></div></div></div>
@@ -155,8 +166,23 @@ body{background:#f5f7fa;font-family:system-ui,-apple-system,sans-serif;}
 
 <!-- SCANNERS -->
 <div id="page-scanners" class="page-content">
-<h2 class="mb-4"><i class="fas fa-server text-primary"></i> Сканеры</h2>
-<div class="table-wrapper" id="scanners-table"><div class="text-center p-4 text-muted">Загрузка...</div></div>
+<h2 class="mb-4"><i class="fas fa-server text-primary"></i> Сканеры и агенты</h2>
+<div class="card mb-4">
+<div class="card-header"><i class="fas fa-server"></i> Сканеры</div>
+<div class="card-body p-0"><div id="scanners-table"><div class="text-center p-4 text-muted">Загрузка...</div></div></div>
+</div>
+<div class="card">
+<div class="card-header"><i class="fas fa-robot"></i> Агенты аудита</div>
+<div class="card-body">
+<div class="agents-stats" style="display:flex;gap:20px;padding:12px 0;flex-wrap:wrap;">
+<span style="font-size:0.95em;color:#495057;">Всего: <strong id="agents-total" style="color:#2c3e50;">0</strong></span>
+<span style="font-size:0.95em;color:#495057;">Онлайн: <strong id="agents-online" style="color:#38a169;">0</strong></span>
+<span style="font-size:0.95em;color:#495057;">Офлайн: <strong id="agents-offline" style="color:#e53e3e;">0</strong></span>
+<span style="font-size:0.95em;color:#495057;">Ошибка: <strong id="agents-error" style="color:#e53e3e;">0</strong></span>
+</div>
+<div id="audit-agents-table-container"><div class="text-center p-4 text-muted">Загрузка...</div></div>
+</div>
+</div>
 </div>
 
 <!-- RESOURCES -->
@@ -317,7 +343,7 @@ function switchPage(page) {
     if (page === 'dashboard') loadDashboard();
     else if (page === 'findings') { loadCategories(); loadFindings(); }
     else if (page === 'tasks') loadTasks();
-    else if (page === 'scanners') loadScanners();
+    else if (page === 'scanners') { loadScanners(); loadAuditAgents(); }
     else if (page === 'resources') loadResources();
     else if (page === 'access') loadAccess();
     else if (page === 'audit') initAuditPage();
@@ -363,6 +389,7 @@ async function loadDashboard() {
         
         updateCharts(s);
         await loadRecentFindings();
+        loadAuditAgents();
         updateTime();
     } catch(e) {
         console.error('Dashboard error:', e);
@@ -645,6 +672,47 @@ async function loadScanners() {
     } catch(e) { console.error(e); }
 }
 
+// ===== АГЕНТЫ АУДИТА =====
+async function loadAuditAgents() {
+    try {
+        var r = await fetch('/api/audit/agents');
+        var data = await r.json();
+        var total = data.total || 0;
+        var online = data.online || 0;
+        var offline = data.offline || 0;
+        var error = data.error || 0;
+
+        var el;
+        el = document.getElementById('dashboard-audit-agents'); if (el) el.textContent = total;
+        el = document.getElementById('dashboard-audit-online'); if (el) el.textContent = online;
+        el = document.getElementById('dashboard-audit-offline'); if (el) el.textContent = offline;
+
+        el = document.getElementById('agents-total'); if (el) el.textContent = total;
+        el = document.getElementById('agents-online'); if (el) el.textContent = online;
+        el = document.getElementById('agents-offline'); if (el) el.textContent = offline;
+        el = document.getElementById('agents-error'); if (el) el.textContent = error;
+
+        var agents = data.agents || [];
+        var container = document.getElementById('audit-agents-table-container');
+        if (!container) return;
+        if (!agents.length) {
+            container.innerHTML = '<div class="text-center p-4 text-muted">Нет зарегистрированных агентов аудита</div>';
+            return;
+        }
+        var h = '<div class="table-responsive"><table class="agents-table"><thead><tr><th>ID</th><th>Имя</th><th>Хост</th><th>Статус</th><th>Событий</th><th>Версия</th><th>Последний heartbeat</th><th>Зарегистрирован</th></tr></thead><tbody>';
+        for (var i = 0; i < agents.length; i++) {
+            var a = agents[i];
+            var sc = a.status === 'online' ? 'status-online' : (a.status === 'error' ? 'status-error' : 'status-offline');
+            var si = a.status === 'online' ? '🟢' : (a.status === 'error' ? '⚠️' : '🔴');
+            var hb = a.last_heartbeat ? new Date(a.last_heartbeat).toLocaleString('ru-RU') : '—';
+            var ra = a.registered_at ? new Date(a.registered_at).toLocaleString('ru-RU') : '—';
+            h += '<tr><td>#' + a.id + '</td><td><strong>' + escapeHtml(a.name) + '</strong></td><td>' + escapeHtml(a.hostname) + '</td><td><span class="status-badge ' + sc + '">' + si + ' ' + a.status + '</span></td><td>' + (a.events_sent || 0) + '</td><td>' + (a.version || '—') + '</td><td>' + hb + '</td><td>' + ra + '</td></tr>';
+        }
+        h += '</tbody></table></div>';
+        container.innerHTML = h;
+    } catch(e) { console.error('Audit agents error:', e); }
+}
+
 // ===== RESOURCES =====
 async function pickFolder(inputId) {
     try {
@@ -879,9 +947,9 @@ async function loadAccessAlerts() {
             var sev = sevIcons[a.severity] || ['secondary','circle'];
             var created = a.created_at ? new Date(a.created_at).toLocaleString('ru-RU') : '-';
             var actions = '';
-            if (a.status === 'open') actions += '<button class="btn btn-sm btn-outline-warning me-1" onclick="updateAlertStatus(' + a.id + ',\\'acknowledged\\')">Подтвердить</button>';
-            if (a.status !== 'resolved') actions += '<button class="btn btn-sm btn-outline-success me-1" onclick="updateAlertStatus(' + a.id + ',\\'resolved\\')">Решить</button>';
-            if (a.status !== 'ignored') actions += '<button class="btn btn-sm btn-outline-secondary" onclick="updateAlertStatus(' + a.id + ',\\'ignored\\')">Игнор</button>';
+            if (a.status === 'open') actions += '<button class="btn btn-sm btn-outline-warning me-1" onclick="updateAlertStatus(' + a.id + ',\\x27acknowledged\\x27)">Подтвердить</button>';
+            if (a.status !== 'resolved') actions += '<button class="btn btn-sm btn-outline-success me-1" onclick="updateAlertStatus(' + a.id + ',\\x27resolved\\x27)">Решить</button>';
+            if (a.status !== 'ignored') actions += '<button class="btn btn-sm btn-outline-secondary" onclick="updateAlertStatus(' + a.id + ',\\x27ignored\\x27)">Игнор</button>';
             html += '<tr><td>#' + a.id + '</td><td><span class="badge bg-' + sev[0] + '"><i class="fas fa-' + sev[1] + '"></i> ' + a.severity + '</span></td><td><span class="badge bg-secondary">' + a.alert_type + '</span></td><td class="small"><code>' + (a.resource_path || ('#' + (a.resource_id || '-'))) + '</code></td><td>' + (a.principal_name || '-') + '</td><td class="small">' + (a.description || '') + '</td><td><span class="badge bg-' + (statusBadges[a.status] || 'secondary') + '">' + a.status + '</span></td><td class="text-muted small">' + created + '</td><td>' + (actions || '<span class="text-muted small">—</span>') + '</td></tr>';
         }
         html += '</tbody></table></div>';
@@ -1137,10 +1205,10 @@ function initAuditPage() {
 
 // ===== АВТООБНОВЛЕНИЕ =====
 setInterval(function() {
-    if (currentPage === 'dashboard') loadDashboard();
+    if (currentPage === 'dashboard') { loadDashboard(); }
     else if (currentPage === 'findings') loadFindings();
     else if (currentPage === 'tasks') loadTasks();
-    else if (currentPage === 'scanners') loadScanners();
+    else if (currentPage === 'scanners') { loadScanners(); loadAuditAgents(); }
     else if (currentPage === 'resources') loadResources();
     else if (currentPage === 'access') loadAccess();
 }, 30000);
