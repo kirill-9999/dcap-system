@@ -1,9 +1,11 @@
 from fastapi import APIRouter, Query, HTTPException
+from fastapi.responses import StreamingResponse
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Optional, List, Dict, Any
 import sqlite3
 import json
+import io
 
 from webui.api.schemas import (
     FindingResponse, TaskResponse, ScannerResponse, 
@@ -1020,3 +1022,230 @@ async def get_audit_agents():
         "error": error,
         "agents": agents
     }
+
+
+# ==================== ОТЧЕТЫ ПО АУДИТУ ====================
+
+@router.post("/audit/report/preview")
+async def preview_audit_report(data: Dict[str, Any]):
+    """Предпросмотр данных для отчета"""
+    days = data.get("days", 7)
+    event_type = data.get("event_type")
+    user = data.get("user")
+    file_path = data.get("file_path")
+    agent_id = data.get("agent_id")
+
+    since = (datetime.utcnow() - timedelta(days=days)).strftime("%Y-%m-%d %H:%M:%S")
+
+    conn = get_db()
+    cursor = conn.cursor()
+
+    query = "SELECT * FROM audit_logs WHERE created_at >= ?"
+    params: list = [since]
+    conditions = []
+
+    if event_type:
+        conditions.append("event_type = ?")
+        params.append(event_type)
+    if user:
+        conditions.append("user LIKE ?")
+        params.append(f"%{user}%")
+    if file_path:
+        conditions.append("file_path LIKE ?")
+        params.append(f"%{file_path}%")
+    if agent_id:
+        conditions.append("agent_id = ?")
+        params.append(agent_id)
+
+    if conditions:
+        query += " AND " + " AND ".join(conditions)
+
+    total = cursor.execute(
+        "SELECT COUNT(*) FROM (" + query + ")", params
+    ).fetchone()[0] or 0
+
+    type_rows = cursor.execute(
+        "SELECT event_type, COUNT(*) AS cnt FROM (" + query + ") GROUP BY event_type ORDER BY cnt DESC",
+        params
+    ).fetchall()
+
+    user_rows = cursor.execute(
+        "SELECT user, COUNT(*) AS cnt FROM (" + query + ") "
+        "WHERE user IS NOT NULL AND user != '' "
+        "GROUP BY user ORDER BY cnt DESC LIMIT 10",
+        params
+    ).fetchall()
+
+    events_query = query + " ORDER BY created_at DESC LIMIT 100"
+    event_rows = cursor.execute(events_query, params).fetchall()
+    conn.close()
+
+    return {
+        "total": total,
+        "days": days,
+        "type_stats": [{"type": r[0] or "unknown", "count": r[1]} for r in type_rows],
+        "top_users": [{"user": r[0], "count": r[1]} for r in user_rows],
+        "events": [
+            {
+                "id": r[0],
+                "event_type": r[2] if len(r) > 2 else "—",
+                "user": r[3] if len(r) > 3 else "—",
+                "file_path": r[4] if len(r) > 4 else "—",
+                "source_host": r[6] if len(r) > 6 else "—",
+                "created_at": str(r[7]) if len(r) > 7 and r[7] else "—",
+            }
+            for r in event_rows
+        ]
+    }
+
+
+@router.post("/audit/report/export/excel")
+async def export_audit_report_excel(data: Dict[str, Any]):
+    """Экспорт отчета в Excel"""
+    from openpyxl import Workbook
+
+    preview = await preview_audit_report(data)
+
+    wb = Workbook()
+
+    ws1 = wb.active
+    ws1.title = "Сводка"
+    ws1.append(["Отчет по аудиту"])
+    ws1.append([f"Период: {preview['days']} дней"])
+    ws1.append([f"Всего событий: {preview['total']}"])
+    ws1.append([])
+
+    ws1.append(["Тип события", "Количество"])
+    for stat in preview["type_stats"]:
+        ws1.append([stat["type"], stat["count"]])
+    ws1.append([])
+
+    ws1.append(["Топ пользователи"])
+    ws1.append(["Пользователь", "Событий"])
+    for u in preview["top_users"]:
+        ws1.append([u["user"], u["count"]])
+
+    ws2 = wb.create_sheet("Детали")
+    ws2.append(["ID", "Тип", "Пользователь", "Файл", "Источник", "Время"])
+    for e in preview["events"]:
+        ws2.append([
+            e["id"], e["event_type"], e["user"],
+            e["file_path"], e["source_host"], e["created_at"]
+        ])
+
+    for ws in wb.worksheets:
+        for col in ws.columns:
+            max_length = 0
+            column = col[0].column_letter
+            for cell in col:
+                try:
+                    if len(str(cell.value)) > max_length:
+                        max_length = len(str(cell.value))
+                except Exception:
+                    pass
+            ws.column_dimensions[column].width = min(max_length + 2, 50)
+
+    output = io.BytesIO()
+    wb.save(output)
+    output.seek(0)
+
+    filename = f"audit_report_{datetime.utcnow().strftime('%Y%m%d_%H%M%S')}.xlsx"
+    return StreamingResponse(
+        output,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f"attachment; filename={filename}"}
+    )
+
+
+@router.post("/audit/report/export/pdf")
+async def export_audit_report_pdf(data: Dict[str, Any]):
+    """Экспорт отчета в PDF"""
+    from reportlab.lib.pagesizes import A4
+    from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer
+    from reportlab.lib import colors
+    from reportlab.lib.styles import getSampleStyleSheet
+
+    preview = await preview_audit_report(data)
+
+    buffer = io.BytesIO()
+    doc = SimpleDocTemplate(buffer, pagesize=A4)
+    styles = getSampleStyleSheet()
+    story = []
+
+    story.append(Paragraph("Отчет по аудиту", styles['Title']))
+    story.append(Spacer(1, 12))
+    story.append(Paragraph(f"Period: {preview['days']} days", styles['Normal']))
+    story.append(Paragraph(f"Total events: {preview['total']}", styles['Normal']))
+    story.append(Spacer(1, 20))
+
+    story.append(Paragraph("Event types", styles['Heading2']))
+    table_data = [["Type", "Count"]]
+    for stat in preview["type_stats"]:
+        table_data.append([str(stat["type"]), str(stat["count"])])
+    t = Table(table_data)
+    t.setStyle(TableStyle([
+        ('BACKGROUND', (0, 0), (-1, 0), colors.grey),
+        ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
+        ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+        ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+        ('FONTSIZE', (0, 0), (-1, 0), 12),
+        ('BOTTOMPADDING', (0, 0), (-1, 0), 12),
+        ('BACKGROUND', (0, 1), (-1, -1), colors.beige),
+        ('GRID', (0, 0), (-1, -1), 1, colors.black),
+    ]))
+    story.append(t)
+    story.append(Spacer(1, 20))
+
+    story.append(Paragraph("Top users", styles['Heading2']))
+    table_data = [["User", "Events"]]
+    for u in preview["top_users"]:
+        table_data.append([str(u["user"]), str(u["count"])])
+    t = Table(table_data)
+    t.setStyle(TableStyle([
+        ('BACKGROUND', (0, 0), (-1, 0), colors.grey),
+        ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
+        ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+        ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+        ('FONTSIZE', (0, 0), (-1, 0), 12),
+        ('BOTTOMPADDING', (0, 0), (-1, 0), 12),
+        ('BACKGROUND', (0, 1), (-1, -1), colors.beige),
+        ('GRID', (0, 0), (-1, -1), 1, colors.black),
+    ]))
+    story.append(t)
+    story.append(Spacer(1, 20))
+
+    story.append(Paragraph(f"Last events (first 50 of {len(preview['events'])})", styles['Heading2']))
+    table_data = [["Type", "User", "File", "Time"]]
+    for e in preview["events"][:50]:
+        fp = str(e["file_path"] or "")
+        if len(fp) > 50:
+            fp = fp[:50] + "..."
+        table_data.append([
+            str(e["event_type"] or ""),
+            str(e["user"] or ""),
+            fp,
+            str(e["created_at"] or "")[:19]
+        ])
+    t = Table(table_data, colWidths=[60, 80, 200, 120])
+    t.setStyle(TableStyle([
+        ('BACKGROUND', (0, 0), (-1, 0), colors.grey),
+        ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
+        ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+        ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+        ('FONTSIZE', (0, 0), (-1, 0), 10),
+        ('BOTTOMPADDING', (0, 0), (-1, 0), 10),
+        ('BACKGROUND', (0, 1), (-1, -1), colors.beige),
+        ('GRID', (0, 0), (-1, -1), 1, colors.black),
+        ('FONTSIZE', (0, 1), (-1, -1), 8),
+    ]))
+    story.append(t)
+
+    doc.build(story)
+    buffer.seek(0)
+
+    filename = f"audit_report_{datetime.utcnow().strftime('%Y%m%d_%H%M%S')}.pdf"
+    return StreamingResponse(
+        buffer,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f"attachment; filename={filename}"}
+    )

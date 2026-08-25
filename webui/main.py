@@ -223,7 +223,7 @@ body{background:#f5f7fa;font-family:system-ui,-apple-system,sans-serif;}
 
 <!-- AUDIT -->
 <div id="page-audit" class="page-content">
-<h2 class="mb-4"><i class="fas fa-clipboard-list text-primary"></i> Аудит файловой системы <span class="audit-status" id="audit-status"></span><button class="btn btn-primary btn-sm float-end" id="refresh-audit-btn"><i class="fas fa-sync-alt"></i> Обновить</button></h2>
+<h2 class="mb-4"><i class="fas fa-clipboard-list text-primary"></i> Аудит файловой системы <span class="audit-status" id="audit-status"></span><button class="btn btn-info btn-sm float-end me-2" onclick="openReportModal()"><i class="fas fa-chart-bar"></i> Отчет</button><button class="btn btn-primary btn-sm float-end" id="refresh-audit-btn"><i class="fas fa-sync-alt"></i> Обновить</button></h2>
 <div class="filter-card">
 <div class="row g-3 align-items-end">
 <div class="col-md-2"><label class="form-label">Период</label><select class="form-select" id="audit-days-filter"><option value="1">Последний день</option><option value="7" selected>Последние 7 дней</option><option value="30">Последние 30 дней</option><option value="90">Последние 90 дней</option></select></div>
@@ -257,6 +257,25 @@ body{background:#f5f7fa;font-family:system-ui,-apple-system,sans-serif;}
 </div>
 </div>
 
+</div>
+
+<!-- MODAL: Report -->
+<div class="modal" id="report-modal">
+<div class="modal-content" style="max-width:700px;">
+<h4 class="mb-3"><i class="fas fa-chart-bar"></i> Отчет по аудиту</h4>
+<div class="row g-3 mb-3">
+<div class="col-md-3"><label class="form-label">Период</label><select class="form-select" id="report-days"><option value="1">1 день</option><option value="7" selected>7 дней</option><option value="30">30 дней</option><option value="90">90 дней</option></select></div>
+<div class="col-md-3"><label class="form-label">Тип события</label><select class="form-select" id="report-type"><option value="">Все типы</option><option value="read">Чтение</option><option value="write">Запись</option><option value="delete">Удаление</option><option value="move">Перемещение</option></select></div>
+<div class="col-md-3"><label class="form-label">Пользователь</label><input type="text" class="form-control" id="report-user" placeholder="Имя..."></div>
+<div class="col-md-3"><label class="form-label">Файл/путь</label><input type="text" class="form-control" id="report-path" placeholder="Путь..."></div>
+</div>
+<div id="report-preview" class="p-3" style="background:#f8f9fa;border-radius:8px;min-height:80px;"><div class="text-muted">Загрузка данных...</div></div>
+<div class="d-flex gap-2 justify-content-end mt-3">
+<button class="btn btn-secondary" onclick="closeModal('report-modal')">Закрыть</button>
+<button class="btn btn-success" onclick="exportReport('excel')"><i class="fas fa-file-excel"></i> Excel</button>
+<button class="btn btn-danger" onclick="exportReport('pdf')"><i class="fas fa-file-pdf"></i> PDF</button>
+</div>
+</div>
 </div>
 
 <!-- MODAL: Create Task -->
@@ -1201,6 +1220,85 @@ function initAuditPage() {
             }
         });
     });
+}
+
+// ===== ОТЧЕТЫ =====
+var currentReportFilter = {};
+
+async function openReportModal() {
+    document.getElementById('report-modal').classList.add('show');
+    await generateReportPreview();
+    ['report-days', 'report-type'].forEach(function(id) {
+        document.getElementById(id).addEventListener('change', generateReportPreview);
+    });
+    ['report-user', 'report-path'].forEach(function(id) {
+        document.getElementById(id).addEventListener('input', generateReportPreview);
+    });
+}
+
+async function generateReportPreview() {
+    var filter = {
+        days: parseInt(document.getElementById('report-days').value) || 7,
+        event_type: document.getElementById('report-type').value || null,
+        user: document.getElementById('report-user').value || null,
+        file_path: document.getElementById('report-path').value || null
+    };
+    currentReportFilter = filter;
+    var container = document.getElementById('report-preview');
+    try {
+        var r = await fetch('/api/audit/report/preview', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify(filter)
+        });
+        var data = await r.json();
+        var thtml = '<div style="display:flex;gap:16px;flex-wrap:wrap;margin-bottom:12px;">';
+        thtml += '<div class="stat-card" style="flex:1;min-width:120px;"><div class="stat-value" style="font-size:1.5rem;">' + data.total + '</div><div class="stat-label">Событий</div></div>';
+        thtml += '<div class="stat-card" style="flex:1;min-width:120px;"><div class="stat-value" style="font-size:1.5rem;">' + data.days + '</div><div class="stat-label">Дней</div></div>';
+        thtml += '</div>';
+        thtml += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;">';
+        thtml += '<div><h5>Типы событий</h5><ul class="list-unstyled">';
+        if (data.type_stats.length) {
+            for (var i = 0; i < data.type_stats.length; i++) {
+                thtml += '<li>' + data.type_stats[i].type + ': <strong>' + data.type_stats[i].count + '</strong></li>';
+            }
+        } else { thtml += '<li class="text-muted">Нет данных</li>'; }
+        thtml += '</ul></div>';
+        thtml += '<div><h5>Топ пользователи</h5><ul class="list-unstyled">';
+        if (data.top_users.length) {
+            for (var i = 0; i < data.top_users.length; i++) {
+                thtml += '<li>' + data.top_users[i].user + ': <strong>' + data.top_users[i].count + '</strong></li>';
+            }
+        } else { thtml += '<li class="text-muted">Нет данных</li>'; }
+        thtml += '</ul></div></div>';
+        thtml += '<div class="text-muted mt-2" style="font-size:0.85em;">Последние ' + data.events.length + ' событий в отчете</div>';
+        container.innerHTML = thtml;
+    } catch(e) {
+        container.innerHTML = '<p class="text-danger">Ошибка загрузки данных</p>';
+    }
+}
+
+async function exportReport(format) {
+    try {
+        var r = await fetch('/api/audit/report/export/' + format, {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify(currentReportFilter)
+        });
+        if (!r.ok) throw new Error('Export failed');
+        var blob = await r.blob();
+        var url = URL.createObjectURL(blob);
+        var a = document.createElement('a');
+        a.href = url;
+        a.download = 'audit_report.' + (format === 'excel' ? 'xlsx' : 'pdf');
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+        showToast('Отчет экспортирован', 'success');
+    } catch(e) {
+        showToast('Ошибка экспорта отчета', 'error');
+    }
 }
 
 // ===== АВТООБНОВЛЕНИЕ =====
