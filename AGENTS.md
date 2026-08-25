@@ -48,7 +48,7 @@ Pytest отсутствует (папка `manager/tests/` пуста). Тест
 - `manager/src/connectors/permissions/` — коллекторы прав (Strategy): `local` (icacls), `remote`, `ad` — заглушка. `services/access_service.py` — логика прав.
 - `manager/src/connectors/audit/` — коллектор событий Windows (`windows_audit.py`, wevtutil Security Log). API: `manager/src/api/audit.py` (агентная модель: `POST /api/audit/agents/register`, `/agents/heartbeat`, `/events`; просмотр `GET /api/audit`, `/stats`). Таблицы `audit_agents`/`audit_logs` создаются автоматически (create_all); чтение журнала Security требует прав администратора, иначе агент получит 0 событий.
 - `scanner/src/managed_scanner.py` — агент; конфиг `scanner/config/scanner_config.json`; состояние `scanner/state/state.json`.
-- `audit-agent/` — лёгкий агент аудита (Windows): `main.py` (цикл), `collector.py` (wevtutil Security Log), `buffer.py` (SQLite-буфер), `sender.py`/`heartbeat.py` (HTTP в Manager), `config_loader.py` (конфиг с дефолтами). Конфиг `config.json`; состояние `state.json` и буфер `buffer/` генерируются при запуске и игнорируются git. Запуск: `cd audit-agent; python main.py`. Windows-служба: `service.py` (pywin32, `python service.py install|start|stop|remove`) + бат-файлы `*_service.bat`; логи службы — `audit-agent/logs/audit_agent.log`. Установка службы требует прав администратора. События отправляются в `POST /api/audit/events` батчами, при недоступности Manager копятся в буфере.
+- `audit-agent/` — лёгкий агент аудита (Windows): `main.py` (цикл), `collector.py` (wevtutil Security Log, XML-парсинг), `buffer.py` (SQLite-буфер), `sender.py`/`heartbeat.py` (HTTP в Manager), `config_loader.py` (конфиг с дефолтами). Конфиг `config.json`; состояние `state.json` и буфер `buffer/` генерируются при запуске и игнорируются git. Запуск: `cd audit-agent; python main.py`. Windows-служба: `service.py` (pywin32, `python service.py install|start|stop|remove`) + бат-файлы `*_service.bat`; логи службы — `audit-agent/logs/audit_agent.log`. Установка службы требует прав администратора. События отправляются в `POST /api/audit/events` батчами, при недоступности Manager копятся в буфере. Коллектор использует XML-формат (`/f:XML`), colon-syntax параметров, фильтр по EventID в XPath (TimeCreated не работает в wevtutil).
 - `webui/main.py` — актуальный WebUI (весь HTML инлайн в Python), единственный UI проекта. `run_webui.py` запускает именно `webui.main:app`. Легаси (`main_final.py`, `main_simple.py`, `main_static.py`, старые `static/`/`templates/`) удалены — не восстанавливать.
 - `structure.txt` и `project_context.md` частично устарели — сверяйся с кодом, а не с ними.
 
@@ -57,6 +57,16 @@ Pytest отсутствует (папка `manager/tests/` пуста). Тест
 - Временные файлы/скрипты — только в `D:\Projects\dcap-system\temp` (в .gitignore), не в системном %TEMP%.
 - Нет Active Directory: `ad.py` — заглушка, локальный сбор прав через `icacls` / `net localgroup`.
 - Тестовые данные: `D:\Projects\dcap-system\test_files`.
+
+## Особенности Windows и wevtutil
+
+- **wevtutil colon-syntax:** параметры только через двоеточие — `/f:XML`, `/q:...`, `/c:N`. Через пробел (`/f XML`) — «слишком много аргументов».
+- **wevtutil `/e Events`:** не использовать — вызывает ошибку аргументов. wevtutil отдаёт голые `<Event>` без корневого элемента, парсер оборачивает в `<Events>` автоматически.
+- **wevtutil XPath:** `TimeCreated[@SystemTime>='...']` НЕ работает в wevtutil (урезанная XPath 1.0). Фильтр по EventID в XPath, фильтр по времени — в Python.
+- **Русская Windows:** Text-вывод wevtutil локализован (`Имя учетной записи:` вместо `SubjectUserName:`). Используйте XML-формат (`/f:XML`) — теги всегда на английском.
+- **Служба vs консоль:** CWD службы = `C:\Windows\System32`, не папка проекта. Пути должны быть абсолютными (от `config_path.parent`).
+- **SQLite + threading:** всегда `check_same_thread=False` для многопоточных сервисов.
+- **CDN:** антивирусы блокируют jsdelivr/cdnjs. Статика (bootstrap, font-awesome, chart.js) — только локально в `webui/static/vendor/`.
 
 ## Git
 
