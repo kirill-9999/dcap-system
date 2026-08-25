@@ -1,5 +1,7 @@
 import os
 
+VERSION = "2.0.1"
+
 # База данных
 DATABASE_URL = os.getenv(
     "DATABASE_URL",
