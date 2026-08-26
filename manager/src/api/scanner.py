@@ -72,10 +72,45 @@ class ResultsPayload(BaseModel):
 # КОНСТАНТЫ
 # ============================================================
 TASK_TIMEOUT_MINUTES = 30
+STALE_THRESHOLD_MINUTES = 2
+
+
+def _mark_stale_scanners(db: Session):
+    """Пометить сканеры как inactive, если heartbeat старше порога."""
+    threshold = datetime.utcnow() - timedelta(minutes=STALE_THRESHOLD_MINUTES)
+    stale = db.query(models.Scanner).filter(
+        models.Scanner.status.in_(["active", "ACTIVE"]),
+        models.Scanner.last_heartbeat < threshold
+    ).all()
+    for s in stale:
+        s.status = "inactive"
+    if stale:
+        db.commit()
+
 
 # ============================================================
 # ЭНДПОИНТЫ
 # ============================================================
+
+@router.get("")
+def list_scanners(db: Session = Depends(session.get_db)):
+    """Список всех сканеров с актуальным статусом"""
+    _mark_stale_scanners(db)
+
+    scanners = db.query(models.Scanner).order_by(models.Scanner.id).all()
+    result = []
+    for s in scanners:
+        result.append({
+            "id": s.id,
+            "name": s.name,
+            "hostname": s.hostname,
+            "ip_address": s.ip_address,
+            "status": s.status,
+            "last_heartbeat": s.last_heartbeat.isoformat() if s.last_heartbeat else None,
+            "scan_interval": s.scan_interval,
+        })
+    return result
+
 
 @router.post("/register")
 async def register_scanner(
@@ -361,6 +396,8 @@ def get_scanner_info(
     db: Session = Depends(session.get_db)
 ):
     """Получить информацию о сканере"""
+    _mark_stale_scanners(db)
+
     scanner = db.query(models.Scanner).filter(models.Scanner.id == scanner_id).first()
     if not scanner:
         raise HTTPException(404, "Scanner not found")

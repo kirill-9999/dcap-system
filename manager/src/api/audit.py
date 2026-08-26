@@ -20,6 +20,21 @@ from manager.src.db import models
 
 router = APIRouter(tags=["audit"])
 
+STALE_THRESHOLD_MINUTES = 2
+
+
+def _mark_stale_agents(db: Session):
+    """Пометить агентов как offline, если heartbeat старше порога."""
+    threshold = datetime.utcnow() - timedelta(minutes=STALE_THRESHOLD_MINUTES)
+    stale = db.query(models.AuditAgent).filter(
+        models.AuditAgent.status == "online",
+        models.AuditAgent.last_heartbeat < threshold
+    ).all()
+    for agent in stale:
+        agent.status = "offline"
+    if stale:
+        db.commit()
+
 
 class AuditEventPayload(BaseModel):
     event_type: str          # read, write, delete, move, rename
@@ -121,6 +136,38 @@ def agent_heartbeat(
 
     db.commit()
     return {"status": "ok"}
+
+
+@router.get("/api/audit/agents")
+def list_audit_agents(db: Session = Depends(get_db)):
+    """Список агентов аудита с актуальным статусом"""
+    _mark_stale_agents(db)
+
+    agents = db.query(models.AuditAgent).order_by(models.AuditAgent.id).all()
+    total = len(agents)
+    online = sum(1 for a in agents if a.status == "online")
+    offline = sum(1 for a in agents if a.status == "offline")
+    error = sum(1 for a in agents if a.status == "error")
+
+    return {
+        "total": total,
+        "online": online,
+        "offline": offline,
+        "error": error,
+        "agents": [
+            {
+                "id": a.id,
+                "name": a.name,
+                "hostname": a.hostname,
+                "status": a.status,
+                "last_heartbeat": a.last_heartbeat.isoformat() if a.last_heartbeat else None,
+                "events_sent": a.events_sent,
+                "registered_at": a.registered_at.isoformat() if a.registered_at else None,
+                "version": getattr(a, "version", None),
+            }
+            for a in agents
+        ],
+    }
 
 
 @router.post("/api/audit/events")

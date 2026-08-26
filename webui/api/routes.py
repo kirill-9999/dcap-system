@@ -420,11 +420,18 @@ async def get_scanners():
     """Получить список всех сканеров"""
     conn = get_db()
     cursor = conn.cursor()
-    
+
+    cursor.execute(
+        "UPDATE scanners SET status = 'inactive' "
+        "WHERE status IN ('active','ACTIVE') "
+        "AND last_heartbeat < datetime('now', '-120 seconds')"
+    )
+    conn.commit()
+
     cursor.execute("SELECT * FROM scanners ORDER BY id")
     rows = cursor.fetchall()
     conn.close()
-    
+
     return [dict(row) for row in rows]
 
 
@@ -995,6 +1002,13 @@ async def get_audit_agents():
     """Список всех агентов аудита со статусом"""
     conn = get_db()
     cursor = conn.cursor()
+
+    cursor.execute(
+        "UPDATE audit_agents SET status = 'offline' "
+        "WHERE status = 'online' "
+        "AND last_heartbeat < datetime('now', '-120 seconds')"
+    )
+    conn.commit()
 
     rows = cursor.execute(
         "SELECT id, name, hostname, status, last_heartbeat, "
