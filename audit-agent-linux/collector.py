@@ -3,39 +3,77 @@
 
 import os
 import time
-import threading
-from datetime import datetime
 from pathlib import Path
 from typing import List, Dict, Optional, Callable
 
 try:
-    import pyinotify
+    from watchdog.observers import Observer
+    from watchdog.events import FileSystemEventHandler
 except ImportError:
-    print("[Collector] pyinotify не установлен. Установите: pip install pyinotify")
+    print("[Collector] watchdog не установлен. Установите: pip install watchdog")
     raise
 
 
+class _WatchdogHandler(FileSystemEventHandler):
+    """Обработчик событий watchdog → audit_event"""
+
+    EVENT_MAP = {
+        'read': 'read',
+        'modified': 'write',
+        'created': 'write',
+        'deleted': 'delete',
+        'moved': 'move',
+    }
+
+    SKIP_PATTERNS = ['.git', '__pycache__', '.swp', '~', 'agent.pid']
+
+    def __init__(self, callback: Callable):
+        super().__init__()
+        self.callback = callback
+
+    def _emit(self, event_type: str, src_path: str, dest_path: str = None):
+        if any(x in src_path for x in self.SKIP_PATTERNS):
+            return
+
+        import getpass
+        user = getpass.getuser()
+
+        audit_event = {
+            'event_type': event_type,
+            'user': user,
+            'file_path': src_path,
+            'old_path': dest_path,
+            'metadata': {'src': src_path},
+            'created_at': time.strftime('%Y-%m-%dT%H:%M:%S', time.gmtime()),
+        }
+        self.callback(audit_event)
+
+    def on_read(self, event):
+        self._emit('read', event.src_path)
+
+    def on_modified(self, event):
+        if not event.is_directory:
+            self._emit('write', event.src_path)
+
+    def on_created(self, event):
+        if not event.is_directory:
+            self._emit('write', event.src_path)
+
+    def on_deleted(self, event):
+        self._emit('delete', event.src_path)
+
+    def on_moved(self, event):
+        self._emit('move', event.src_path, event.dest_path)
+
+
 class InotifyCollector:
-    """Сбор файловых событий через inotify (без systemd)"""
+    """Сбор файловых событий через inotify (watchdog)"""
 
     def __init__(self, watch_paths: List[str], callback: Optional[Callable] = None):
         self.watch_paths = [str(Path(p).resolve()) for p in watch_paths]
         self.callback = callback
         self.running = False
-        self.wm = None
-        self.notifier = None
-        self._pending_move: Optional[Dict] = None
-
-        self.event_map = {
-            pyinotify.IN_OPEN: 'read',
-            pyinotify.IN_MODIFY: 'write',
-            pyinotify.IN_CLOSE_WRITE: 'write',
-            pyinotify.IN_DELETE: 'delete',
-            pyinotify.IN_DELETE_SELF: 'delete',
-            pyinotify.IN_MOVED_FROM: 'move',
-            pyinotify.IN_MOVED_TO: 'move',
-            pyinotify.IN_CREATE: 'write',
-        }
+        self.observer = None
 
     def start(self):
         if not self.watch_paths:
@@ -49,31 +87,19 @@ class InotifyCollector:
 
         print(f"[Collector] Запуск мониторинга: {self.watch_paths}")
 
-        self.wm = pyinotify.WatchManager()
-        self.notifier = pyinotify.Notifier(self.wm, self._event_handler, timeout=10)
-
-        mask = (
-            pyinotify.IN_OPEN |
-            pyinotify.IN_MODIFY |
-            pyinotify.IN_CLOSE_WRITE |
-            pyinotify.IN_DELETE |
-            pyinotify.IN_DELETE_SELF |
-            pyinotify.IN_MOVED_FROM |
-            pyinotify.IN_MOVED_TO |
-            pyinotify.IN_CREATE
-        )
+        handler = _WatchdogHandler(callback=self.callback)
+        self.observer = Observer()
 
         for path in self.watch_paths:
-            self.wm.add_watch(path, mask, rec=True, auto_add=True)
+            self.observer.schedule(handler, path, recursive=True)
             print(f"[Collector]   Мониторинг: {path}")
 
         self.running = True
+        self.observer.start()
+
         try:
             while self.running:
-                self.notifier.process_events()
-                if self.notifier.check_events():
-                    self.notifier.read_events()
-                time.sleep(0.1)
+                time.sleep(0.5)
         except KeyboardInterrupt:
             self.stop()
         except Exception as e:
@@ -82,46 +108,7 @@ class InotifyCollector:
 
     def stop(self):
         self.running = False
-        if self.notifier:
-            self.notifier.stop()
+        if self.observer:
+            self.observer.stop()
+            self.observer.join(timeout=5)
         print("[Collector] Остановлен")
-
-    def _event_handler(self, event: pyinotify.Event):
-        if any(x in event.pathname for x in ['.git', '__pycache__', '.swp', '~']):
-            return
-
-        event_type = self._get_event_type(event)
-        if not event_type:
-            return
-
-        user = os.environ.get('USER', os.environ.get('USERNAME', 'unknown'))
-
-        audit_event = {
-            'event_type': event_type,
-            'user': user,
-            'file_path': event.pathname,
-            'old_path': None,
-            'metadata': {
-                'event_mask': event.maskname,
-                'pid': event.pid
-            },
-            'created_at': datetime.utcnow().isoformat()
-        }
-
-        if event.mask & pyinotify.IN_MOVED_FROM:
-            self._pending_move = {'pathname': event.pathname, 'cookie': event.cookie}
-            return
-
-        if event.mask & pyinotify.IN_MOVED_TO:
-            if self._pending_move and self._pending_move.get('cookie') == event.cookie:
-                audit_event['old_path'] = self._pending_move['pathname']
-                self._pending_move = None
-
-        if self.callback:
-            self.callback(audit_event)
-
-    def _get_event_type(self, event: pyinotify.Event) -> Optional[str]:
-        for mask, etype in self.event_map.items():
-            if event.mask & mask:
-                return etype
-        return None
