@@ -884,6 +884,7 @@ async def get_audit_events(
     agent_id: Optional[int] = None,
     user: Optional[str] = None,
     event_type: Optional[str] = None,
+    event_source: Optional[str] = None,
     file_path: Optional[str] = None,
     since: Optional[str] = None,   # ISO формат
     limit: int = Query(100, ge=1, le=1000),
@@ -906,6 +907,9 @@ async def get_audit_events(
     if event_type:
         conditions.append("event_type = ?")
         params.append(event_type)
+    if event_source:
+        conditions.append("event_source = ?")
+        params.append(event_source)
     if file_path:
         conditions.append("file_path LIKE ?")
         params.append(f"%{file_path}%")
@@ -983,6 +987,13 @@ async def get_audit_stats(days: int = Query(7, ge=1, le=30)):
         "SELECT COUNT(*) FROM audit_agents"
     ).fetchone()[0] or 0
 
+    by_source = cursor.execute(
+        "SELECT event_source AS source, COUNT(*) AS count FROM audit_logs "
+        "WHERE created_at >= ? AND event_source IS NOT NULL "
+        "GROUP BY event_source ORDER BY count DESC",
+        (since,)
+    ).fetchall()
+
     conn.close()
 
     return {
@@ -990,6 +1001,7 @@ async def get_audit_stats(days: int = Query(7, ge=1, le=30)):
         "days": days,
         "by_type": [dict(row) for row in by_type],
         "top_users": [dict(row) for row in top_users],
+        "by_source": [dict(row) for row in by_source],
         "agents_total": agents_total,
         "agents_online": agents_online
     }

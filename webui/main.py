@@ -120,6 +120,8 @@ body{background:#f5f7fa;font-family:system-ui,-apple-system,sans-serif;}
 <div class="col-md-2 col-sm-4"><div class="stat-card text-center"><div class="stat-icon text-danger"><i class="fas fa-exclamation-triangle"></i></div><div class="stat-value" id="failed-tasks">-</div><div class="stat-label">Провалено</div></div></div>
 <div class="col-md-2 col-sm-4"><div class="stat-card text-center"><div class="stat-icon text-info"><i class="fas fa-folder-open"></i></div><div class="stat-value" id="total-files">-</div><div class="stat-label">Файлов</div></div></div>
 <div class="col-md-2 col-sm-4"><div class="stat-card text-center"><div class="stat-icon" style="color:#6f42c1;"><i class="fas fa-robot"></i></div><div class="stat-value" id="dashboard-audit-agents">0</div><div class="stat-label">Агентов аудита</div><div class="stat-label" style="text-transform:none;letter-spacing:0;"><span id="dashboard-audit-online" style="color:#38a169;">0</span> онлайн, <span id="dashboard-audit-offline" style="color:#e53e3e;">0</span> офлайн</div></div></div>
+<div class="col-md-2 col-sm-4"><div class="stat-card text-center"><div class="stat-value" id="dashboard-events-windows" style="color:#0078d4;">0</div><div class="stat-label">🪟 Windows</div></div></div>
+<div class="col-md-2 col-sm-4"><div class="stat-card text-center"><div class="stat-value" id="dashboard-events-linux" style="color:#38a169;">0</div><div class="stat-label">🐧 Linux</div></div></div>
 </div>
 <div class="row g-3 mb-4">
 <div class="col-md-6"><div class="card"><div class="card-header"><i class="fas fa-chart-bar"></i> Находки по категориям</div><div class="card-body"><canvas id="categoryChart" height="250"></canvas></div></div></div>
@@ -228,9 +230,12 @@ body{background:#f5f7fa;font-family:system-ui,-apple-system,sans-serif;}
 <div class="row g-3 align-items-end">
 <div class="col-md-2"><label class="form-label">Период</label><select class="form-select" id="audit-days-filter"><option value="1">Последний день</option><option value="7" selected>Последние 7 дней</option><option value="30">Последние 30 дней</option><option value="90">Последние 90 дней</option></select></div>
 <div class="col-md-2"><label class="form-label">Тип события</label><select class="form-select" id="audit-type-filter"><option value="">Все типы</option><option value="read">📖 Чтение</option><option value="write">✏️ Запись</option><option value="delete">🗑️ Удаление</option><option value="move">📦 Перемещение</option><option value="rename">📝 Переименование</option></select></div>
+<div class="col-md-2"><label class="form-label">Источник</label><select class="form-select" id="audit-source-filter"><option value="">Все источники</option><option value="windows_agent">🪟 Windows Agent</option><option value="linux_agent">🐧 Linux Agent</option><option value="scanner">📡 Scanner</option><option value="api">🔌 API</option></select></div>
 <div class="col-md-3"><label class="form-label">Пользователь</label><input type="text" class="form-control" id="audit-user-filter" placeholder="Введите имя пользователя..."></div>
 <div class="col-md-3"><label class="form-label">Файл/путь</label><input type="text" class="form-control" id="audit-path-filter" placeholder="Поиск по пути..."></div>
-<div class="col-md-2"><button class="btn btn-primary me-2" id="apply-audit-filters"><i class="fas fa-filter"></i> Применить</button><button class="btn btn-outline-secondary" id="reset-audit-filters"><i class="fas fa-undo"></i> Сброс</button></div>
+</div>
+<div class="row g-3 mt-1">
+<div class="col-md-12"><button class="btn btn-primary me-2" id="apply-audit-filters"><i class="fas fa-filter"></i> Применить</button><button class="btn btn-outline-secondary" id="reset-audit-filters"><i class="fas fa-undo"></i> Сброс</button></div>
 </div>
 </div>
 <div class="row g-3 mb-4" id="audit-stats">
@@ -251,8 +256,8 @@ body{background:#f5f7fa;font-family:system-ui,-apple-system,sans-serif;}
 </div>
 </div>
 <table class="table table-hover table-sm mb-0 audit-table">
-<thead class="table-light"><tr><th>⏱️ Время</th><th>📋 Тип</th><th>👤 Пользователь</th><th>📁 Файл/путь</th><th>💻 Источник</th><th>🔄 Действие</th></tr></thead>
-<tbody id="audit-table-body"><tr><td colspan="6" class="text-center py-4 text-muted">Загрузка событий...</td></tr></tbody>
+<thead class="table-light"><tr><th>⏱️ Время</th><th>📋 Тип</th><th>👤 Пользователь</th><th>📁 Файл/путь</th><th>💻 Источник</th><th>🤖 Агент</th><th>🔄</th></tr></thead>
+<tbody id="audit-table-body"><tr><td colspan="7" class="text-center py-4 text-muted">Загрузка событий...</td></tr></tbody>
 </table>
 </div>
 </div>
@@ -1025,6 +1030,7 @@ function escapeHtml(s) {
 async function loadAuditEvents() {
     var days = document.getElementById('audit-days-filter').value;
     var eventType = document.getElementById('audit-type-filter').value;
+    var eventSource = document.getElementById('audit-source-filter').value;
     var user = document.getElementById('audit-user-filter').value.trim();
     var filePath = document.getElementById('audit-path-filter').value.trim();
 
@@ -1038,6 +1044,7 @@ async function loadAuditEvents() {
         since: sinceStr
     });
     if (eventType) params.append('event_type', eventType);
+    if (eventSource) params.append('event_source', eventSource);
     if (user) params.append('user', user);
     if (filePath) params.append('file_path', filePath);
 
@@ -1080,6 +1087,13 @@ function renderAuditStats(stats) {
     var topUser = stats.top_users && stats.top_users.length > 0 ? stats.top_users[0].user : '—';
     document.getElementById('stat-top-user').textContent = topUser;
 
+    var bySource = stats.by_source || [];
+    var sourceMap = {};
+    bySource.forEach(function(item) { sourceMap[item.source] = item.count; });
+    var el;
+    el = document.getElementById('dashboard-events-windows'); if (el) el.textContent = sourceMap['windows_agent'] || 0;
+    el = document.getElementById('dashboard-events-linux'); if (el) el.textContent = sourceMap['linux_agent'] || 0;
+
     var status = document.getElementById('audit-status');
     if (status) {
         var online = stats.agents_online || 0;
@@ -1103,7 +1117,7 @@ function renderAuditTable(data) {
     document.getElementById('audit-next-page').disabled = auditCurrentPage >= totalPages - 1;
 
     if (events.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="6" class="text-center py-4 text-muted">Нет событий за выбранный период</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="7" class="text-center py-4 text-muted">Нет событий за выбранный период</td></tr>';
         return;
     }
 
@@ -1112,6 +1126,7 @@ function renderAuditTable(data) {
         var event = events[i];
         auditEventsCache[event.id] = event;
         var typeIcon = getEventTypeIcon(event.event_type);
+        var sourceIcon = getEventSourceIcon(event.event_source);
         var time = event.created_at ? new Date(event.created_at).toLocaleString('ru-RU') : '—';
         var user = event.user || '—';
         var source = event.source_host || '—';
@@ -1123,7 +1138,8 @@ function renderAuditTable(data) {
             + '<td><span class="event-type-' + escapeHtml(eventType) + '">' + typeIcon + ' ' + escapeHtml(eventType) + '</span></td>'
             + '<td>' + escapeHtml(user) + '</td>'
             + '<td><span class="file-path" title="' + escapeHtml(filePath) + '">' + escapeHtml(truncatePath(filePath, 50)) + '</span></td>'
-            + '<td>' + escapeHtml(source) + '</td>'
+            + '<td>' + sourceIcon + ' ' + escapeHtml(source) + '</td>'
+            + '<td>' + (event.event_source || '—') + '</td>'
             + '<td><button class="btn btn-sm btn-outline-primary" onclick="event.stopPropagation(); showAuditDetail(' + event.id + ')"><i class="fas fa-search"></i></button></td>'
             + '</tr>';
     }
@@ -1166,6 +1182,17 @@ function getEventTypeIcon(type) {
     return icons[type] || '📋';
 }
 
+function getEventSourceIcon(source) {
+    var icons = {
+        'windows_agent': '🪟',
+        'linux_agent': '🐧',
+        'scanner': '📡',
+        'api': '🔌',
+        'agent': '🤖'
+    };
+    return icons[source] || '📋';
+}
+
 function truncatePath(path, maxLen) {
     if (!path) return '—';
     if (path.length <= maxLen) return path;
@@ -1188,6 +1215,7 @@ function initAuditPage() {
     document.getElementById('reset-audit-filters').addEventListener('click', function() {
         document.getElementById('audit-days-filter').value = '7';
         document.getElementById('audit-type-filter').value = '';
+        document.getElementById('audit-source-filter').value = '';
         document.getElementById('audit-user-filter').value = '';
         document.getElementById('audit-path-filter').value = '';
         auditCurrentPage = 0;
