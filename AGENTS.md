@@ -8,9 +8,9 @@ DCAP — система сканирования и аудита данных (P
 
 ## Текущий статус
 
-**Версия:** v2.0.1
-**Статус:** ✅ Windows-стек полностью готов
-**Следующий этап:** v2.1.0 — Linux агент
+**Версия:** v2.1.0
+**Статус:** ✅ Windows + Linux аудит готов
+**Следующий этап:** v3.0.0 — S3/MinIO агент
 
 ## Релизы
 
@@ -19,6 +19,7 @@ DCAP — система сканирования и аудита данных (P
 | v1.0.0 | 2026-07-XX | Базовый функционал |
 | v2.0.0 | 2026-08-XX | Управление доступом + Аудит Windows (ядро) |
 | v2.0.1 | 2026-08-25 | Windows-стек полностью готов |
+| v2.1.0 | 2026-08-27 | Linux-агент + унифицированный формат + WebUI фильтр |
 
 ## Запуск (локально, из корня репо)
 
@@ -27,6 +28,8 @@ python init_db.py                     # создаёт manager/dcap.db
 python -m uvicorn manager.src.main:app --port 8000   # Manager + WebUI статика на :8000
 python run_webui.py                   # отдельный WebUI на :8001
 python run_scanner.py scanner/config/scanner_config.json   # сканер, ждёт Manager на :8000
+cd audit-agent && python main.py      # Windows-агент аудита
+cd audit-agent-linux && ./start.sh --daemon  # Linux-агент аудита
 ```
 
 - `Makefile`/`docker-compose` — фикция: `docker-compose.yml` и пакет `shared/` из `manager/Dockerfile` отсутствуют в репо. Реальный флоу — только локальный запуск.
@@ -61,8 +64,10 @@ Pytest отсутствует (папка `manager/tests/` пуста). Тест
 - `manager/src/api/` — REST-роутеры (resources, tasks, findings, catalog, scanner, permissions, audit).
 - `manager/src/connectors/permissions/` — коллекторы прав (Strategy): `local` (icacls), `remote`, `ad` — заглушка. `services/access_service.py` — логика прав.
 - `manager/src/connectors/audit/` — коллектор событий Windows (`windows_audit.py`, wevtutil Security Log). API: `manager/src/api/audit.py` (агентная модель: `POST /api/audit/agents/register`, `/agents/heartbeat`, `/events`; просмотр `GET /api/audit`, `/stats`). Таблицы `audit_agents`/`audit_logs` создаются автоматически (create_all); чтение журнала Security требует прав администратора, иначе агент получит 0 событий.
+- `shared/event_schema.py` — единая Pydantic-схема `UnifiedEvent` для всех агентов (Windows/Linux/scanner/API).
 - `scanner/src/managed_scanner.py` — агент; конфиг `scanner/config/scanner_config.json`; состояние `scanner/state/state.json`.
 - `audit-agent/` — лёгкий агент аудита (Windows): `main.py` (цикл), `collector.py` (wevtutil Security Log, XML-парсинг), `buffer.py` (SQLite-буфер), `sender.py`/`heartbeat.py` (HTTP в Manager), `config_loader.py` (конфиг с дефолтами). Конфиг `config.json`; состояние `state.json` и буфер `buffer/` генерируются при запуске и игнорируются git. Запуск: `cd audit-agent; python main.py`. Windows-служба: `service.py` (pywin32, `python service.py install|start|stop|remove`) + бат-файлы `*_service.bat`; логи службы — `audit-agent/logs/audit_agent.log`. Установка службы требует прав администратора. События отправляются в `POST /api/audit/events` батчами, при недоступности Manager копятся в буфере. Коллектор использует XML-формат (`/f:XML`), colon-syntax параметров, фильтр по EventID в XPath (TimeCreated не работает в wevtutil).
+- `audit-agent-linux/` — лёгкий агент аудита (Linux): `main.py` (цикл), `collector.py` (watchdog/inotify + SSH-событии), `buffer.py` (SQLite-буфер), `sender.py`/`heartbeat.py` (HTTP в Manager), `config_loader.py` (конфиг с дефолтами). Конфиг `config.json`; буфер `buffer/` генерируется при запуске. Запуск: `cd audit-agent-linux; ./start.sh --daemon`. Systemd-сервис: `dcap-audit.service` (install: `sudo cp dcap-audit.service /etc/systemd/system/ && sudo systemctl daemon-reload`). Colab-режим: SSH-мониторинг файловой системы через paramiko. Название агента: `dcap-audit-linux-{hostname}` (уникальное). Heartbeat: `POST /api/audit/agents/heartbeat` с `agent_type="linux_agent"`.
 - `webui/main.py` — актуальный WebUI (весь HTML инлайн в Python), единственный UI проекта. `run_webui.py` запускает именно `webui.main:app`. Легаси (`main_final.py`, `main_simple.py`, `main_static.py`, старые `static/`/`templates/`) удалены — не восстанавливать.
 - `structure.txt` и `project_context.md` частично устарели — сверяйся с кодом, а не с ними.
 
