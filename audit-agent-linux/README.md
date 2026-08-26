@@ -1,16 +1,11 @@
 # DCAP Audit Agent — Linux (inotify)
 
-Легкий агент аудита файловой системы для Linux. Отслеживает события через inotify, буферизирует в SQLite, отправляет в Manager по HTTP.
-
-## Зависимости
-
-- Python 3.8+
-- pyinotify (inotify API)
-- requests (HTTP)
+Легкий агент аудита файловой системы для Linux. Отслеживает события через inotify (watchdog), буферизирует в SQLite, отправляет в Manager по HTTP.
 
 ## Установка
 
 ```bash
+cd ~/dcap-system/audit-agent-linux
 pip install -r requirements.txt
 ```
 
@@ -32,39 +27,69 @@ pip install -r requirements.txt
 ## Запуск
 
 ```bash
-# Фоновый режим
-bash start.sh
+# Консольный режим (отладка)
+./start.sh
 
-# Прямой запуск
-python main.py
+# Фоновый режим (продакшн)
+./start.sh --daemon
 ```
 
-## Остановка
+## Управление
+
+| Команда | Действие |
+|---------|----------|
+| `./start.sh` | Запуск (консоль) |
+| `./start.sh --daemon` | Запуск (фон) |
+| `./stop.sh` | Остановка |
+| `./status.sh` | Проверка статуса |
+
+## Установка как сервис
+
+### systemd (полноценный Linux)
 
 ```bash
-bash stop.sh
+cd service
+./install.sh
+sudo systemctl start dcap-audit-agent
+sudo systemctl status dcap-audit-agent
+sudo journalctl -u dcap-audit-agent -f
+```
+
+### WSL (без systemd)
+
+```bash
+cd service
+./install_cron.sh
+crontab -l
 ```
 
 ## Архитектура
 
 ```
 main.py          — точка входа, основной цикл
-collector.py     — сбор событий через inotify (pyinotify)
+collector.py     — сбор событий через inotify (watchdog)
 buffer.py        — буферизация в SQLite
 sender.py        — отправка events/heartbeat в Manager
 heartbeat.py     — периодический heartbeat
 config.json      — конфигурация
+service/         — systemd + crontab установка
 ```
 
 ## События
 
-| inotify mask | Тип события |
-|-------------|-------------|
-| IN_OPEN | read |
-| IN_MODIFY, IN_CLOSE_WRITE, IN_CREATE | write |
-| IN_DELETE, IN_DELETE_SELF | delete |
-| IN_MOVED_FROM, IN_MOVED_TO | move |
+| Тип | Описание |
+|-----|----------|
+| read | Открытие файла |
+| write | Запись / создание |
+| delete | Удаление |
+| move | Перемещение |
 
 ## Буферизация
 
 При недоступности Manager события копятся в `buffer/buffer.db`. При восстановлении связи автоматически отправляются. Старые отправленные события удаляются.
+
+## Логи
+
+- Файл: `logs/agent.out`
+- systemd: `sudo journalctl -u dcap-audit-agent -f`
+- Cron: `tail -f logs/agent.out`

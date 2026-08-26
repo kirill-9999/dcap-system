@@ -1,0 +1,20 @@
+[Unit]
+Description=DCAP Audit Agent (Linux)
+After=network.target
+Wants=network.target
+
+[Service]
+Type=simple
+User=kirill
+WorkingDirectory=/home/kirill/dcap-system/audit-agent-linux
+Environment="PYTHONUNBUFFERED=1"
+ExecStart=/home/kirill/dcap-system/audit-agent-linux/venv/bin/python /home/kirill/dcap-system/audit-agent-linux/main.py
+ExecReload=/bin/kill -HUP $MAINPID
+Restart=on-failure
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=dcap-audit-agent
+
+[Install]
+WantedBy=multi-user.target
