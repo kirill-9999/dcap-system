@@ -688,7 +688,7 @@ async function loadScanners() {
             var badge = online ? 'success' : 'secondary';
             var statusText = online ? '🟢 Активен' : '⚪ Оффлайн';
             var hb = s.last_heartbeat ? new Date(s.last_heartbeat).toLocaleString('ru-RU') : '-';
-            html += '<tr><td>#' + s.id + '</td><td>' + s.name + '</td><td><span class="badge bg-' + badge + '">' + statusText + '</span></td><td>' + hb + '</td><td>' + (s.total_files_scanned || 0) + '</td><td>' + (s.total_findings || 0) + '</td><td><button class="btn btn-sm btn-outline-danger" title="Удалить" onclick="deleteScanner(' + s.id + ', \'' + escapeHtml(s.name) + '\')"><i class="fas fa-trash"></i></button></td></tr>';
+            html += '<tr><td>#' + s.id + '</td><td>' + s.name + '</td><td><span class="badge bg-' + badge + '">' + statusText + '</span></td><td>' + hb + '</td><td>' + (s.total_files_scanned || 0) + '</td><td>' + (s.total_findings || 0) + '</td><td><button class="btn btn-sm btn-outline-danger" title="Удалить" onclick="deleteScanner(' + s.id + ', this)" data-name="' + escapeHtml(s.name) + '"><i class="fas fa-trash"></i></button></td></tr>';
         }
         html += '</tbody></table></div>';
         container.innerHTML = html;
@@ -696,8 +696,9 @@ async function loadScanners() {
     } catch(e) { console.error(e); }
 }
 
-async function deleteScanner(id, name) {
-    if (!confirm('Удалить сканер "' + name + '" (#' + id + ')?\nНазначенные задания будут освобождены.')) return;
+async function deleteScanner(id, btn) {
+    var name = btn ? btn.getAttribute('data-name') : id;
+    if (!confirm('Удалить сканер "' + name + '" (#' + id + ')? Назначенные задания будут освобождены.')) return;
     try {
         var r = await fetch('/api/scanners/' + id, { method: 'DELETE' });
         var d = await r.json();
@@ -744,15 +745,16 @@ async function loadAuditAgents() {
             var si = a.status === 'online' ? '🟢' : (a.status === 'error' ? '⚠️' : '🔴');
             var hb = a.last_heartbeat ? new Date(a.last_heartbeat).toLocaleString('ru-RU') : '—';
             var ra = a.registered_at ? new Date(a.registered_at).toLocaleString('ru-RU') : '—';
-            h += '<tr><td>#' + a.id + '</td><td><strong>' + escapeHtml(a.name) + '</strong></td><td>' + escapeHtml(a.hostname) + '</td><td><span class="status-badge ' + sc + '">' + si + ' ' + a.status + '</span></td><td>' + (a.events_sent || 0) + '</td><td>' + (a.version || '—') + '</td><td>' + hb + '</td><td>' + ra + '</td><td><button class="btn btn-sm btn-outline-danger" title="Удалить" onclick="deleteAuditAgent(' + a.id + ', \'' + escapeHtml(a.name) + '\')"><i class="fas fa-trash"></i></button></td></tr>';
+            h += '<tr><td>#' + a.id + '</td><td><strong>' + escapeHtml(a.name) + '</strong></td><td>' + escapeHtml(a.hostname) + '</td><td><span class="status-badge ' + sc + '">' + si + ' ' + a.status + '</span></td><td>' + (a.events_sent || 0) + '</td><td>' + (a.version || '—') + '</td><td>' + hb + '</td><td>' + ra + '</td><td><button class="btn btn-sm btn-outline-danger" title="Удалить" onclick="deleteAuditAgent(' + a.id + ', this)" data-name="' + escapeHtml(a.name) + '"><i class="fas fa-trash"></i></button></td></tr>';
         }
         h += '</tbody></table></div>';
         container.innerHTML = h;
     } catch(e) { console.error('Audit agents error:', e); }
 }
 
-async function deleteAuditAgent(id, name) {
-    if (!confirm('Удалить агент "' + name + '" (#' + id + ')?\nСобытия аудита сохранятся.')) return;
+async function deleteAuditAgent(id, btn) {
+    var name = btn ? btn.getAttribute('data-name') : id;
+    if (!confirm('Удалить агент "' + name + '" (#' + id + ')? События аудита сохранятся.')) return;
     try {
         var r = await fetch('/api/audit/agents/' + id, { method: 'DELETE' });
         var d = await r.json();
