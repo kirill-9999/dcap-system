@@ -3,6 +3,7 @@
 
 import os
 import time
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import List, Dict, Optional, Callable
 
@@ -44,7 +45,7 @@ class _WatchdogHandler(FileSystemEventHandler):
             'file_path': src_path,
             'old_path': dest_path,
             'metadata': {'src': src_path},
-            'created_at': time.strftime('%Y-%m-%dT%H:%M:%S', time.gmtime()),
+            'created_at': datetime.now(timezone.utc).isoformat(),
         }
         self.callback(audit_event)
 

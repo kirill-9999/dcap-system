@@ -7,7 +7,7 @@ import sys
 import logging
 import threading
 from pathlib import Path
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 from collector import InotifyCollector
 from buffer import BufferManager
@@ -92,12 +92,12 @@ class AuditAgent:
 
         self.log.info(f"Мониторинг: {self.config.get('watch_paths', [])}")
 
-        last_heartbeat = datetime.utcnow() - timedelta(seconds=60)
+        last_heartbeat = datetime.now(timezone.utc) - timedelta(seconds=60)
         heartbeat_interval = self.config.get("heartbeat_interval", 30)
 
         while self.running:
             try:
-                now = datetime.utcnow()
+                now = datetime.now(timezone.utc)
                 if (now - last_heartbeat).seconds >= heartbeat_interval:
                     unsent_count = self.buffer.count_unsent()
                     self.sender.send_heartbeat({"events_pending": unsent_count})
