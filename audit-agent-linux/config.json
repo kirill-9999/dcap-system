@@ -1,0 +1,12 @@
+{
+    "manager_url": "http://localhost:8000",
+    "agent_name": "linux-agent-01",
+    "hostname": "linux-server",
+    "watch_paths": ["/home/kirill/test_audit"],
+    "read_interval": 5,
+    "batch_size": 50,
+    "buffer_size": 10000,
+    "heartbeat_interval": 30,
+    "log_level": "INFO",
+    "log_file": "logs/audit_agent.log"
+}

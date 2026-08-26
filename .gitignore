@@ -74,3 +74,10 @@ audit-agent/build/
 audit-agent/dist/
 audit-agent/*.spec
 
+# Агент аудита Linux (runtime)
+audit-agent-linux/buffer/
+audit-agent-linux/logs/
+audit-agent-linux/*.db
+audit-agent-linux/*.log
+audit-agent-linux/agent.pid
+
