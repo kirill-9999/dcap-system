@@ -23,10 +23,12 @@ router = APIRouter(tags=["audit"])
 
 class AuditEventPayload(BaseModel):
     event_type: str          # read, write, delete, move, rename
+    event_source: Optional[str] = "agent"  # windows_agent, linux_agent, scanner
     user: Optional[str] = None
     user_sid: Optional[str] = None
     file_path: str
     old_path: Optional[str] = None
+    source_host: Optional[str] = None
     metadata: Optional[Dict] = {}
     created_at: Optional[str] = None   # ISO формат
 
@@ -139,12 +141,12 @@ def ingest_audit_events(
         audit = models.AuditLog(
             agent_id=agent_id,
             event_type=event.event_type,
-            event_source="agent",
+            event_source=event.event_source or "agent",
             user=event.user,
             user_sid=event.user_sid,
             file_path=event.file_path,
             old_path=event.old_path,
-            source_host=agent.hostname,
+            source_host=event.source_host or agent.hostname,
             metadata_json=event.metadata or {},
             created_at=event.created_at and datetime.fromisoformat(event.created_at) or datetime.utcnow()
         )
@@ -198,6 +200,7 @@ def get_audit_events(
             {
                 "id": e.id,
                 "event_type": e.event_type,
+                "event_source": e.event_source,
                 "user": e.user,
                 "file_path": e.file_path,
                 "old_path": e.old_path,

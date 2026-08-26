@@ -116,12 +116,18 @@ class WindowsAuditCollector:
         if timestamp and 'T' in timestamp:
             created_at = timestamp.split('.')[0] + 'Z'
 
+        import socket
+        hostname = socket.gethostname()
+
         return {
             'event_type': event_type_map.get(eid, 'unknown'),
+            'event_source': 'windows_agent',
             'user': data.get('SubjectUserName'),
+            'user_sid': data.get('SubjectUserSid'),
             'file_path': file_path,
             'old_path': old_path,
             'new_path': new_path,
+            'source_host': hostname,
             'metadata': {
                 'event_id': eid,
                 'subject_domain': data.get('SubjectDomainName'),

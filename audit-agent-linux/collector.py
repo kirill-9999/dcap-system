@@ -37,13 +37,16 @@ class _WatchdogHandler(FileSystemEventHandler):
             return
 
         import getpass
+        import platform
         user = getpass.getuser()
 
         audit_event = {
             'event_type': event_type,
+            'event_source': 'linux_agent',
             'user': user,
             'file_path': src_path,
             'old_path': dest_path,
+            'source_host': platform.node(),
             'metadata': {'src': src_path},
             'created_at': datetime.now().isoformat(),
         }
