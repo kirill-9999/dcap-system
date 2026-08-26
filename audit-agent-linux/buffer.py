@@ -5,7 +5,7 @@ import sqlite3
 import json
 from pathlib import Path
 from typing import List, Dict
-from datetime import datetime, timezone
+from datetime import datetime
 
 
 class BufferManager:
@@ -31,7 +31,7 @@ class BufferManager:
 
     def add(self, event: Dict):
         event_json = json.dumps(event, ensure_ascii=False)
-        created_at = datetime.now(timezone.utc).isoformat()
+        created_at = datetime.now().isoformat()
         self.conn.execute(
             "INSERT INTO events (event_json, created_at) VALUES (?, ?)",
             (event_json, created_at)
