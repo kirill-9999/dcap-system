@@ -293,3 +293,22 @@ def get_audit_stats(
         "by_type": [{"type": s[0], "count": s[1]} for s in type_stats],
         "top_users": [{"user": s[0], "count": s[1]} for s in user_stats]
     }
+
+
+@router.delete("/api/audit/agents/{agent_id}")
+def delete_audit_agent(
+    agent_id: int,
+    db: Session = Depends(get_db)
+):
+    """Удалить агент аудита. Связанные события остаются (agent_id = NULL)."""
+    agent = db.query(models.AuditAgent).filter(models.AuditAgent.id == agent_id).first()
+    if not agent:
+        raise HTTPException(404, f"Agent {agent_id} not found")
+
+    db.query(models.AuditLog).filter(models.AuditLog.agent_id == agent_id).update(
+        {"agent_id": None}
+    )
+    db.delete(agent)
+    db.commit()
+
+    return {"status": "deleted", "agent_id": agent_id}

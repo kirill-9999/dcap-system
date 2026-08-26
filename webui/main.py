@@ -681,19 +681,33 @@ async function loadScanners() {
             container.innerHTML = '<div class="text-center p-4 text-muted">Нет сканеров</div>';
             return;
         }
-        var html = '<div class="table-responsive"><table class="table table-hover table-sm mb-0"><thead class="table-light"><tr><th>ID</th><th>Имя</th><th>Статус</th><th>Heartbeat</th><th>Файлов</th><th>Находок</th></tr></thead><tbody>';
+        var html = '<div class="table-responsive"><table class="table table-hover table-sm mb-0"><thead class="table-light"><tr><th>ID</th><th>Имя</th><th>Статус</th><th>Heartbeat</th><th>Файлов</th><th>Находок</th><th></th></tr></thead><tbody>';
         for (var i = 0; i < scanners.length; i++) {
             var s = scanners[i];
             var online = s.status === 'ACTIVE' || s.status === 'active';
             var badge = online ? 'success' : 'secondary';
             var statusText = online ? '🟢 Активен' : '⚪ Оффлайн';
             var hb = s.last_heartbeat ? new Date(s.last_heartbeat).toLocaleString('ru-RU') : '-';
-            html += '<tr><td>#' + s.id + '</td><td>' + s.name + '</td><td><span class="badge bg-' + badge + '">' + statusText + '</span></td><td>' + hb + '</td><td>' + (s.total_files_scanned || 0) + '</td><td>' + (s.total_findings || 0) + '</td></tr>';
+            html += '<tr><td>#' + s.id + '</td><td>' + s.name + '</td><td><span class="badge bg-' + badge + '">' + statusText + '</span></td><td>' + hb + '</td><td>' + (s.total_files_scanned || 0) + '</td><td>' + (s.total_findings || 0) + '</td><td><button class="btn btn-sm btn-outline-danger" title="Удалить" onclick="deleteScanner(' + s.id + ', \'' + escapeHtml(s.name) + '\')"><i class="fas fa-trash"></i></button></td></tr>';
         }
         html += '</tbody></table></div>';
         container.innerHTML = html;
         updateTime();
     } catch(e) { console.error(e); }
+}
+
+async function deleteScanner(id, name) {
+    if (!confirm('Удалить сканер "' + name + '" (#' + id + ')?\nНазначенные задания будут освобождены.')) return;
+    try {
+        var r = await fetch('/api/scanners/' + id, { method: 'DELETE' });
+        var d = await r.json();
+        if (r.ok) {
+            showToast('Сканер "' + name + '" удалён', 'success');
+            loadScanners();
+        } else {
+            showToast(d.detail || 'Ошибка удаления', 'error');
+        }
+    } catch(e) { showToast('Ошибка удаления', 'error'); }
 }
 
 // ===== АГЕНТЫ АУДИТА =====
@@ -723,18 +737,32 @@ async function loadAuditAgents() {
             container.innerHTML = '<div class="text-center p-4 text-muted">Нет зарегистрированных агентов аудита</div>';
             return;
         }
-        var h = '<div class="table-responsive"><table class="agents-table"><thead><tr><th>ID</th><th>Имя</th><th>Хост</th><th>Статус</th><th>Событий</th><th>Версия</th><th>Последний heartbeat</th><th>Зарегистрирован</th></tr></thead><tbody>';
+        var h = '<div class="table-responsive"><table class="agents-table"><thead><tr><th>ID</th><th>Имя</th><th>Хост</th><th>Статус</th><th>Событий</th><th>Версия</th><th>Последний heartbeat</th><th>Зарегистрирован</th><th></th></tr></thead><tbody>';
         for (var i = 0; i < agents.length; i++) {
             var a = agents[i];
             var sc = a.status === 'online' ? 'status-online' : (a.status === 'error' ? 'status-error' : 'status-offline');
             var si = a.status === 'online' ? '🟢' : (a.status === 'error' ? '⚠️' : '🔴');
             var hb = a.last_heartbeat ? new Date(a.last_heartbeat).toLocaleString('ru-RU') : '—';
             var ra = a.registered_at ? new Date(a.registered_at).toLocaleString('ru-RU') : '—';
-            h += '<tr><td>#' + a.id + '</td><td><strong>' + escapeHtml(a.name) + '</strong></td><td>' + escapeHtml(a.hostname) + '</td><td><span class="status-badge ' + sc + '">' + si + ' ' + a.status + '</span></td><td>' + (a.events_sent || 0) + '</td><td>' + (a.version || '—') + '</td><td>' + hb + '</td><td>' + ra + '</td></tr>';
+            h += '<tr><td>#' + a.id + '</td><td><strong>' + escapeHtml(a.name) + '</strong></td><td>' + escapeHtml(a.hostname) + '</td><td><span class="status-badge ' + sc + '">' + si + ' ' + a.status + '</span></td><td>' + (a.events_sent || 0) + '</td><td>' + (a.version || '—') + '</td><td>' + hb + '</td><td>' + ra + '</td><td><button class="btn btn-sm btn-outline-danger" title="Удалить" onclick="deleteAuditAgent(' + a.id + ', \'' + escapeHtml(a.name) + '\')"><i class="fas fa-trash"></i></button></td></tr>';
         }
         h += '</tbody></table></div>';
         container.innerHTML = h;
     } catch(e) { console.error('Audit agents error:', e); }
+}
+
+async function deleteAuditAgent(id, name) {
+    if (!confirm('Удалить агент "' + name + '" (#' + id + ')?\nСобытия аудита сохранятся.')) return;
+    try {
+        var r = await fetch('/api/audit/agents/' + id, { method: 'DELETE' });
+        var d = await r.json();
+        if (r.ok) {
+            showToast('Агент "' + name + '" удалён', 'success');
+            loadAuditAgents();
+        } else {
+            showToast(d.detail || 'Ошибка удаления', 'error');
+        }
+    } catch(e) { showToast('Ошибка удаления', 'error'); }
 }
 
 // ===== RESOURCES =====

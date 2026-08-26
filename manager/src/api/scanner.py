@@ -471,3 +471,38 @@ def release_task(
         "task_id": task_id,
         "old_scanner_id": old_scanner_id
     }
+
+
+@router.delete("/{scanner_id}")
+def delete_scanner(
+    scanner_id: int,
+    force: bool = False,
+    db: Session = Depends(session.get_db)
+):
+    """Удалить сканер. Если force=True — освободить назначенные задания."""
+    scanner = db.query(models.Scanner).filter(models.Scanner.id == scanner_id).first()
+    if not scanner:
+        raise HTTPException(404, f"Scanner {scanner_id} not found")
+
+    active = db.query(models.ScanTask).filter(
+        models.ScanTask.scanner_id == scanner_id,
+        models.ScanTask.status.in_(["assigned", "pending"])
+    ).first()
+
+    if active and not force:
+        raise HTTPException(
+            409,
+            f"Scanner {scanner_id} has active task {active.id}. Use force=true."
+        )
+
+    if force:
+        db.query(models.ScanTask).filter(
+            models.ScanTask.scanner_id == scanner_id,
+            models.ScanTask.status.in_(["assigned"])
+        ).update({"scanner_id": None, "status": "pending"})
+        db.commit()
+
+    db.delete(scanner)
+    db.commit()
+
+    return {"status": "deleted", "scanner_id": scanner_id}

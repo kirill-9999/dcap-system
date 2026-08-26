@@ -451,6 +451,42 @@ async def get_scanner(scanner_id: int):
     return dict(row)
 
 
+@router.delete("/scanners/{scanner_id}")
+async def delete_scanner(scanner_id: int, force: bool = False):
+    """Удалить сканер по ID"""
+    conn = get_db()
+    cursor = conn.cursor()
+
+    cursor.execute("SELECT id FROM scanners WHERE id = ?", (scanner_id,))
+    if not cursor.fetchone():
+        conn.close()
+        raise HTTPException(status_code=404, detail="Scanner not found")
+
+    if not force:
+        cursor.execute(
+            "SELECT id FROM scan_tasks WHERE scanner_id = ? AND status IN ('pending','assigned','running')",
+            (scanner_id,),
+        )
+        if cursor.fetchone():
+            conn.close()
+            raise HTTPException(
+                status_code=409,
+                detail="Scanner has active tasks. Use force=true.",
+            )
+
+    if force:
+        cursor.execute(
+            "UPDATE scan_tasks SET scanner_id = NULL, status = 'pending' "
+            "WHERE scanner_id = ? AND status = 'assigned'",
+            (scanner_id,),
+        )
+    cursor.execute("DELETE FROM scanners WHERE id = ?", (scanner_id,))
+    conn.commit()
+    conn.close()
+
+    return {"status": "deleted", "scanner_id": scanner_id}
+
+
 @router.post("/scanners/{scanner_id}/ping")
 async def ping_scanner(scanner_id: int):
     """Проверить доступность сканера"""
@@ -1048,6 +1084,25 @@ async def get_audit_agents():
         "error": error,
         "agents": agents
     }
+
+
+@router.delete("/audit/agents/{agent_id}")
+async def delete_audit_agent(agent_id: int):
+    """Удалить агент аудита. События сохраняются (agent_id = NULL)."""
+    conn = get_db()
+    cursor = conn.cursor()
+
+    cursor.execute("SELECT id FROM audit_agents WHERE id = ?", (agent_id,))
+    if not cursor.fetchone():
+        conn.close()
+        raise HTTPException(status_code=404, detail="Agent not found")
+
+    cursor.execute("UPDATE audit_logs SET agent_id = NULL WHERE agent_id = ?", (agent_id,))
+    cursor.execute("DELETE FROM audit_agents WHERE id = ?", (agent_id,))
+    conn.commit()
+    conn.close()
+
+    return {"status": "deleted", "agent_id": agent_id}
 
 
 # ==================== ОТЧЕТЫ ПО АУДИТУ ====================
