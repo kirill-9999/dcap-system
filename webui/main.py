@@ -94,13 +94,13 @@ body{background:#f5f7fa;font-family:system-ui,-apple-system,sans-serif;}
 </button>
 <div class="collapse navbar-collapse" id="navbarNav">
 <ul class="navbar-nav me-auto" id="nav-menu">
-<li class="nav-item"><a class="nav-link active" data-page="dashboard" onclick="switchPage('dashboard')"><i class="fas fa-chart-pie"></i> Дашборд</a></li>
-<li class="nav-item"><a class="nav-link" data-page="findings" onclick="switchPage('findings')"><i class="fas fa-search"></i> Находки</a></li>
-<li class="nav-item"><a class="nav-link" data-page="tasks" onclick="switchPage('tasks')"><i class="fas fa-tasks"></i> Задания</a></li>
-<li class="nav-item"><a class="nav-link" data-page="scanners" onclick="switchPage('scanners')"><i class="fas fa-server"></i> Сканеры и агенты</a></li>
-<li class="nav-item"><a class="nav-link" data-page="resources" onclick="switchPage('resources')"><i class="fas fa-folder"></i> Ресурсы</a></li>
-<li class="nav-item"><a class="nav-link" data-page="access" onclick="switchPage('access')"><i class="fas fa-user-shield"></i> Управление доступом</a></li>
-<li class="nav-item"><a class="nav-link" data-page="audit" onclick="switchPage('audit')"><i class="fas fa-clipboard-list"></i> Аудит</a></li>
+<li class="nav-item"><a class="nav-link active" href="#" data-page="dashboard" onclick="switchPage('dashboard');return false;"><i class="fas fa-chart-pie"></i> Дашборд</a></li>
+<li class="nav-item"><a class="nav-link" href="#" data-page="findings" onclick="switchPage('findings');return false;"><i class="fas fa-search"></i> Находки</a></li>
+<li class="nav-item"><a class="nav-link" href="#" data-page="tasks" onclick="switchPage('tasks');return false;"><i class="fas fa-tasks"></i> Задания</a></li>
+<li class="nav-item"><a class="nav-link" href="#" data-page="scanners" onclick="switchPage('scanners');return false;"><i class="fas fa-server"></i> Сканеры и агенты</a></li>
+<li class="nav-item"><a class="nav-link" href="#" data-page="resources" onclick="switchPage('resources');return false;"><i class="fas fa-folder"></i> Ресурсы</a></li>
+<li class="nav-item"><a class="nav-link" href="#" data-page="access" onclick="switchPage('access');return false;"><i class="fas fa-user-shield"></i> Управление доступом</a></li>
+<li class="nav-item"><a class="nav-link" href="#" data-page="audit" onclick="switchPage('audit');return false;"><i class="fas fa-clipboard-list"></i> Аудит</a></li>
 </ul>
 <span class="text-muted small" id="update-time"></span>
 </div>
