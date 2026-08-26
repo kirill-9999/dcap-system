@@ -504,6 +504,88 @@ async def ping_scanner(scanner_id: int):
     return {"success": True, "message": "Scanner pinged"}
 
 
+# ==================== КАТАЛОГ ====================
+
+@router.get("/catalog")
+async def get_catalog(
+    search: Optional[str] = None,
+    category: Optional[str] = None,
+    limit: int = 1000,
+    offset: int = 0,
+):
+    """Получить каталог папок с находками"""
+    conn = get_db()
+    cursor = conn.cursor()
+
+    conditions = []
+    params = []
+
+    if search:
+        conditions.append("path LIKE ?")
+        params.append(f"%{search}%")
+
+    if category:
+        conditions.append("json_extract(entry_metadata, '$.classifiers.' || ?) IS NOT NULL")
+        params.append(category)
+
+    where = (" WHERE " + " AND ".join(conditions)) if conditions else ""
+
+    cursor.execute(f"SELECT COUNT(*) FROM catalog_entries{where}", params)
+    total = cursor.fetchone()[0]
+
+    cursor.execute(
+        f"SELECT * FROM catalog_entries{where} ORDER BY updated_at DESC LIMIT ? OFFSET ?",
+        params + [limit, offset]
+    )
+    rows = cursor.fetchall()
+    conn.close()
+
+    entries = []
+    for row in rows:
+        meta = json.loads(row["entry_metadata"]) if row["entry_metadata"] else {}
+        entries.append({
+            "id": row["id"],
+            "path": row["path"],
+            "classifiers": meta.get("classifiers", {}),
+            "total_findings": meta.get("total_findings", 0),
+            "file_count": meta.get("file_count", 0),
+            "last_scanned": meta.get("last_scanned"),
+            "created_at": row["created_at"],
+            "updated_at": row["updated_at"],
+        })
+
+    return {"total": total, "offset": offset, "limit": limit, "entries": entries}
+
+
+@router.get("/catalog/stats")
+async def get_catalog_stats():
+    """Статистика по каталогу"""
+    conn = get_db()
+    cursor = conn.cursor()
+
+    cursor.execute("SELECT COUNT(*) FROM catalog_entries")
+    total_folders = cursor.fetchone()[0]
+
+    cursor.execute("SELECT entry_metadata FROM catalog_entries")
+    rows = cursor.fetchall()
+    conn.close()
+
+    classifier_stats = {}
+    latest = []
+    for row in rows:
+        meta = json.loads(row["entry_metadata"]) if row["entry_metadata"] else {}
+        for cat, info in meta.get("classifiers", {}).items():
+            if cat not in classifier_stats:
+                classifier_stats[cat] = {"folders": 0, "total_findings": 0}
+            classifier_stats[cat]["folders"] += 1
+            classifier_stats[cat]["total_findings"] += info.get("count", 0)
+
+    return {
+        "total_folders": total_folders,
+        "classifier_stats": classifier_stats,
+    }
+
+
 # ==================== РЕСУРСЫ ====================
 
 @router.get("/resources")

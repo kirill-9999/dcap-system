@@ -99,6 +99,7 @@ body{background:#f5f7fa;font-family:system-ui,-apple-system,sans-serif;}
 <li class="nav-item"><a class="nav-link" href="#" data-page="tasks" onclick="switchPage('tasks');return false;"><i class="fas fa-tasks"></i> Задания</a></li>
 <li class="nav-item"><a class="nav-link" href="#" data-page="scanners" onclick="switchPage('scanners');return false;"><i class="fas fa-server"></i> Сканеры и агенты</a></li>
 <li class="nav-item"><a class="nav-link" href="#" data-page="resources" onclick="switchPage('resources');return false;"><i class="fas fa-folder"></i> Ресурсы</a></li>
+<li class="nav-item"><a class="nav-link" href="#" data-page="catalog" onclick="switchPage('catalog');return false;"><i class="fas fa-book"></i> Каталог</a></li>
 <li class="nav-item"><a class="nav-link" href="#" data-page="access" onclick="switchPage('access');return false;"><i class="fas fa-user-shield"></i> Управление доступом</a></li>
 <li class="nav-item"><a class="nav-link" href="#" data-page="audit" onclick="switchPage('audit');return false;"><i class="fas fa-clipboard-list"></i> Аудит</a></li>
 </ul>
@@ -192,6 +193,25 @@ body{background:#f5f7fa;font-family:system-ui,-apple-system,sans-serif;}
 <h2 class="mb-4"><i class="fas fa-folder text-primary"></i> Ресурсы</h2>
 <button class="btn btn-primary mb-3" onclick="showModal('create-resource-modal')"><i class="fas fa-plus"></i> Добавить ресурс</button>
 <div class="table-wrapper" id="resources-table"><div class="text-center p-4 text-muted">Загрузка...</div></div>
+</div>
+
+<!-- CATALOG -->
+<div id="page-catalog" class="page-content">
+<h2 class="mb-4"><i class="fas fa-book text-primary"></i> Каталог</h2>
+<div class="row g-3 mb-4">
+<div class="col-md-3"><div class="stat-card text-center"><div class="stat-icon text-primary"><i class="fas fa-folder-open"></i></div><div class="stat-value" id="cat-folders">-</div><div class="stat-label">Папок</div></div></div>
+<div class="col-md-3"><div class="stat-card text-center"><div class="stat-icon text-danger"><i class="fas fa-exclamation-triangle"></i></div><div class="stat-value" id="cat-findings">-</div><div class="stat-label">Находок</div></div></div>
+<div class="col-md-3"><div class="stat-card text-center"><div class="stat-icon text-info"><i class="fas fa-database"></i></div><div class="stat-value" id="cat-pii">-</div><div class="stat-label">PII</div></div></div>
+<div class="col-md-3"><div class="stat-card text-center"><div class="stat-icon text-warning"><i class="fas fa-key"></i></div><div class="stat-value" id="cat-creds">-</div><div class="stat-label">Credentials</div></div></div>
+</div>
+<div class="filter-card mb-3">
+<div class="row g-3 align-items-end">
+<div class="col-md-6"><label class="form-label">Поиск по пути</label><input type="text" class="form-control" id="catalog-search" placeholder="путь или часть пути..." onkeyup="loadCatalog()"></div>
+<div class="col-md-3"><label class="form-label">Категория</label><select class="form-select" id="catalog-category" onchange="loadCatalog()"><option value="">Все</option><option value="pii">PII</option><option value="credentials">Credentials</option><option value="code">Code</option></select></div>
+<div class="col-md-3"><button class="btn btn-outline-secondary" onclick="document.getElementById('catalog-search').value='';document.getElementById('catalog-category').value='';loadCatalog();"><i class="fas fa-undo"></i> Сброс</button></div>
+</div>
+</div>
+<div class="table-wrapper" id="catalog-table"><div class="text-center p-4 text-muted">Загрузка...</div></div>
 </div>
 
 <!-- ACCESS -->
@@ -369,6 +389,7 @@ function switchPage(page) {
     else if (page === 'tasks') loadTasks();
     else if (page === 'scanners') { loadScanners(); loadAuditAgents(); }
     else if (page === 'resources') loadResources();
+    else if (page === 'catalog') loadCatalog();
     else if (page === 'access') loadAccess();
     else if (page === 'audit') initAuditPage();
 }
@@ -817,6 +838,50 @@ async function rescanResource(id, btn) {
             alert('❌ ' + (res.detail || 'Неизвестная ошибка'));
         }
     } catch(e) { alert('❌ Ошибка: ' + e.message); }
+}
+
+async function loadCatalog() {
+    try {
+        var search = document.getElementById('catalog-search')?.value?.trim() || '';
+        var category = document.getElementById('catalog-category')?.value || '';
+        var url = '/api/catalog?limit=500';
+        if (search) url += '&search=' + encodeURIComponent(search);
+        if (category) url += '&category=' + encodeURIComponent(category);
+
+        var r = await fetch(url);
+        var d = await r.json();
+        var container = document.getElementById('catalog-table');
+
+        var statsR = await fetch('/api/catalog/stats');
+        var stats = await statsR.json();
+        document.getElementById('cat-folders').textContent = stats.total_folders || 0;
+        var totalF = 0, pii = 0, creds = 0;
+        for (var cat in stats.classifier_stats || {}) {
+            var s = stats.classifier_stats[cat];
+            totalF += s.total_findings || 0;
+            if (cat === 'pii') pii = s.total_findings || 0;
+            if (cat === 'credentials') creds = s.total_findings || 0;
+        }
+        document.getElementById('cat-findings').textContent = totalF;
+        document.getElementById('cat-pii').textContent = pii;
+        document.getElementById('cat-creds').textContent = creds;
+
+        if (!d.entries.length) {
+            container.innerHTML = '<div class="text-center p-4 text-muted">Нет записей в каталоге</div>';
+            return;
+        }
+        var html = '<div class="table-responsive"><table class="table table-hover table-sm mb-0"><thead class="table-light"><tr><th>ID</th><th>Путь</th><th>Файлов</th><th>Находок</th><th>PII</th><th>Creds</th><th>Последнее сканирование</th></tr></thead><tbody>';
+        for (var i = 0; i < d.entries.length; i++) {
+            var e = d.entries[i];
+            var cls = e.classifiers || {};
+            var piiN = cls.pii ? cls.pii.count : 0;
+            var credsN = cls.credentials ? cls.credentials.count : 0;
+            var scanned = e.last_scanned ? new Date(e.last_scanned).toLocaleString('ru-RU') : '-';
+            html += '<tr><td>#' + e.id + '</td><td><code>' + escapeHtml(e.path) + '</code></td><td>' + (e.file_count || 0) + '</td><td><strong>' + (e.total_findings || 0) + '</strong></td><td>' + piiN + '</td><td>' + credsN + '</td><td>' + scanned + '</td></tr>';
+        }
+        html += '</tbody></table></div>';
+        container.innerHTML = html;
+    } catch(e) { console.error('Catalog error:', e); }
 }
 
 async function loadResources() {
@@ -1382,6 +1447,7 @@ setInterval(function() {
     else if (currentPage === 'tasks') loadTasks();
     else if (currentPage === 'scanners') { loadScanners(); loadAuditAgents(); }
     else if (currentPage === 'resources') loadResources();
+    else if (currentPage === 'catalog') loadCatalog();
     else if (currentPage === 'access') loadAccess();
 }, 30000);
 
