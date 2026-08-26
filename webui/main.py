@@ -804,6 +804,21 @@ async function createResource() {
     } catch(e) { alert('❌ Ошибка: ' + e.message); }
 }
 
+async function rescanResource(id, btn) {
+    var name = btn ? btn.getAttribute('data-name') : id;
+    if (!confirm('Запустить сканирование "' + name + '" (#' + id + ')?')) return;
+    try {
+        var r = await fetch('/api/resources/' + id + '/scan', { method: 'POST' });
+        var res = await r.json();
+        if (res.success) {
+            alert('✅ Задание #' + res.task_id + ' создано! Сканер подхватит при следующем heartbeat.');
+            loadResources();
+        } else {
+            alert('❌ ' + (res.detail || 'Неизвестная ошибка'));
+        }
+    } catch(e) { alert('❌ Ошибка: ' + e.message); }
+}
+
 async function loadResources() {
     try {
         var r = await fetch('/api/resources');
@@ -813,12 +828,13 @@ async function loadResources() {
             container.innerHTML = '<div class="text-center p-4 text-muted">Нет ресурсов</div>';
             return;
         }
-        var html = '<div class="table-responsive"><table class="table table-hover table-sm mb-0"><thead class="table-light"><tr><th>ID</th><th>Тип</th><th>Путь</th><th>Статус</th><th>Создан</th></tr></thead><tbody>';
+        var html = '<div class="table-responsive"><table class="table table-hover table-sm mb-0"><thead class="table-light"><tr><th>ID</th><th>Тип</th><th>Путь</th><th>Статус</th><th>Создан</th><th></th></tr></thead><tbody>';
         for (var i = 0; i < resources.length; i++) {
             var r = resources[i];
             var status = r.enabled ? '✅ Включён' : '❌ Отключён';
             var created = r.created_at ? new Date(r.created_at).toLocaleString('ru-RU') : '-';
-            html += '<tr><td>#' + r.id + '</td><td>' + r.type + '</td><td><code>' + r.path + '</code></td><td>' + status + '</td><td>' + created + '</td></tr>';
+            var scanBtn = r.enabled ? '<button class="btn btn-sm btn-outline-primary" title="Запустить сканирование" onclick="rescanResource(' + r.id + ', this)" data-name="' + escapeHtml(r.path) + '"><i class="fas fa-play"></i></button>' : '';
+            html += '<tr><td>#' + r.id + '</td><td>' + r.type + '</td><td><code>' + r.path + '</code></td><td>' + status + '</td><td>' + created + '</td><td>' + scanBtn + '</td></tr>';
         }
         html += '</tbody></table></div>';
         container.innerHTML = html;

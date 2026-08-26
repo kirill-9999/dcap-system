@@ -635,6 +635,48 @@ async def delete_resource(resource_id: int, force: bool = False):
     return {"success": True, "message": "Resource deleted"}
 
 
+@router.post("/resources/{resource_id}/scan")
+async def scan_resource(resource_id: int):
+    """Запустить сканирование ресурса — создаёт pending-задание для сканера"""
+    conn = get_db()
+    cursor = conn.cursor()
+
+    cursor.execute("SELECT id, path, enabled FROM resources WHERE id = ?", (resource_id,))
+    row = cursor.fetchone()
+    if not row:
+        conn.close()
+        raise HTTPException(status_code=404, detail="Resource not found")
+
+    if not row["enabled"]:
+        conn.close()
+        raise HTTPException(status_code=400, detail="Resource is disabled")
+
+    cursor.execute(
+        "SELECT COUNT(*) FROM scan_tasks WHERE resource_id = ? AND status IN ('pending', 'assigned', 'running')",
+        (resource_id,)
+    )
+    if cursor.fetchone()[0] > 0:
+        conn.close()
+        raise HTTPException(status_code=400, detail="Resource already has an active task")
+
+    cursor.execute(
+        """INSERT INTO scan_tasks (resource_id, source_path, status, files_scanned, files_failed, findings_count, created_at)
+           VALUES (?, ?, 'pending', 0, 0, 0, datetime('now'))""",
+        (resource_id, row["path"])
+    )
+    task_id = cursor.lastrowid
+    conn.commit()
+    conn.close()
+
+    return {
+        "success": True,
+        "task_id": task_id,
+        "resource_id": resource_id,
+        "resource_path": row["path"],
+        "message": f"Scan task #{task_id} created for {row['path']}"
+    }
+
+
 # ==================== КЛАССИФИКАТОРЫ ====================
 
 @router.get("/classifiers")
