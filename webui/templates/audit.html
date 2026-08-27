@@ -33,7 +33,9 @@ async function loadAudit() {
         var d = await r.json();
         var events = d.events || [];
         document.getElementById('a-total').textContent = d.total || events.length;
-        document.getElementById('a-agents').textContent = d.agents_total || 0;
+        var r2 = await fetch('/api/audit/agents');
+        var agentsResp = await r2.json();
+        document.getElementById('a-agents').textContent = agentsResp.online || 0;
         var c = document.getElementById('audit-table');
         if (!events.length) { c.innerHTML = '<div class="text-center p-4 text-muted">Нет событий</div>'; return; }
         var html = '<div class="table-responsive"><table class="table table-sm"><thead><tr><th>Время</th><th>Пользователь</th><th>Файл</th><th>Тип</th><th>Источник</th><th>Хост</th></tr></thead><tbody>';

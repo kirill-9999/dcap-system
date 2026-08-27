@@ -24,7 +24,8 @@ async function loadScannersPage() {
     c.innerHTML = html + '</tbody></table></div>';
 
     var r2 = await fetch('/api/audit/agents');
-    var agents = await r2.json();
+    var agentsResp = await r2.json();
+    var agents = agentsResp.agents || [];
     var c2 = document.getElementById('agents-table');
     if (!agents.length) { c2.innerHTML = '<div class="text-center p-4 text-muted">Нет агентов</div>'; return; }
     var html2 = '<div class="table-responsive"><table class="table table-sm"><thead><tr><th>ID</th><th>Имя</th><th>Хост</th><th>Статус</th><th>Событий</th><th>Heartbeat</th></tr></thead><tbody>';
