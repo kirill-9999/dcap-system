@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html lang="ru" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}DCAP System{% endblock %}</title>
+    <link rel="stylesheet" href="/static/vendor/css/bootstrap.min.css">
+    <link rel="stylesheet" href="/static/vendor/css/fontawesome.min.css">
+    <link rel="stylesheet" href="/static/css/main.css">
+    {% block head %}{% endblock %}
+</head>
+<body>
+<div class="app">
+    <aside class="sidebar" id="sidebar">
+        <div class="sidebar-header">
+            <a href="/" class="sidebar-logo"><span>🛡️</span><span class="hide-on-collapse">DCAP</span></a>
+            <button class="sidebar-toggle" onclick="toggleSidebar()"><i class="fas fa-bars"></i></button>
+        </div>
+        <nav class="sidebar-nav">
+            <a href="/" class="nav-item {% if page == 'Дашборд' %}active{% endif %}" data-page="dashboard">
+                <span class="nav-icon"><i class="fas fa-chart-pie"></i></span>
+                <span class="nav-label hide-on-collapse">Дашборд</span>
+            </a>
+            <a href="/catalog" class="nav-item {% if page == 'Каталог' %}active{% endif %}" data-page="catalog">
+                <span class="nav-icon"><i class="fas fa-folder-tree"></i></span>
+                <span class="nav-label hide-on-collapse">Каталог</span>
+            </a>
+            <a href="/findings" class="nav-item {% if page == 'Находки' %}active{% endif %}" data-page="findings">
+                <span class="nav-icon"><i class="fas fa-exclamation-triangle"></i></span>
+                <span class="nav-label hide-on-collapse">Находки</span>
+            </a>
+            <a href="/resources" class="nav-item {% if page == 'Ресурсы' %}active{% endif %}" data-page="resources">
+                <span class="nav-icon"><i class="fas fa-database"></i></span>
+                <span class="nav-label hide-on-collapse">Ресурсы</span>
+            </a>
+            <a href="/audit" class="nav-item {% if page == 'Аудит' %}active{% endif %}" data-page="audit">
+                <span class="nav-icon"><i class="fas fa-history"></i></span>
+                <span class="nav-label hide-on-collapse">Аудит</span>
+            </a>
+            <a href="/access" class="nav-item {% if page == 'Доступ' %}active{% endif %}" data-page="access">
+                <span class="nav-icon"><i class="fas fa-lock"></i></span>
+                <span class="nav-label hide-on-collapse">Доступ</span>
+            </a>
+            <a href="/scanners" class="nav-item {% if page == 'Сканеры' %}active{% endif %}" data-page="scanners">
+                <span class="nav-icon"><i class="fas fa-microscope"></i></span>
+                <span class="nav-label hide-on-collapse">Сканеры</span>
+            </a>
+        </nav>
+        <div class="sidebar-footer">
+            <div class="user-info">
+                <div class="user-avatar">👤</div>
+                <span class="user-name hide-on-collapse">admin</span>
+            </div>
+            <div class="sidebar-actions hide-on-collapse">
+                <button onclick="toggleTheme()" title="Тема"><i class="fas fa-moon" id="themeIcon"></i></button>
+            </div>
+        </div>
+    </aside>
+    <main class="main-content" id="mainContent">
+        <header class="page-header">
+            <div class="header-left">
+                <nav aria-label="Breadcrumb">
+                    <ol class="breadcrumb">
+                        <li class="breadcrumb-item active">{{ page|default('Главная') }}</li>
+                    </ol>
+                </nav>
+            </div>
+            <div class="header-right">
+                <span class="text-muted" style="font-size:var(--font-size-xs)" id="lastUpdated"></span>
+            </div>
+        </header>
+        <div class="page-content">{% block content %}{% endblock %}</div>
+        <footer class="page-footer">
+            <span>DCAP System v2.1.0</span>
+            <span>|</span>
+            <span id="footerTime"></span>
+        </footer>
+    </main>
+</div>
+<script src="/static/vendor/js/chart.umd.min.js"></script>
+<script src="/static/js/api.js"></script>
+<script src="/static/js/theme.js"></script>
+<script src="/static/js/main.js"></script>
+{% block scripts %}{% endblock %}
+</body>
+</html>

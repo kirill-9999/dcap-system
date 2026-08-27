@@ -1,0 +1,48 @@
+{% extends "base.html" %}
+{% block title %}DCAP — Дашборд{% endblock %}
+{% block content %}
+<div class="kpi-grid">
+    <div class="kpi-card">
+        <div class="kpi-icon" style="color:var(--color-primary);background:var(--color-primary-bg)"><i class="fas fa-database"></i></div>
+        <div><div class="kpi-value" id="kpiResources">—</div><div class="kpi-label">Ресурсов</div></div>
+    </div>
+    <div class="kpi-card">
+        <div class="kpi-icon" style="color:var(--color-danger);background:var(--color-danger-bg)"><i class="fas fa-exclamation-triangle"></i></div>
+        <div><div class="kpi-value" id="kpiFindings">—</div><div class="kpi-label">Находок</div></div>
+    </div>
+    <div class="kpi-card">
+        <div class="kpi-icon" style="color:var(--color-success);background:var(--color-success-bg)"><i class="fas fa-server"></i></div>
+        <div><div class="kpi-value" id="kpiAgents">—</div><div class="kpi-label">Агентов онлайн</div><div class="kpi-change" id="kpiAgentsChange"></div></div>
+    </div>
+    <div class="kpi-card">
+        <div class="kpi-icon" style="color:var(--color-warning);background:var(--color-warning-bg)"><i class="fas fa-bell"></i></div>
+        <div><div class="kpi-value" id="kpiAlerts">0</div><div class="kpi-label">Алертов</div></div>
+    </div>
+</div>
+<div class="charts-grid">
+    <div class="card chart-card">
+        <div class="card-header"><h3 class="card-title"><i class="fas fa-chart-bar"></i> События по типам</h3></div>
+        <div class="card-body"><canvas id="auditChart" height="250"></canvas></div>
+    </div>
+    <div class="card chart-card">
+        <div class="card-header"><h3 class="card-title"><i class="fas fa-chart-pie"></i> По источнику</h3></div>
+        <div class="card-body"><canvas id="findingsChart" height="250"></canvas></div>
+    </div>
+</div>
+<div class="card">
+    <div class="card-header">
+        <h3 class="card-title"><i class="fas fa-clock"></i> Последние события</h3>
+        <a href="/audit" class="btn btn-sm btn-outline-primary">Все события →</a>
+    </div>
+    <div class="card-body">
+        <div class="table-wrapper">
+            <table class="table table-sm"><thead><tr><th>Время</th><th>Пользователь</th><th>Файл</th><th>Тип</th><th>Источник</th></tr></thead>
+            <tbody id="recentEvents"><tr><td colspan="5" class="text-center text-muted">Загрузка...</td></tr></tbody></table>
+        </div>
+    </div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script src="/static/js/dashboard.js"></script>
+<script>document.addEventListener('DOMContentLoaded', function(){ loadDashboard(); setInterval(loadDashboard, 30000); });</script>
+{% endblock %}

@@ -1,0 +1,48 @@
+{% extends "base.html" %}
+{% block title %}DCAP — Находки{% endblock %}
+{% block content %}
+<h2 class="mb-4"><i class="fas fa-exclamation-triangle text-danger"></i> Находки</h2>
+<div class="kpi-grid mb-4">
+    <div class="kpi-card"><div class="kpi-icon" style="color:var(--color-danger);background:var(--color-danger-bg)"><i class="fas fa-database"></i></div><div><div class="kpi-value" id="f-total">—</div><div class="kpi-label">Всего находок</div></div></div>
+    <div class="kpi-card"><div class="kpi-icon" style="color:var(--color-info);background:var(--color-info-bg)"><i class="fas fa-user"></i></div><div><div class="kpi-value" id="f-pii">—</div><div class="kpi-label">PII</div></div></div>
+    <div class="kpi-card"><div class="kpi-icon" style="color:var(--color-warning);background:var(--color-warning-bg)"><i class="fas fa-key"></i></div><div><div class="kpi-value" id="f-creds">—</div><div class="kpi-label">Credentials</div></div></div>
+</div>
+<div class="filter-card mb-3">
+    <div class="row g-3 align-items-end">
+        <div class="col-md-3"><label class="form-label">Категория</label><select class="form-select" id="f-category" onchange="loadFindings()"><option value="">Все</option><option value="pii">PII</option><option value="credentials">Credentials</option></select></div>
+        <div class="col-md-3"><label class="form-label">Источник</label><select class="form-select" id="f-source" onchange="loadFindings()"><option value="">Все</option><option value="scanner">Сканер</option><option value="api">API</option></select></div>
+        <div class="col-md-3"><button class="btn btn-outline-secondary" onclick="document.getElementById('f-category').value='';document.getElementById('f-source').value='';loadFindings()"><i class="fas fa-undo"></i> Сброс</button></div>
+    </div>
+</div>
+<div class="table-wrapper" id="findings-table"><div class="text-center p-4 text-muted">Загрузка...</div></div>
+{% endblock %}
+{% block scripts %}
+<script>
+async function loadFindings() {
+    try {
+        var cat = document.getElementById('f-category')?.value || '';
+        var src = document.getElementById('f-source')?.value || '';
+        var url = '/api/findings?limit=200';
+        if (cat) url += '&category=' + encodeURIComponent(cat);
+        if (src) url += '&scanner=' + encodeURIComponent(src);
+        var r = await fetch(url);
+        var d = await r.json();
+        document.getElementById('f-total').textContent = d.length || 0;
+        var pii = d.filter(f => f.category === 'pii').length;
+        var creds = d.filter(f => f.category === 'credentials').length;
+        document.getElementById('f-pii').textContent = pii;
+        document.getElementById('f-creds').textContent = creds;
+        var container = document.getElementById('findings-table');
+        if (!d.length) { container.innerHTML = '<div class="text-center p-4 text-muted">Нет находок</div>'; return; }
+        var html = '<div class="table-responsive"><table class="table table-sm"><thead><tr><th>ID</th><th>Категория</th><th>Значение</th><th>Файл</th><th>Строка</th><th>Уверенность</th></tr></thead><tbody>';
+        for (var i = 0; i < d.length; i++) {
+            var f = d[i];
+            var bc = f.category === 'credentials' ? 'badge-warning' : 'badge-primary';
+            html += '<tr><td>#'+f.id+'</td><td><span class="badge '+bc+'">'+f.category+'</span></td><td style="max-width:250px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+f.value+'</td><td style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+f.file_path+'</td><td>'+(f.line_number||'-')+'</td><td>'+((f.confidence||0)*100).toFixed(0)+'%</td></tr>';
+        }
+        container.innerHTML = html + '</tbody></table></div>';
+    } catch(e) { console.error(e); }
+}
+document.addEventListener('DOMContentLoaded', loadFindings);
+</script>
+{% endblock %}

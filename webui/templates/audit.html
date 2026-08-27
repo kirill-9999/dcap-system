@@ -1,0 +1,50 @@
+{% extends "base.html" %}
+{% block title %}DCAP — Аудит{% endblock %}
+{% block content %}
+<h2 class="mb-4"><i class="fas fa-history text-primary"></i> Аудит</h2>
+<div class="kpi-grid mb-4">
+    <div class="kpi-card"><div class="kpi-icon" style="color:var(--color-primary);background:var(--color-primary-bg)"><i class="fas fa-database"></i></div><div><div class="kpi-value" id="a-total">—</div><div class="kpi-label">Всего событий</div></div></div>
+    <div class="kpi-card"><div class="kpi-icon" style="color:var(--color-success);background:var(--color-success-bg)"><i class="fas fa-server"></i></div><div><div class="kpi-value" id="a-agents">—</div><div class="kpi-label">Агентов</div></div></div>
+</div>
+<div class="filter-card mb-3">
+    <div class="row g-3 align-items-end">
+        <div class="col-md-3"><label class="form-label">Источник</label><select class="form-select" id="a-source" onchange="loadAudit()"><option value="">Все</option><option value="windows_agent">Windows</option><option value="linux_agent">Linux</option></select></div>
+        <div class="col-md-3"><label class="form-label">Тип</label><select class="form-select" id="a-type" onchange="loadAudit()"><option value="">Все</option><option value="read">Read</option><option value="write">Write</option><option value="delete">Delete</option></select></div>
+        <div class="col-md-3"><label class="form-label">Пользователь</label><input type="text" class="form-control" id="a-user" placeholder="имя..." onkeyup="loadAudit()"></div>
+        <div class="col-md-3"><button class="btn btn-outline-secondary" onclick="document.getElementById('a-source').value='';document.getElementById('a-type').value='';document.getElementById('a-user').value='';loadAudit()"><i class="fas fa-undo"></i> Сброс</button></div>
+    </div>
+</div>
+<div class="table-wrapper" id="audit-table"><div class="text-center p-4 text-muted">Загрузка...</div></div>
+{% endblock %}
+{% block scripts %}
+<script>
+var icons = {windows_agent:'\ud83e\udea7',linux_agent:'\ud83d\udc27',scanner:'\ud83d\udce1',api:'\ud83d\udd0c'};
+var ticons = {read:'\ud83d\udcd6',write:'\u270f\ufe0f',delete:'\ud83d\uddd1\ufe0f',move:'\ud83d\udce6'};
+async function loadAudit() {
+    try {
+        var src = document.getElementById('a-source')?.value || '';
+        var tp = document.getElementById('a-type')?.value || '';
+        var usr = document.getElementById('a-user')?.value?.trim() || '';
+        var url = '/api/audit?limit=200';
+        if (src) url += '&event_source=' + encodeURIComponent(src);
+        if (tp) url += '&event_type=' + encodeURIComponent(tp);
+        if (usr) url += '&user=' + encodeURIComponent(usr);
+        var r = await fetch(url);
+        var d = await r.json();
+        var events = d.events || [];
+        document.getElementById('a-total').textContent = d.total || events.length;
+        document.getElementById('a-agents').textContent = d.agents_total || 0;
+        var c = document.getElementById('audit-table');
+        if (!events.length) { c.innerHTML = '<div class="text-center p-4 text-muted">Нет событий</div>'; return; }
+        var html = '<div class="table-responsive"><table class="table table-sm"><thead><tr><th>Время</th><th>Пользователь</th><th>Файл</th><th>Тип</th><th>Источник</th><th>Хост</th></tr></thead><tbody>';
+        for (var i = 0; i < events.length; i++) {
+            var e = events[i];
+            var t = new Date(e.created_at).toLocaleString('ru-RU');
+            html += '<tr><td>'+t+'</td><td>'+(e.user||'-')+'</td><td style="max-width:250px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+(e.file_path||'')+'</td><td><span class="badge badge-primary">'+(ticons[e.event_type]||'')+' '+(e.event_type||'')+'</span></td><td>'+(icons[e.event_source]||'')+' '+(e.event_source||'')+'</td><td>'+(e.source_host||'-')+'</td></tr>';
+        }
+        c.innerHTML = html + '</tbody></table></div>';
+    } catch(e) { console.error(e); }
+}
+document.addEventListener('DOMContentLoaded', loadAudit);
+</script>
+{% endblock %}

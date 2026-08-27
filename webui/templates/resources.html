@@ -1,0 +1,52 @@
+{% extends "base.html" %}
+{% block title %}DCAP — Ресурсы{% endblock %}
+{% block content %}
+<h2 class="mb-4"><i class="fas fa-database text-primary"></i> Ресурсы</h2>
+<button class="btn btn-primary mb-3" onclick="showModal('create-resource-modal')"><i class="fas fa-plus"></i> Добавить ресурс</button>
+<div class="table-wrapper" id="resources-table"><div class="text-center p-4 text-muted">Загрузка...</div></div>
+<div class="modal" id="create-resource-modal">
+    <div class="modal-content">
+        <div class="modal-header"><h3>Добавить ресурс</h3><button class="btn btn-sm" onclick="closeModal('create-resource-modal')">&times;</button></div>
+        <div class="modal-body">
+            <div class="mb-3"><label class="form-label">Путь *</label><input type="text" class="form-control" id="resource-path" placeholder="D:\\data или /home/user/data"></div>
+            <div class="mb-3"><label class="form-label">Тип</label><select class="form-select" id="resource-type"><option value="FILESYSTEM">FILESYSTEM</option></select></div>
+            <div class="mb-3"><label class="form-label">Расширения</label><input type="text" class="form-control" id="resource-extensions" value="txt,pdf,docx,xlsx,png,jpg,jpeg"></div>
+            <div class="d-flex gap-2"><button class="btn btn-primary" onclick="createResource()">Создать</button><button class="btn btn-outline-secondary" onclick="closeModal('create-resource-modal')">Отмена</button></div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+function showModal(id) { document.getElementById(id).classList.add('show'); }
+function closeModal(id) { document.getElementById(id).classList.remove('show'); }
+async function createResource() {
+    var path = document.getElementById('resource-path')?.value?.trim();
+    if (!path) { alert('Укажите путь'); return; }
+    var r = await fetch('/api/resources/create', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({type:document.getElementById('resource-type')?.value||'FILESYSTEM', path:path, enabled:true, extensions:document.getElementById('resource-extensions')?.value||''})});
+    var res = await r.json();
+    if (res.success) { closeModal('create-resource-modal'); loadResources(); } else alert(res.detail || 'Ошибка');
+}
+async function rescanResource(id) {
+    if (!confirm('Запустить сканирование #' + id + '?')) return;
+    var r = await fetch('/api/resources/'+id+'/scan', {method:'POST'});
+    var res = await r.json();
+    if (res.success) alert('Задание #' + res.task_id + ' создано'); else alert(res.detail || 'Ошибка');
+}
+async function loadResources() {
+    var r = await fetch('/api/resources');
+    var resources = await r.json();
+    var c = document.getElementById('resources-table');
+    if (!resources.length) { c.innerHTML = '<div class="text-center p-4 text-muted">Нет ресурсов</div>'; return; }
+    var html = '<div class="table-responsive"><table class="table table-sm"><thead><tr><th>ID</th><th>Тип</th><th>Путь</th><th>Статус</th><th>Создан</th><th></th></tr></thead><tbody>';
+    for (var i = 0; i < resources.length; i++) {
+        var r = resources[i];
+        var st = r.enabled ? '✅' : '❌';
+        var btn = r.enabled ? '<button class="btn btn-sm btn-outline-primary" onclick="rescanResource('+r.id+')" title="Сканировать"><i class="fas fa-play"></i></button>' : '';
+        html += '<tr><td>#'+r.id+'</td><td>'+r.type+'</td><td><code>'+r.path+'</code></td><td>'+st+'</td><td>'+(r.created_at?new Date(r.created_at).toLocaleString('ru-RU'):'-')+'</td><td>'+btn+'</td></tr>';
+    }
+    c.innerHTML = html + '</tbody></table></div>';
+}
+document.addEventListener('DOMContentLoaded', loadResources);
+</script>
+{% endblock %}
