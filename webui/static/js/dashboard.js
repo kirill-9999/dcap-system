@@ -6,8 +6,15 @@ async function loadDashboard() {
         const stats = await api.get('/api/audit/stats', {days: 7});
         updateKPIs(stats);
         updateCharts(stats);
-        updateRecentEvents(stats);
-    } catch(e) { console.error('Dashboard error:', e); }
+    } catch(e) { console.error('Dashboard stats error:', e); }
+    try {
+        const data = await api.get('/api/audit', {limit: 10});
+        updateRecentEvents(data.events || []);
+    } catch(e) { console.error('Dashboard events error:', e); }
+    try {
+        const findings = await api.get('/api/findings', {limit: 10});
+        updateRecentFindings(Array.isArray(findings) ? findings : []);
+    } catch(e) { console.error('Dashboard findings error:', e); }
 }
 
 function updateKPIs(s) {
@@ -15,7 +22,7 @@ function updateKPIs(s) {
     if (el('kpiResources')) el('kpiResources').textContent = s.total_resources || 0;
     if (el('kpiFindings')) el('kpiFindings').textContent = s.total || 0;
     if (el('kpiAgents')) el('kpiAgents').textContent = s.agents_online || 0;
-    if (el('kpiAgentsChange')) el('kpiAgentsChange').textContent = '\u0438\u0437 ' + (s.agents_total || 0);
+    if (el('kpiAgentsChange')) el('kpiAgentsChange').textContent = 'из ' + (s.agents_total || 0);
 }
 
 function updateCharts(s) {
@@ -36,7 +43,7 @@ function updateCharts(s) {
             type: 'bar',
             data: {
                 labels: labels,
-                datasets: [{ label: '\u0421\u043e\u0431\u044b\u0442\u0438\u044f', data: values, backgroundColor: [primary, success, danger, warning, info] }]
+                datasets: [{ label: 'События', data: values, backgroundColor: [primary, success, danger, warning, info] }]
             },
             options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { y: { beginAtZero: true } } }
         });
@@ -57,17 +64,31 @@ function updateCharts(s) {
     }
 }
 
-function updateRecentEvents(s) {
+function updateRecentEvents(events) {
     const tbody = document.getElementById('recentEvents');
     if (!tbody) return;
-    const events = s.recent || [];
-    if (!events.length) { tbody.innerHTML = '<tr><td colspan="5" class="text-center text-muted">\u041d\u0435\u0442 \u0441\u043e\u0431\u044b\u0442\u0438\u0439</td></tr>'; return; }
-    const icons = {windows_agent:'\ud83e\udea7',linux_agent:'\ud83d\udc27',scanner:'\ud83d\udce1',api:'\ud83d\udd0c'};
-    const ticons = {read:'\ud83d\udcd6',write:'\u270f\ufe0f',delete:'\ud83d\uddd1\ufe0f',move:'\ud83d\udce6'};
+    if (!events.length) { tbody.innerHTML = '<tr><td colspan="5" class="text-center text-muted">Нет событий</td></tr>'; return; }
+    const icons = {windows_agent:'🖥️',linux_agent:'🐧',scanner:'📡',api:'🔌'};
+    const ticons = {read:'📖',write:'✏️',delete:'🗑️',move:'📦'};
     let html = '';
     for (const e of events) {
         const t = new Date(e.created_at).toLocaleString('ru-RU');
-        html += '<tr><td>' + t + '</td><td>' + (e.user||'\u2014') + '</td><td style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + (e.file_path||'\u2014') + '</td><td><span class="badge badge-primary">' + (ticons[e.event_type]||'') + ' ' + (e.event_type||'') + '</span></td><td>' + (icons[e.event_source]||'\ud83d\udccb') + ' ' + (e.event_source||'\u2014') + '</td></tr>';
+        html += '<tr><td>' + t + '</td><td>' + (e.user||'—') + '</td><td style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + (e.file_path||'—') + '</td><td><span class="badge badge-primary">' + (ticons[e.event_type]||'') + ' ' + (e.event_type||'') + '</span></td><td>' + (icons[e.event_source]||'📋') + ' ' + (e.event_source||'—') + '</td></tr>';
+    }
+    tbody.innerHTML = html;
+}
+
+function updateRecentFindings(findings) {
+    const tbody = document.getElementById('recentFindings');
+    if (!tbody) return;
+    if (!findings.length) { tbody.innerHTML = '<tr><td colspan="5" class="text-center text-muted">Нет находок</td></tr>'; return; }
+    let html = '';
+    for (const f of findings) {
+        const t = new Date(f.created_at).toLocaleString('ru-RU');
+        const bc = f.category === 'credentials' ? 'badge-warning' : 'badge-primary';
+        const val = (f.value || '').length > 40 ? f.value.substring(0, 40) + '…' : (f.value || '—');
+        const fp = (f.file_path || '').length > 40 ? '…' + f.file_path.substring(f.file_path.length - 35) : (f.file_path || '—');
+        html += '<tr><td>' + t + '</td><td><span class="badge ' + bc + '">' + (f.category||'') + '</span></td><td style="max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + val + '</td><td style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + fp + '</td><td>' + ((f.confidence||0)).toFixed(0) + '%</td></tr>';
     }
     tbody.innerHTML = html;
 }
