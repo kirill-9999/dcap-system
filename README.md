@@ -7,9 +7,9 @@
 | Компонент | Описание | Порт |
 |-----------|----------|------|
 | `manager/` | FastAPI control-plane | :8000 |
-| `webui/` | Дашборд (HTML инлайн в Python) | :8001 |
+| `webui/` | Дашборд (Jinja2, прокси API на Manager) | :8001 |
 | `scanner/` | Агент сканирования | — |
-| `audit-agent/` | Windows-агент аудита (wevtutil) | — |
+| `audit-agent-windows/` | Windows-агент аудита (wevtutil) | — |
 | `audit-agent-linux/` | Linux-агент аудита (watchdog) | — |
 | `shared/` | Единая схема событий (UnifiedEvent) | — |
 
@@ -19,17 +19,18 @@
 # Инициализация БД
 python init_db.py
 
-# Manager (API)
-python -m uvicorn manager.src.main:app --port 8000
+# Единый запуск Manager + WebUI (порты из конфигов)
+python run_all.py
 
-# WebUI (дашборд)
-python run_webui.py
+# или по отдельности:
+python run_manager.py        # Manager API (порт из manager/config/config.json, :8000)
+python run_webui.py          # WebUI (порт из webui/config/config.json, :8001)
 
 # Сканер
 python run_scanner.py scanner/config/scanner_config.json
 
 # Windows-агент аудита
-cd audit-agent && python main.py
+cd audit-agent-windows && python main.py config.json
 
 # Linux-агент аудита
 cd audit-agent-linux && ./start.sh --daemon
@@ -50,7 +51,7 @@ cd audit-agent-linux && ./start.sh --daemon
 ```
 
 - **Manager** — REST API, прием событий от агентов, хранение в SQLite
-- **WebUI** — дашборд с фильтрацией по источнику (Windows/Linux), удаление агентов/сканеров
+- **WebUI** — дашборд с фильтрацией по источнику (Windows/Linux), удаление агентов/сканеров. Все `/api/*` запросы проксируются в Manager (нет прямого доступа к БД)
 - **Агенты** — легкие компоненты, буферизуют события в SQLite, отправляют батчами
 
 ## Единый формат событий
@@ -69,6 +70,7 @@ cd audit-agent-linux && ./start.sh --daemon
 | v2.0.0 | Управление доступом + Аудит Windows (ядро) |
 | v2.0.1 | Windows-стек полностью готов |
 | v2.1.0 | Linux-агент + унифицированный формат + WebUI фильтр |
+| v3.0.0 | Унификация Manager и WebUI: WebUI — Jinja2 + прокси API на Manager, конфиги портов, run_all.py |
 
 ## Требования
 

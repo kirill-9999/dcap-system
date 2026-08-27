@@ -54,7 +54,7 @@
 |-----------|----------|------|
 | Manager | API на FastAPI | `manager/src/` |
 | Scanner | Агент сканирования (тяжелый) | `scanner/` |
-| Audit Agent | Легкий агент аудита | `audit-agent/` |
+| Audit Agent | Легкий агент аудита | `audit-agent-windows/` |
 | WebUI | Каноничный интерфейс | `webui/` |
 | Tests | Интеграционные тесты | `tests/` |
 

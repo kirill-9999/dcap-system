@@ -1,42 +1,107 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
+"""Linux-агент аудита: мониторинг файловой системы, буферизация, отправка в Manager.
+
+Запуск:
+    python main.py <config.json>
+
+Конфиг обязателен. Без конфига агент не запускается. Все обязательные
+параметры конфига должны присутствовать, иначе агент завершается с ошибкой.
+"""
+
 import json
 import time
 import sys
+import signal
 import logging
 import threading
 from pathlib import Path
 from datetime import datetime, timedelta
+from typing import Dict, List
 
 from collector import InotifyCollector
 from buffer import BufferManager
 from sender import Sender
 
+# Обязательные параметры конфига (без значений по умолчанию)
+REQUIRED_CONFIG_KEYS = [
+    "manager_url",
+    "agent_name",
+    "hostname",
+    "watch_paths",
+    "read_interval",
+    "batch_size",
+    "buffer_size",
+    "heartbeat_interval",
+    "log_level",
+    "log_file",
+]
+
+
+def _load_config(config_path: Path) -> Dict:
+    """Строгая загрузка конфига.
+
+    Конфиг обязателен и должен содержать все обязательные параметры.
+    Значений по умолчанию нет — отсутствующий параметр вызывает ошибку.
+    """
+    if not config_path.exists():
+        print(f"Ошибка: конфиг не найден: {config_path}")
+        sys.exit(1)
+
+    try:
+        with open(config_path, 'r', encoding='utf-8-sig') as f:
+            config = json.load(f)
+    except json.JSONDecodeError as e:
+        print(f"Ошибка: невалидный JSON в конфиге {config_path}: {e}")
+        sys.exit(1)
+
+    missing = [k for k in REQUIRED_CONFIG_KEYS if k not in config]
+    if missing:
+        print(
+            f"Ошибка: в конфиге {config_path} отсутствуют обязательные "
+            f"параметры: {', '.join(missing)}"
+        )
+        sys.exit(1)
+
+    return config
+
 
 class AuditAgent:
     def __init__(self, config_path: Path):
-        with open(config_path) as f:
-            self.config = json.load(f)
-
-        base_dir = config_path.parent
+        self.config = _load_config(config_path)
+        self.base_dir = config_path.parent
+        self.data_dir = self.base_dir / "data"
+        self.data_dir.mkdir(parents=True, exist_ok=True)
+        self.state = self._load_state()
 
         self.buffer = BufferManager(
-            buffer_dir=base_dir / "buffer",
-            max_size=self.config.get("buffer_size", 10000)
+            buffer_dir=self.data_dir / "buffer",
+            max_size=self.config["buffer_size"]
         )
         self.sender = Sender(
             manager_url=self.config["manager_url"],
-            agent_id=0
+            agent_id=self.state.get("agent_id", 0)
         )
+        self.agent_id = self.state.get("agent_id", 0)
         self.running = True
-        self.log = self._setup_logging(base_dir)
-        self.agent_id = 0
+        self.log = self._setup_logging()
 
-    def _setup_logging(self, base_dir: Path):
-        log_level = getattr(logging, self.config.get("log_level", "INFO"))
-        log_file = self.config.get("log_file", "logs/audit_agent.log")
-        log_path = base_dir / log_file
+    def _load_state(self) -> Dict:
+        state_path = self.data_dir / "state.json"
+        if state_path.exists():
+            with open(state_path, 'r', encoding='utf-8-sig') as f:
+                return json.load(f)
+        return {"agent_id": 0, "last_read": None}
+
+    def _save_state(self):
+        state_path = self.data_dir / "state.json"
+        with open(state_path, 'w', encoding='utf-8') as f:
+            json.dump(self.state, f, ensure_ascii=False, indent=2)
+
+    def _setup_logging(self):
+        log_level = getattr(logging, self.config["log_level"].upper(), logging.INFO)
+        log_path = self.base_dir / self.config["log_file"]
         log_path.parent.mkdir(parents=True, exist_ok=True)
 
         logging.basicConfig(
@@ -52,8 +117,8 @@ class AuditAgent:
     def register(self) -> bool:
         payload = {
             "name": self.config["agent_name"],
-            "hostname": self.config.get("hostname", "localhost"),
-            "version": "1.0.0"
+            "hostname": self.config["hostname"],
+            "version": "3.0.0"
         }
         try:
             import requests
@@ -65,45 +130,52 @@ class AuditAgent:
             if resp.status_code == 200:
                 self.agent_id = resp.json()["agent_id"]
                 self.sender.agent_id = self.agent_id
+                self.state["agent_id"] = self.agent_id
+                self._save_state()
                 self.log.info(f"Зарегистрирован, ID: {self.agent_id}")
                 return True
         except Exception as e:
             self.log.error(f"Ошибка регистрации: {e}")
         return False
 
+    def _send_heartbeat(self, status: str = "online") -> bool:
+        """Отправка heartbeat (через sender)"""
+        unsent_count = self.buffer.count_unsent()
+        return self.sender.send_heartbeat(status, {"events_pending": unsent_count})
+
     def run(self):
         self.log.info(f"Запуск: {self.config['agent_name']}")
 
-        if not self.register():
-            self.log.error("Регистрация не удалась. Выход.")
-            sys.exit(1)
+        if self.agent_id == 0:
+            if not self.register():
+                self.log.error("Регистрация не удалась. Выход.")
+                sys.exit(1)
 
         def on_event(event):
             self.buffer.add(event)
             self.log.debug(f"Событие: {event['event_type']} {event['file_path']}")
 
         collector = InotifyCollector(
-            watch_paths=self.config.get("watch_paths", []),
+            watch_paths=self.config["watch_paths"],
             callback=on_event
         )
 
         collector_thread = threading.Thread(target=collector.start, daemon=True)
         collector_thread.start()
 
-        self.log.info(f"Мониторинг: {self.config.get('watch_paths', [])}")
+        self.log.info(f"Мониторинг: {self.config['watch_paths']}")
 
-        last_heartbeat = datetime.now() - timedelta(seconds=60)
-        heartbeat_interval = self.config.get("heartbeat_interval", 30)
+        last_heartbeat = datetime.now() - timedelta(seconds=self.config["heartbeat_interval"])
+        heartbeat_interval = self.config["heartbeat_interval"]
 
         while self.running:
             try:
                 now = datetime.now()
-                if (now - last_heartbeat).seconds >= heartbeat_interval:
-                    unsent_count = self.buffer.count_unsent()
-                    self.sender.send_heartbeat({"events_pending": unsent_count})
+                if (now - last_heartbeat).total_seconds() >= heartbeat_interval:
+                    self._send_heartbeat()
                     last_heartbeat = now
 
-                unsent = self.buffer.get_unsent(limit=self.config.get("batch_size", 50))
+                unsent = self.buffer.get_unsent(limit=self.config["batch_size"])
                 if unsent:
                     events = [e["event"] for e in unsent]
                     if self.sender.send_events(events):
@@ -113,7 +185,7 @@ class AuditAgent:
                         self.log.warning("Не удалось отправить события")
 
                 self.buffer.clear_sent()
-                time.sleep(self.config.get("read_interval", 5))
+                time.sleep(self.config["read_interval"])
 
             except KeyboardInterrupt:
                 self.log.info("Остановка...")
@@ -123,15 +195,20 @@ class AuditAgent:
                 self.log.error(f"Ошибка: {e}")
                 time.sleep(5)
 
+        self._send_heartbeat(status="offline")
         self.buffer.close()
         self.log.info("Завершен")
 
 
-if __name__ == "__main__":
-    config_path = Path(__file__).parent / "config.json"
-    if not config_path.exists():
-        print("config.json не найден")
-        sys.exit(1)
-
+def run(config_path: Path):
     agent = AuditAgent(config_path)
     agent.run()
+
+
+if __name__ == "__main__":
+    if len(sys.argv) < 2:
+        print("Ошибка: не указан путь к конфигу")
+        print("Использование: python main.py <config.json>")
+        sys.exit(1)
+
+    run(Path(sys.argv[1]))

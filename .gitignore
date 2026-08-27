@@ -62,22 +62,29 @@ state*.json
 # Копии БД
 manager/src/db/dcap.db
 
-# Агент аудита (runtime)
-audit-agent/state.json
-audit-agent/state*.json
-audit-agent/buffer/
-audit-agent/logs/
-audit-agent/*.db
-audit-agent/*.log
-audit-agent/*.exe
-audit-agent/build/
-audit-agent/dist/
-audit-agent/*.spec
+# Агент аудита Windows (runtime)
+audit-agent-windows/data/
+audit-agent-windows/logs/
+audit-agent-windows/*.db
+audit-agent-windows/*.log
+audit-agent-windows/*.exe
+audit-agent-windows/build/
+audit-agent-windows/dist/
+audit-agent-windows/*.spec
 
 # Агент аудита Linux (runtime)
-audit-agent-linux/buffer/
+audit-agent-linux/data/
 audit-agent-linux/logs/
 audit-agent-linux/*.db
 audit-agent-linux/*.log
 audit-agent-linux/agent.pid
+
+# Scanner (runtime)
+scanner/data/
+
+# Manager (runtime)
+manager/data/
+
+# WebUI (runtime)
+webui/data/
 

@@ -1,0 +1,17 @@
+{
+    "server": {
+        "host": "127.0.0.1",
+        "port": 8000
+    },
+    "database": {
+        "url": "sqlite:///manager/dcap.db"
+    },
+    "webui": {
+        "enabled": true,
+        "host": "127.0.0.1",
+        "port": 8001
+    },
+    "logging": {
+        "level": "INFO"
+    }
+}

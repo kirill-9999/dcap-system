@@ -8,6 +8,7 @@ import os
 import sys
 import json
 import time
+import uuid
 import logging
 import signal
 import socket
@@ -549,6 +550,64 @@ class ManagedScanner:
                 except Exception as e:
                     logger.debug(f"Error stopping orchestrator: {e}")
     
+    def _get_offline_dir(self) -> Path:
+        """Директория для оффлайн-режима (scanner/data/offline)"""
+        offline_dir = Path("scanner") / "data" / "offline"
+        offline_dir.mkdir(parents=True, exist_ok=True)
+        return offline_dir
+
+    def _save_offline(self, task_id: int, result: Dict[str, Any]) -> bool:
+        """Сохранить результат задания в оффлайн-хранилище при недоступности Manager"""
+        try:
+            offline_dir = self._get_offline_dir()
+            payload = {
+                "task_id": task_id,
+                "scanner_id": self.scanner_id,
+                "saved_at": datetime.utcnow().isoformat(),
+                "result": result
+            }
+            file_path = offline_dir / f"task_{task_id}.json"
+            with open(file_path, 'w', encoding='utf-8') as f:
+                json.dump(payload, f, ensure_ascii=False, indent=2)
+            logger.info(f"[Offline] Результаты задания {task_id} сохранены: {file_path}")
+            return True
+        except Exception as e:
+            logger.error(f"[Offline] Ошибка сохранения результатов: {e}")
+            return False
+
+    def _flush_offline(self) -> int:
+        """Попытаться отправить сохранённые оффлайн-результаты в Manager.
+
+        Возвращает количество успешно отправленных заданий.
+        """
+        offline_dir = self._get_offline_dir()
+        flushed = 0
+        for file_path in sorted(offline_dir.glob("task_*.json")):
+            try:
+                with open(file_path, 'r', encoding='utf-8') as f:
+                    payload = json.load(f)
+                task_id = payload["task_id"]
+                result = payload.get("result", {})
+
+                success = self.client.submit_results(
+                    task_id=task_id,
+                    findings=result.get("findings", []),
+                    catalog_entries=result.get("catalog_entries", []),
+                    failed_files=result.get("failed_files", []),
+                    stats=result.get("stats", {})
+                )
+                if success:
+                    file_path.unlink()
+                    flushed += 1
+                    logger.info(f"[Offline] Задание {task_id} отправлено из оффлайн-очереди")
+                else:
+                    logger.warning(f"[Offline] Не удалось отправить задание {task_id} из очереди")
+                    break
+            except Exception as e:
+                logger.error(f"[Offline] Ошибка обработки {file_path}: {e}")
+                break
+        return flushed
+
     def _manual_scan(self, resource_path: str, orchestrator, connector):
         logger.info(f"[ManualScan] Starting manual scan of {resource_path}")
         
@@ -616,7 +675,11 @@ class ManagedScanner:
                 
                 if not heartbeat_ok:
                     logger.warning("⚠️ Heartbeat не удался после 3 попыток")
-                
+
+                # Попытка отправить накопленные оффлайн-результаты
+                if heartbeat_ok:
+                    self._flush_offline()
+
                 task = self.client.get_task()
                 
                 if task:
@@ -636,6 +699,7 @@ class ManagedScanner:
                         logger.info(f"✅ Task {task['id']} completed successfully")
                     else:
                         logger.error(f"❌ Failed to submit results for task {task['id']}")
+                        self._save_offline(task["id"], result)
                     
                     self.client.heartbeat(status="idle")
                 else:

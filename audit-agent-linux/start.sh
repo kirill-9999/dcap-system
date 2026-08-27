@@ -23,14 +23,14 @@ if [ ! -f "config.json" ]; then
     exit 1
 fi
 
-mkdir -p logs buffer
+mkdir -p data logs buffer
 
 if [ "$1" = "--daemon" ] || [ "$1" = "-d" ]; then
     echo "Запуск в фоновом режиме..."
-    nohup python main.py >> logs/agent.out 2>&1 &
+    nohup python main.py config.json >> logs/agent.out 2>&1 &
     echo $! > agent.pid
     echo "Агент запущен, PID: $(cat agent.pid)"
 else
     echo "Запуск в консольном режиме..."
-    python main.py
+    python main.py config.json
 fi

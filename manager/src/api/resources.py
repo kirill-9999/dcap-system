@@ -62,7 +62,8 @@ def list_resources(
             "last_scanned_at": r.last_scanned_at.isoformat() if r.last_scanned_at else None,
             "enabled": r.enabled,
             "scan_interval": r.scan_interval,
-            "schedule_enabled": r.schedule_enabled
+            "schedule_enabled": r.schedule_enabled,
+            "created_at": r.created_at.isoformat() if r.created_at else None
         }
         for r in resources
     ]
@@ -139,6 +140,7 @@ def scan_resource(resource_id: int, db: Session = Depends(session.get_db)):
     db.refresh(task)
     
     return {
+        "success": True,
         "task_id": task.id,
         "resource_id": resource_id,
         "status": "pending",

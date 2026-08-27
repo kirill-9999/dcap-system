@@ -31,7 +31,7 @@ dcap-system/
 │ ├── models.py # + AuditAgent, AuditLog
 │ └── session.py
 ├── scanner/ # агент сканирования (тяжелый)
-├── audit-agent/ # легкий агент аудита (Windows)
+├── audit-agent-windows/ # легкий агент аудита (Windows)
 │ ├── main.py # точка входа (цикл)
 │ ├── collector.py # wevtutil Security Log, XML-парсинг
 │ ├── buffer.py # SQLite-буфер

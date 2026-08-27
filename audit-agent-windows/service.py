@@ -15,10 +15,12 @@ Windows-служба для агента аудита DCAP.
 import sys
 import os
 import time
+import json
 import logging
 import threading
 from pathlib import Path
 from datetime import datetime
+from typing import Dict
 
 # Добавляем текущую папку в путь
 sys.path.insert(0, str(Path(__file__).parent))
@@ -34,7 +36,21 @@ except ImportError:
     print("pywin32 not found. Run: pip install pywin32")
 
 from main import AuditAgent
-from config_loader import load_config
+from main import REQUIRED_CONFIG_KEYS
+
+def _load_config(config_path: Path) -> Dict:
+    """Строгая загрузка конфига (без значений по умолчанию)."""
+    with open(config_path, 'r', encoding='utf-8-sig') as f:
+        config = json.load(f)
+
+    missing = [k for k in REQUIRED_CONFIG_KEYS if k not in config]
+    if missing:
+        raise ValueError(
+            f"В конфиге {config_path} отсутствуют обязательные параметры: "
+            f"{', '.join(missing)}"
+        )
+    return config
+
 
 class AuditAgentService(win32serviceutil.ServiceFramework):
     """Windows-служба для агента аудита"""
@@ -47,7 +63,7 @@ class AuditAgentService(win32serviceutil.ServiceFramework):
         win32serviceutil.ServiceFramework.__init__(self, args)
         self.hWaitStop = win32event.CreateEvent(None, 0, 0, None)
         self.config_path = Path(__file__).parent / "config.json"
-        self.config = load_config(self.config_path)
+        self.config = _load_config(self.config_path)
         self.running = True
         self.agent = None
         self.agent_thread = None
@@ -147,8 +163,9 @@ def main():
 
     if len(sys.argv) == 1:
         # Запуск агента в консольном режиме (для отладки)
-        from main import main as agent_main
-        agent_main()
+        from main import run as agent_run
+        from main import REQUIRED_CONFIG_KEYS
+        agent_run(Path(__file__).parent / "config.json")
     else:
         win32serviceutil.HandleCommandLine(AuditAgentService)
 

@@ -315,10 +315,14 @@ class AppConfig:
 
 
 def load_config(config_path: str) -> AppConfig:
-    """Загрузка конфигурации с проверкой"""
+    """Загрузка конфигурации с проверкой.
+
+    Конфиг обязателен. Отсутствующий обязательный параметр вызывает ошибку
+    (значений по умолчанию для обязательных параметров нет).
+    """
     if not config_path:
         print("❌ Config file path is required")
-        print("Usage: python run_scanner.py --config <config.json>")
+        print("Usage: python run_scanner.py <config.json>")
         sys.exit(1)
     
     if not os.path.exists(config_path):
@@ -326,14 +330,61 @@ def load_config(config_path: str) -> AppConfig:
         sys.exit(1)
     
     try:
-        config = AppConfig.from_file(config_path)
-        print(f"✅ Config loaded: {config_path}")
-        return config
+        with open(config_path, 'r', encoding='utf-8') as f:
+            data = json.load(f)
     except json.JSONDecodeError as e:
         print(f"❌ Invalid JSON in config file: {e}")
         sys.exit(1)
     except Exception as e:
+        print(f"❌ Error reading config: {e}")
+        sys.exit(1)
+
+    _validate_required(data)
+
+    try:
+        config = AppConfig.from_dict(data)
+        print(f"✅ Config loaded: {config_path}")
+        return config
+    except Exception as e:
         print(f"❌ Error loading config: {e}")
+        sys.exit(1)
+
+
+def _validate_required(data: Dict[str, Any]):
+    """Проверка наличия обязательных параметров конфига.
+
+    Отсутствующий обязательный параметр вызывает ошибку (без значений по умолчанию).
+    """
+    required_sections = ["scanner", "connector", "classifiers", "client", "logging"]
+    missing_sections = [s for s in required_sections if s not in data]
+    if missing_sections:
+        print(f"❌ Ошибка: отсутствуют обязательные секции конфига: {', '.join(missing_sections)}")
+        sys.exit(1)
+
+    missing_keys = []
+
+    # scanner: name, manager_url, scan_interval, log_level
+    for key in ["name", "manager_url", "scan_interval", "log_level"]:
+        if key not in data["scanner"]:
+            missing_keys.append(f"scanner.{key}")
+
+    # connector: skip_dirs
+    for key in ["skip_dirs"]:
+        if key not in data["connector"]:
+            missing_keys.append(f"connector.{key}")
+
+    # client: timeout, heartbeat_timeout, submit_timeout
+    for key in ["timeout", "heartbeat_timeout", "submit_timeout"]:
+        if key not in data["client"]:
+            missing_keys.append(f"client.{key}")
+
+    # classifiers: обязана содержать хотя бы один классификатор
+    classifier_keys = list(data["classifiers"].keys())
+    if not classifier_keys:
+        missing_keys.append("classifiers.<классификатор>")
+
+    if missing_keys:
+        print(f"❌ Ошибка: отсутствуют обязательные параметры конфига: {', '.join(missing_keys)}")
         sys.exit(1)
 
 

@@ -46,12 +46,12 @@ class Sender:
             print(f"[Sender] Ошибка: {e}")
             return False
 
-    def send_heartbeat(self, stats: Dict) -> bool:
+    def send_heartbeat(self, status: str = "online", stats: Dict = None) -> bool:
         """Отправить heartbeat"""
         payload = {
             "agent_id": self.agent_id,
-            "status": "online",
-            "stats": stats
+            "status": status,
+            "stats": stats or {}
         }
         try:
             response = self.session.post(

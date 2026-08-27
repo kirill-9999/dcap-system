@@ -287,11 +287,27 @@ def get_audit_stats(
      .order_by(func.count(models.AuditLog.id).desc())\
      .limit(10).all()
 
+    source_stats = db.query(
+        models.AuditLog.event_source,
+        func.count(models.AuditLog.id).label('count')
+    ).filter(models.AuditLog.created_at >= since)\
+     .filter(models.AuditLog.event_source.isnot(None))\
+     .group_by(models.AuditLog.event_source)\
+     .order_by(func.count(models.AuditLog.id).desc()).all()
+
+    agents_online = db.query(models.AuditAgent).filter(
+        models.AuditAgent.status == "online"
+    ).count()
+    agents_total = db.query(models.AuditAgent).count()
+
     return {
         "total": total,
         "days": days,
         "by_type": [{"type": s[0], "count": s[1]} for s in type_stats],
-        "top_users": [{"user": s[0], "count": s[1]} for s in user_stats]
+        "top_users": [{"user": s[0], "count": s[1]} for s in user_stats],
+        "by_source": [{"source": s[0], "count": s[1]} for s in source_stats],
+        "agents_total": agents_total,
+        "agents_online": agents_online
     }
 
 

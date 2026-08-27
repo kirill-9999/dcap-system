@@ -44,6 +44,31 @@ def list_findings(
         for f in findings
     ]
 
+@router.get("/count")
+def get_findings_count(
+    category: Optional[str] = None,
+    file_path: Optional[str] = None,
+    scanner_id: Optional[int] = None,
+    task_id: Optional[int] = None,
+    db: Session = Depends(session.get_db)
+):
+    """Количество находок с фильтрацией (WebUI-формат)"""
+    query = db.query(models.Finding)
+    if category:
+        query = query.filter(models.Finding.category == category)
+    if file_path:
+        query = query.filter(models.Finding.file_path.ilike(f"%{file_path}%"))
+    if scanner_id:
+        query = query.filter(
+            models.Finding.task_id.in_(
+                db.query(models.ScanTask.id).filter(models.ScanTask.scanner_id == scanner_id)
+            )
+        )
+    if task_id:
+        query = query.filter(models.Finding.task_id == task_id)
+    return {"count": query.count()}
+
+
 @router.get("/{finding_id}")
 def get_finding(
     finding_id: int,

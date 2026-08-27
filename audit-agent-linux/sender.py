@@ -29,8 +29,8 @@ class Sender:
         except Exception:
             return False
 
-    def send_heartbeat(self, stats: Dict) -> bool:
-        payload = {"agent_id": self.agent_id, "status": "online", "stats": stats}
+    def send_heartbeat(self, status: str = "online", stats: Dict = None) -> bool:
+        payload = {"agent_id": self.agent_id, "status": status, "stats": stats or {}}
         try:
             resp = self.session.post(
                 f"{self.manager_url}/api/audit/agents/heartbeat",
