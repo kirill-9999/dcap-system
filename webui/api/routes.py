@@ -49,6 +49,16 @@ async def proxy_to_manager(request: Request, path: str):
     if content_type:
         headers["Content-Type"] = content_type
 
+    # Проброс аутентификации в Manager: заголовок Authorization (Bearer JWT)
+    # и HttpOnly cookie access_token/refresh_token (SPNEGO/Basic fallback).
+    auth_header = request.headers.get("authorization")
+    if auth_header:
+        headers["Authorization"] = auth_header
+
+    cookies = dict(request.cookies)
+    cookies.setdefault("access_token", "")
+    cookies.setdefault("refresh_token", "")
+
     async with httpx.AsyncClient(timeout=MANAGER_TIMEOUT) as client:
         try:
             resp = await client.request(
@@ -57,6 +67,7 @@ async def proxy_to_manager(request: Request, path: str):
                 params=params,
                 content=body,
                 headers=headers,
+                cookies=cookies,
             )
         except httpx.ConnectError:
             logger.error(f"Cannot connect to Manager: {MANAGER_URL}")

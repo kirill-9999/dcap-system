@@ -5,17 +5,21 @@ const api = {
             if (params[k] !== null && params[k] !== undefined && params[k] !== '')
                 url.searchParams.append(k, params[k]);
         });
-        const r = await fetch(url.toString());
+        const headers = (typeof Auth !== 'undefined') ? Auth.authHeaders() : {};
+        const r = await fetch(url.toString(), { headers });
         if (!r.ok) throw new Error('HTTP ' + r.status);
         return r.json();
     },
     async post(endpoint, data = {}) {
-        const r = await fetch(endpoint, { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(data) });
+        const headers = { 'Content-Type': 'application/json' };
+        if (typeof Auth !== 'undefined') Object.assign(headers, Auth.authHeaders());
+        const r = await fetch(endpoint, { method: 'POST', headers, body: JSON.stringify(data) });
         if (!r.ok) throw new Error('HTTP ' + r.status);
         return r.json();
     },
     async delete(endpoint) {
-        const r = await fetch(endpoint, { method: 'DELETE' });
+        const headers = (typeof Auth !== 'undefined') ? Auth.authHeaders() : {};
+        const r = await fetch(endpoint, { method: 'DELETE', headers });
         if (!r.ok) throw new Error('HTTP ' + r.status);
         return r.json();
     }

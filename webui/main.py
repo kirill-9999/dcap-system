@@ -74,5 +74,10 @@ async def page_scanners(request: Request):
     return render(request, "scanners.html", "Сканеры")
 
 
+@app.get("/login", response_class=HTMLResponse)
+async def page_login(request: Request):
+    return templates.TemplateResponse(request, "login.html", {"page": "Вход"})
+
+
 if __name__ == "__main__":
     uvicorn.run(app, host=WEBUI_HOST, port=WEBUI_PORT, reload=DEBUG)

@@ -14,10 +14,16 @@ from manager.src.api.permissions import router as permissions_router
 from manager.src.api.audit import router as audit_router
 from manager.src.api.webui import router as webui_router
 
+from manager.src.config import get_config
+from manager.src.auth.manager import AuthManager
+from manager.src.auth.middleware import AuthMiddleware
+from manager.src.auth.router import router as auth_router, set_auth_manager
+from manager.src.db import session
+
 app = FastAPI(
     title="DCAP System Manager",
     description="Data-Centric Audit and Protection System",
-    version="2.0.0-alpha"
+    version="3.0.0"
 )
 
 # CORS
@@ -28,6 +34,17 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# ============================================================
+# АУТЕНТИФИКАЦИЯ (День 30)
+# ============================================================
+
+_config = get_config()
+_auth_manager = AuthManager(_config)
+set_auth_manager(_auth_manager)
+
+app.add_middleware(AuthMiddleware, auth_manager=_auth_manager, db_session_factory=session.SessionLocal)
+
 
 # ============================================================
 # UI
@@ -51,6 +68,7 @@ app.include_router(scanner_router)
 app.include_router(permissions_router)
 app.include_router(audit_router)
 app.include_router(webui_router)
+app.include_router(auth_router)
 
 
 # ============================================================
@@ -59,7 +77,7 @@ app.include_router(webui_router)
 
 @app.get("/api/health")
 async def health_check():
-    return {"status": "healthy", "version": "2.0.0-alpha"}
+    return {"status": "healthy", "version": "3.0.0"}
 
 
 @app.post("/api/folders/pick")
@@ -88,6 +106,20 @@ async def api_root():
 # ============================================================
 # ЗАПУСК СЕРВЕРА
 # ============================================================
+
+@app.on_event("startup")
+async def on_startup():
+    """Создание таблиц и инициализация ролей/admin при старте."""
+    try:
+        session.init_db()
+        from manager.src.db.init_roles import init_roles_and_admin
+        db = session.SessionLocal()
+        try:
+            init_roles_and_admin(db)
+        finally:
+            db.close()
+    except Exception as e:
+        print(f"[auth] Ошибка инициализации ролей: {e}")
 
 if __name__ == "__main__":
     import uvicorn

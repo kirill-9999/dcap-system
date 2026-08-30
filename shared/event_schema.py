@@ -21,7 +21,7 @@ class UnifiedEvent(BaseModel):
         ..., description="Тип события"
     )
 
-    event_source: Literal["windows_agent", "linux_agent", "scanner"] = Field(
+    event_source: Literal["windows_agent", "linux_agent", "scanner", "s3_agent"] = Field(
         ..., description="Источник события"
     )
 

@@ -23,19 +23,16 @@ function closeModal(id) { document.getElementById(id).classList.remove('show'); 
 async function createResource() {
     var path = document.getElementById('resource-path')?.value?.trim();
     if (!path) { alert('Укажите путь'); return; }
-    var r = await fetch('/api/resources/create', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({type:document.getElementById('resource-type')?.value||'FILESYSTEM', path:path, enabled:true, extensions:document.getElementById('resource-extensions')?.value||''})});
-    var res = await r.json();
+    var res = await api.post('/api/resources/create', {type:document.getElementById('resource-type')?.value||'FILESYSTEM', path:path, enabled:true, extensions:document.getElementById('resource-extensions')?.value||''});
     if (res.success) { closeModal('create-resource-modal'); loadResources(); } else alert(res.detail || 'Ошибка');
 }
 async function rescanResource(id) {
     if (!confirm('Запустить сканирование #' + id + '?')) return;
-    var r = await fetch('/api/resources/'+id+'/scan', {method:'POST'});
-    var res = await r.json();
+    var res = await api.post('/api/resources/'+id+'/scan');
     if (res.success) alert('Задание #' + res.task_id + ' создано'); else alert(res.detail || 'Ошибка');
 }
 async function loadResources() {
-    var r = await fetch('/api/resources');
-    var resources = await r.json();
+    var resources = await api.get('/api/resources');
     var c = document.getElementById('resources-table');
     if (!resources.length) { c.innerHTML = '<div class="text-center p-4 text-muted">Нет ресурсов</div>'; return; }
     var html = '<div class="table-responsive"><table class="table table-sm"><thead><tr><th>ID</th><th>Тип</th><th>Путь</th><th>Статус</th><th>Создан</th><th></th></tr></thead><tbody>';

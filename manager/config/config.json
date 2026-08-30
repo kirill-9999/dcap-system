@@ -6,6 +6,30 @@
     "database": {
         "url": "sqlite:///manager/dcap.db"
     },
+    "auth": {
+        "mode": "local",
+        "jwt_secret_key": "change-me-in-production-32-chars-long",
+        "jwt_access_ttl_minutes": 1440,
+        "jwt_refresh_ttl_days": 7,
+        "bcrypt_rounds": 12,
+        "local_users_enabled": true,
+        "auto_create_ad_users": true,
+        "default_role": "viewer",
+        "windows_auth": {
+            "enabled": false,
+            "ad_domain": "",
+            "ad_server": "",
+            "ad_ldap_port": 389,
+            "ad_use_ssl": false,
+            "service_account": "",
+            "service_password": "",
+            "group_mapping": {
+                "DCAP_Admin": "admin",
+                "DCAP_Auditor": "auditor",
+                "DCAP_Scanner": "scanner"
+            }
+        }
+    },
     "webui": {
         "enabled": true,
         "host": "127.0.0.1",

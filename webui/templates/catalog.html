@@ -23,13 +23,8 @@ async function loadCatalog() {
     try {
         var search = document.getElementById('catalog-search')?.value?.trim() || '';
         var category = document.getElementById('catalog-category')?.value || '';
-        var url = '/api/catalog?limit=500';
-        if (search) url += '&search=' + encodeURIComponent(search);
-        if (category) url += '&category=' + encodeURIComponent(category);
-        var r = await fetch(url);
-        var d = await r.json();
-        var statsR = await fetch('/api/catalog/stats');
-        var stats = await statsR.json();
+        var d = await api.get('/api/catalog', {limit: 500, search: search, category: category});
+        var stats = await api.get('/api/catalog/stats');
         document.getElementById('cat-folders').textContent = stats.total_folders || 0;
         var totalF = 0, pii = 0, creds = 0;
         for (var cat in stats.classifier_stats || {}) {

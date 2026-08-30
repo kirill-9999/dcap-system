@@ -10,8 +10,7 @@
 {% block scripts %}
 <script>
 async function loadScannersPage() {
-    var r = await fetch('/api/scanners');
-    var scanners = await r.json();
+    var scanners = await api.get('/api/scanners');
     var c = document.getElementById('scanners-table');
     if (!scanners.length) { c.innerHTML = '<div class="text-center p-4 text-muted">Нет сканеров</div>'; return; }
     var html = '<div class="table-responsive"><table class="table table-sm"><thead><tr><th>ID</th><th>Имя</th><th>Статус</th><th>Heartbeat</th><th>Заданий</th></tr></thead><tbody>';
@@ -23,8 +22,7 @@ async function loadScannersPage() {
     }
     c.innerHTML = html + '</tbody></table></div>';
 
-    var r2 = await fetch('/api/audit/agents');
-    var agentsResp = await r2.json();
+    var agentsResp = await api.get('/api/audit/agents');
     var agents = agentsResp.agents || [];
     var c2 = document.getElementById('agents-table');
     if (!agents.length) { c2.innerHTML = '<div class="text-center p-4 text-muted">Нет агентов</div>'; return; }

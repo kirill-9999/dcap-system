@@ -25,16 +25,10 @@ async function loadAudit() {
         var src = document.getElementById('a-source')?.value || '';
         var tp = document.getElementById('a-type')?.value || '';
         var usr = document.getElementById('a-user')?.value?.trim() || '';
-        var url = '/api/audit?limit=200';
-        if (src) url += '&event_source=' + encodeURIComponent(src);
-        if (tp) url += '&event_type=' + encodeURIComponent(tp);
-        if (usr) url += '&user=' + encodeURIComponent(usr);
-        var r = await fetch(url);
-        var d = await r.json();
+        var d = await api.get('/api/audit', {limit: 200, event_source: src, event_type: tp, user: usr});
         var events = d.events || [];
         document.getElementById('a-total').textContent = d.total || events.length;
-        var r2 = await fetch('/api/audit/agents');
-        var agentsResp = await r2.json();
+        var agentsResp = await api.get('/api/audit/agents');
         document.getElementById('a-agents').textContent = agentsResp.online || 0;
         var c = document.getElementById('audit-table');
         if (!events.length) { c.innerHTML = '<div class="text-center p-4 text-muted">Нет событий</div>'; return; }

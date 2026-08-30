@@ -1,0 +1,74 @@
+// webui/static/js/auth.js
+// Хранение JWT в localStorage и отправка через заголовок Authorization (Bearer).
+// Прокси WebUI форвардит этот заголовок в Manager, который валидирует токен.
+
+const Auth = {
+    TOKEN_KEY: "dcap_access_token",
+
+    getToken() {
+        return localStorage.getItem(this.TOKEN_KEY);
+    },
+
+    setToken(token) {
+        if (token) {
+            localStorage.setItem(this.TOKEN_KEY, token);
+        } else {
+            localStorage.removeItem(this.TOKEN_KEY);
+        }
+    },
+
+    isAuthenticated() {
+        return !!this.getToken();
+    },
+
+    authHeaders() {
+        const token = this.getToken();
+        return token ? { "Authorization": `Bearer ${token}` } : {};
+    },
+
+    async login(username, password) {
+        const r = await fetch("/api/auth/login", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ username, password }),
+        });
+        const data = await r.json().catch(() => ({}));
+        if (!r.ok) {
+            throw new Error(data.detail || "Неверные учётные данные");
+        }
+        this.setToken(data.access_token);
+        return data.user || {};
+    },
+
+    async logout() {
+        try {
+            await fetch("/api/auth/logout", {
+                method: "POST",
+                headers: this.authHeaders(),
+            });
+        } catch (e) {
+            // игнорируем сетевые ошибки при выходе
+        }
+        this.setToken(null);
+        window.location.href = "/login";
+    },
+
+    async me() {
+        const r = await fetch("/api/auth/me", { headers: this.authHeaders() });
+        if (!r.ok) {
+            this.setToken(null);
+            return null;
+        }
+        return r.json();
+    },
+
+    // Проверка авторизации для защиты страниц (редирект на /login если 401)
+    async check() {
+        const r = await fetch("/api/auth/check", { headers: this.authHeaders() });
+        if (!r.ok && window.location.pathname !== "/login") {
+            window.location.href = "/login";
+            return false;
+        }
+        return true;
+    },
+};

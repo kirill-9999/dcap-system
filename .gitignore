@@ -82,6 +82,13 @@ audit-agent-linux/agent.pid
 # Scanner (runtime)
 scanner/data/
 
+# S3/MinIO агент (runtime)
+audit-agent-s3/data/
+audit-agent-s3/logs/
+audit-agent-s3/*.db
+audit-agent-s3/*.log
+audit-agent-s3/agent.pid
+
 # Manager (runtime)
 manager/data/
 

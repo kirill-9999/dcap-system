@@ -22,11 +22,7 @@ async function loadFindings() {
     try {
         var cat = document.getElementById('f-category')?.value || '';
         var src = document.getElementById('f-source')?.value || '';
-        var url = '/api/findings?limit=200';
-        if (cat) url += '&category=' + encodeURIComponent(cat);
-        if (src) url += '&scanner=' + encodeURIComponent(src);
-        var r = await fetch(url);
-        var d = await r.json();
+        var d = await api.get('/api/findings', {limit: 200, category: cat, scanner: src});
         document.getElementById('f-total').textContent = d.length || 0;
         var pii = d.filter(f => f.category === 'pii').length;
         var creds = d.filter(f => f.category === 'credentials').length;

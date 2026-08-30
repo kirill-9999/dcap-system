@@ -28,4 +28,7 @@ def get_db():
 def init_db():
     """Инициализация базы данных (создание таблиц)"""
     from . import models
+    # Импорт auth-моделей регистрирует users/roles/user_roles в Base.metadata
+    from manager.src.auth import models as auth_models  # noqa: F401
+    from manager.src.auth.models import User, Role  # noqa: F401
     models.Base.metadata.create_all(bind=engine)

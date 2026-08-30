@@ -1,6 +1,6 @@
 # AGENTS.md — DCAP System
 
-Ты — **кодер** (Open Code Desktop + Big Pickle). Твоя задача — писать код строго по ТЗ. Не задавай вопросов, не предлагай улучшений, не анализируй архитектуру. Если что-то непонятно — делай как понял. В отчете давай полный код файлов и команду для коммита.
+Ты — **кодер** (Open Code Desktop + Big Pickle). Твоя задача — писать код строго по ТЗ. Не задавай вопросов, не предлагай улучшений, не анализируй архитектуру. Если что-то непонятно — делай как понял. В отчете давай полный код файлов и команду для коммита. Диалог веди на русском языке.
 
 ## Проект
 
@@ -8,9 +8,9 @@ DCAP — система сканирования и аудита данных (P
 
 ## Текущий статус
 
-**Версия:** v3.0.0
-**Статус:** ✅ Windows + Linux аудит готов; ✅ Manager/WebUI унифицированы (WebUI — Jinja2 + прокси на Manager)
-**Следующий этап:** S3/MinIO агент
+**Версия:** v3.1.0
+**Статус:** ✅ Windows + Linux аудит готов; ✅ Manager/WebUI унифицированы; ✅ Гибридная аутентификация (JWT+Bcrypt/SPNEGO) + роли; ✅ S3/MinIO аудит-агент (polling, Server Access Logs CSV + MinIO webhook JSON, буфер, heartbeat, JWT)
+**Следующий этап:** API-ключи для агентов / доработки по приоритету
 
 ## Релизы
 
@@ -21,6 +21,8 @@ DCAP — система сканирования и аудита данных (P
 | v2.0.1 | 2026-08-25 | Windows-стек полностью готов |
 | v2.1.0 | 2026-08-27 | Linux-агент + унифицированный формат + WebUI фильтр |
 | v3.0.0 | 2026-08-29 | Унификация Manager и WebUI (Вариант А): WebUI — Jinja2 + прокси API на Manager, конфиги портов, run_all.py |
+| v3.1.0 | 2026-08-30 | Гибридная аутентификация (JWT + Windows Integrated Auth): режимы local/hybrid/windows_integrated, роли admin/viewer/auditor/scanner, WebUI login |
+| v3.1.0+ | 2026-08-31 | S3/MinIO аудит-агент: polling-режим, Server Access Logs (CSV) + MinIO webhook (JSON), конвертация в UnifiedEvent (s3_agent), SQLite-буфер, heartbeat, JWT |
 
 ## Запуск (локально, из корня репо)
 
@@ -34,6 +36,8 @@ python run_manager.py                              # Manager API на :8000 (п�
 python run_webui.py                                # WebUI на :8001 (порт из конфига)
 python run_scanner.py scanner/config/scanner_config.json   # сканер, ждёт Manager на :8000
 python run_audit_agent.py audit-agent-windows/config.json  # Windows-агент аудита (конфиг обязателен)
+python run_audit_agent_linux.py ...                       # Linux-агент (см. ниже)
+python audit-agent-s3/scripts/start.sh                     # S3/MinIO аудит-агент (daemon, конфиг config/config.json)
 # Linux-агент запускается внутри Linux-окружения (см. ниже)
 ```
 
@@ -82,7 +86,9 @@ Pytest отсутствует (папка `manager/tests/` пуста). Тест
 - `scanner/src/managed_scanner.py` — агент; конфиг `scanner/config/scanner_config.json`; состояние `scanner/state/state.json`.
 - `audit-agent-windows/` — лёгкий агент аудита (Windows): `main.py` (цикл), `collector.py` (wevtutil Security Log, XML-парсинг), `buffer.py` (SQLite-буфер), `sender.py` (HTTP в Manager). Конфиг `config.json`; runtime-данные `data/state.json` и `data/buffer/` генерируются при запуске и игнорируются git. Запуск: `python run_audit_agent.py audit-agent-windows/config.json` (или `cd audit-agent-windows; python main.py config.json`). Windows-служба: `service.py` (pywin32, `python service.py install|start|stop|remove`, имя `DCAPAuditAgent`) + бат-файлы `*_service.bat`; логи — `audit-agent-windows/logs/audit_agent.log`. Установка службы требует прав администратора. События отправляются в `POST /api/audit/events` батчами, при недоступности Manager копятся в буфере. Коллектор использует XML-формат (`/f:XML`), colon-syntax параметров, фильтр по EventID в XPath (TimeCreated не работает в wevtutil).
 - `audit-agent-linux/` — лёгкий агент аудита (Linux): `main.py` (цикл), `collector.py` (watchdog/inotify + SSH-событии), `buffer.py` (SQLite-буфер), `sender.py`/`heartbeat.py` (HTTP в Manager), `config_loader.py` (конфиг с дефолтами). Конфиг `config.json`; буфер `buffer/` генерируется при запуске. Запуск: `cd audit-agent-linux; ./start.sh --daemon`. Systemd-сервис: `dcap-audit.service` (install: `sudo cp dcap-audit.service /etc/systemd/system/ && sudo systemctl daemon-reload`). Colab-режим: SSH-мониторинг файловой системы через paramiko. Название агента: `dcap-audit-linux-{hostname}` (уникальное). Heartbeat: `POST /api/audit/agents/heartbeat` с `agent_type="linux_agent"`.
+- `audit-agent-s3/` — S3/MinIO аудит-агент (День 31): polling-режим S3-совместимого хранилища (boto3), Server Access Logs (CSV) + MinIO webhook (JSON), конвертация в `UnifiedEvent` (`event_source="s3_agent"`), SQLite-буфер, HTTP-отправка в Manager. Структура: `src/` (`main.py`, `collector.py`, `converters.py`, `buffer.py`, `sender.py`, `state.py`, `heartbeat.py`, `config_loader.py`), `config/config.json`, `scripts/start.sh|stop.sh|status.sh|restart.sh` (daemon + PID-файл), `tests/unit|integration`, `Dockerfile`, `requirements.txt` (boto3, requests, pydantic, python-dotenv). Запуск: `python audit-agent-s3/scripts/start.sh` (конфиг — env-плейсхолдеры `${VAR:-default}` или `config/config.json`). Агент регистрируется (`/api/audit/agents/register` → `agent_id`, восстанавливается из `data/agent_id.json`), шлёт события на `POST /api/audit/events` с `{agent_id, events:[...]}`; при 401/heartbeat — JWT через `set_token`. `shared/event_schema.py` содержит `"s3_agent"` в Literal `event_source`.
 - `webui/main.py` — актуальный WebUI (Jinja2 + `webui/templates/*.html` + `webui/static/`), единственный UI проекта. `run_webui.py` запускает именно `webui.main:app`. Вся работа с данными — через прокси в Manager (`webui/api/routes.py`), прямого доступа к БД нет.
+- `manager/src/auth/` — гибридная аутентификация (День 30): `manager.py` (AuthManager, режимы local/hybrid/windows_integrated), `local_auth.py` (JWT+Bcrypt), `windows_auth.py` (SPNEGO-stub + mock без AD), `jwt.py` (JWTManager, HS256), `models.py` (User/Role + связь user_roles; Bcrypt hash), `schemas.py`, `dependencies.py` (require_auth/require_admin/require_viewer/require_auditor/require_scanner), `middleware.py` (AuthMiddleware), `router.py` (POST /api/auth/login, /mode, /refresh, /logout, /me, /change-password, /users admin, /check), `rate_limit.py`. Защита `/api/*` в middleware; публичные и machine-эндпоинты (агенты/сканер `/api/scanner*`, `/api/audit/agents/*`, `/api/audit/events`) пропускаются без JWT. Роли и дефолтный admin создаются `db/init_roles.py` при старте (admin/admin123 — сменить!). Конфиг auth — `manager/config/config.json` (+env: AUTH_MODE, JWT_SECRET_KEY, AD_*). Для WebUI JWT хранится в localStorage и шлётся заголовком `Authorization: Bearer` (прокси форвардит его в Manager); HttpOnly-cookie Manager'а через прокси не распространяются, поэтому в WebUI используется Bearer-заголовок. После обновления кода обязательно перезапустить Manager — устаревший процесс на :8000 без auth-router возвращает 404.
 - `structure.txt` и `project_context.md` частично устарели — сверяйся с кодом, а не с ними.
 
 ## Ограничения платформы
@@ -112,6 +118,7 @@ Pytest отсутствует (папка `manager/tests/` пуста). Тест
 - Генерируешь код по ТЗ.
 - Даешь полный код файлов в отчете.
 - Даешь команду для коммита.
+- Даешь инструкцию по запуску для ручного тестирования пользователем
 
 ## Рабочий процесс (кодер ↔ архитектор)
 
