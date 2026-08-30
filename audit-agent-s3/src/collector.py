@@ -1,11 +1,13 @@
 # audit-agent-s3/src/collector.py
 import csv
 import json
+import time
 import logging
 from io import StringIO
 from typing import List, Optional
 
 import boto3
+import botocore.exceptions
 
 from .converters import s3_log_to_unified
 from .state import StateManager
@@ -49,9 +51,19 @@ class S3LogCollector:
         )
 
     def poll(self) -> List[UnifiedEvent]:
-        """Опрос новых логов."""
+        """Опрос новых логов с обработкой throttling и крайних случаев."""
         self.running = True
         events: List[UnifiedEvent] = []
+
+        # Проверка существования бакета
+        if not self._bucket_exists():
+            logger.error(f"Bucket {self.bucket} does not exist")
+            return []
+
+        # Проверка прав доступа
+        if not self._has_read_access():
+            logger.error(f"No read access to bucket {self.bucket}")
+            return []
 
         try:
             kwargs = {"Bucket": self.bucket, "Prefix": self.prefix}
@@ -59,8 +71,25 @@ class S3LogCollector:
                 kwargs["StartAfter"] = self.last_processed
 
             response = self.s3_client.list_objects_v2(**kwargs)
+
+            # Проверка на throttling (service temporarily unavailable)
+            if response.get("ResponseMetadata", {}).get("HTTPStatusCode") == 503:
+                logger.warning("S3 throttling detected, waiting 30s...")
+                time.sleep(30)
+                return []
+
             objects = response.get("Contents", [])
             logger.debug(f"Found {len(objects)} log files")
+
+            # Ограничение количества обрабатываемых файлов за одну итерацию
+            max_files_per_poll = int(
+                self.s3_config.get("max_files_per_poll", 100)
+            )
+            if len(objects) > max_files_per_poll:
+                logger.warning(
+                    f"Too many files ({len(objects)}), limiting to {max_files_per_poll}"
+                )
+                objects = objects[:max_files_per_poll]
 
             for obj in sorted(objects, key=lambda x: x["LastModified"]):
                 if obj["Key"] == self.last_processed:
@@ -96,10 +125,51 @@ class S3LogCollector:
                 except Exception as e:
                     logger.error(f"Error processing {obj['Key']}: {e}")
 
+        except botocore.exceptions.ClientError as e:
+            error_code = e.response.get("Error", {}).get("Code", "")
+            if error_code == "SlowDown":
+                logger.warning("S3 SlowDown error, waiting 60s...")
+                time.sleep(60)
+            elif error_code == "NoSuchBucket":
+                logger.error(f"Bucket {self.bucket} does not exist")
+                raise
+            else:
+                logger.error(f"S3 error ({error_code}): {e}")
+                raise
         except Exception as e:
             logger.error(f"Error in poll: {e}")
 
         return events
+
+    def _bucket_exists(self) -> bool:
+        """Проверка существования бакета."""
+        try:
+            self.s3_client.head_bucket(Bucket=self.bucket)
+            return True
+        except botocore.exceptions.ClientError as e:
+            error_code = e.response.get("Error", {}).get("Code", "")
+            if error_code in ("404", "NoSuchBucket"):
+                return False
+            logger.debug(f"head_bucket check error ({error_code}): {e}")
+            raise
+        except Exception as e:
+            logger.debug(f"head_bucket check error: {e}")
+            raise
+
+    def _has_read_access(self) -> bool:
+        """Проверка прав на чтение бакета."""
+        try:
+            self.s3_client.list_objects_v2(Bucket=self.bucket, MaxKeys=1)
+            return True
+        except botocore.exceptions.ClientError as e:
+            error_code = e.response.get("Error", {}).get("Code", "")
+            if error_code in ("AccessDenied", "403"):
+                return False
+            logger.debug(f"read access check error ({error_code}): {e}")
+            raise
+        except Exception as e:
+            logger.debug(f"read access check error: {e}")
+            raise
 
     def _parse_csv(self, content: str) -> List[dict]:
         """Парсинг CSV логов."""

@@ -86,9 +86,23 @@ class Sender:
             return False
 
     def _post(self, endpoint: str, data: dict) -> bool:
-        """Выполнение POST с retry."""
+        """Выполнение POST с экспоненциальной задержкой при retry."""
+        return self._send_request(endpoint, data)
+
+    def _send_request(self, endpoint: str, data: dict) -> bool:
+        """Выполнение запроса с экспоненциальной задержкой.
+
+        Обрабатывает:
+        - 200/201/202 — успех
+        - 429 — rate limiting (учитывает Retry-After)
+        - 500/502/503/504 — server errors (retry)
+        - 401 — ошибка аутентификации (без retry)
+        - таймауты и сетевые ошибки (retry)
+        """
         url = f"{self.manager_url}{endpoint}"
         retries = 0
+        delay = self.retry_delay
+        max_backoff = 60
 
         while retries < self.max_retries:
             try:
@@ -98,10 +112,23 @@ class Sender:
                     logger.debug(f"Request successful: {endpoint}")
                     return True
                 elif response.status_code == 429:
-                    retry_after = int(response.headers.get("Retry-After", self.retry_delay))
+                    retry_after = response.headers.get("Retry-After", delay)
+                    try:
+                        retry_after = int(retry_after)
+                    except (TypeError, ValueError):
+                        retry_after = delay
                     logger.warning(f"Rate limited, waiting {retry_after}s")
                     time.sleep(retry_after)
                     retries += 1
+                    delay = min(delay * 2, max_backoff)
+                elif response.status_code in [500, 502, 503, 504]:
+                    logger.warning(
+                        f"Server error {response.status_code}, retrying "
+                        f"({retries + 1}/{self.max_retries})..."
+                    )
+                    time.sleep(delay)
+                    retries += 1
+                    delay = min(delay * 2, max_backoff)
                 elif response.status_code == 401:
                     logger.error("Authentication failed, token may be expired")
                     return False
@@ -109,14 +136,23 @@ class Sender:
                     logger.error(
                         f"Request failed: {response.status_code}, {response.text[:200]}"
                     )
-                    retries += 1
-                    if retries < self.max_retries:
-                        time.sleep(self.retry_delay * retries)
-            except requests.exceptions.RequestException as e:
+                    return False
+
+            except requests.exceptions.Timeout:
+                logger.warning(
+                    f"Timeout, retrying... ({retries + 1}/{self.max_retries})"
+                )
+                time.sleep(delay)
                 retries += 1
-                logger.error(f"Request failed ({retries}/{self.max_retries}): {e}")
-                if retries < self.max_retries:
-                    time.sleep(self.retry_delay * retries)
+                delay = min(delay * 2, max_backoff)
+
+            except requests.exceptions.RequestException as e:
+                logger.warning(
+                    f"Request error: {e}, retrying... ({retries + 1}/{self.max_retries})"
+                )
+                time.sleep(delay)
+                retries += 1
+                delay = min(delay * 2, max_backoff)
 
         return False
 

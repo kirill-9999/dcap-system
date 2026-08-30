@@ -24,6 +24,7 @@ class BufferManager:
     def _init_db(self):
         """Инициализация таблицы."""
         self.conn = sqlite3.connect(str(self.db_path), check_same_thread=False)
+        self.conn.execute("PRAGMA journal_mode=WAL")
         self.conn.execute("""
             CREATE TABLE IF NOT EXISTS events (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -33,8 +34,12 @@ class BufferManager:
                 retries INTEGER DEFAULT 0
             )
         """)
+        # Идемпотентное создание индексов (индексы для оптимизации выборок)
         self.conn.execute("CREATE INDEX IF NOT EXISTS idx_sent ON events(sent)")
         self.conn.execute("CREATE INDEX IF NOT EXISTS idx_created ON events(created_at)")
+        self.conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_sent_id ON events(sent, id)"
+        )
         self.conn.commit()
 
         logger.info(f"Buffer initialized: {self.db_path}")
@@ -46,10 +51,11 @@ class BufferManager:
         return UnifiedEvent.model_validate_json(json_str)
 
     def store_event(self, event: UnifiedEvent):
-        """Сохранение события."""
+        """Сохранение события (с батчевым коммитом и кэшем счётчика для нагрузки)."""
         try:
-            cursor = self.conn.execute("SELECT COUNT(*) FROM events WHERE sent=0")
-            pending = cursor.fetchone()[0]
+            # Кэшированный счётчик ожидающих событий (избегаем COUNT(*) на каждый insert).
+            # Точное значение пересчитывается периодически и после mark_sent/_drop_oldest.
+            pending = self._get_pending_count()
 
             if pending >= self.max_events:
                 logger.warning(f"Buffer full ({pending}/{self.max_events}), dropping oldest")
@@ -59,10 +65,43 @@ class BufferManager:
                 "INSERT INTO events (event_json) VALUES (?)",
                 (self._serialize(event),),
             )
-            self.conn.commit()
-            logger.debug(f"Event stored: {event.event_type} {event.file_path}")
+            self._inc_pending(1)
+            self._batch_commit()
         except Exception as e:
             logger.error(f"Error storing event: {e}")
+
+    def _get_pending_count(self) -> int:
+        """Текущее число ожидающих событий (кэш + контрольный пересчёт)."""
+        cached = getattr(self, "_pending_count", None)
+        check_every = int(self.config.get("pending_check_every", 1000))
+        counter = getattr(self, "_store_counter", 0)
+
+        if cached is None or counter >= check_every:
+            cursor = self.conn.execute("SELECT COUNT(*) FROM events WHERE sent=0")
+            self._pending_count = cursor.fetchone()[0]
+            self._store_counter = 0
+        return self._pending_count
+
+    def _inc_pending(self, delta: int):
+        """Инкремент кэшированного счётчика."""
+        if not hasattr(self, "_pending_count"):
+            self._get_pending_count()
+        self._pending_count = int(self._pending_count) + delta
+        self._store_counter = getattr(self, "_store_counter", 0) + 1
+
+    def _batch_commit(self):
+        """Батчевый коммит: коммит каждые N записей."""
+        self._pending_ops = getattr(self, "_pending_ops", 0) + 1
+        batch_size = int(self.config.get("commit_batch", 100))
+        if self._pending_ops >= batch_size:
+            self.conn.commit()
+            self._pending_ops = 0
+
+    def _flush(self):
+        """Принудительный коммит отложенных операций."""
+        if getattr(self, "_pending_ops", 0) > 0:
+            self.conn.commit()
+            self._pending_ops = 0
 
     def _drop_oldest(self):
         """Удаление самых старых неотправленных событий."""
@@ -70,10 +109,18 @@ class BufferManager:
             "DELETE FROM events WHERE id IN (SELECT id FROM events WHERE sent=0 ORDER BY id LIMIT 100)"
         )
         self.conn.commit()
+        self._reset_pending()
+
+    def _reset_pending(self):
+        """Сброс кэшированного счётчика ожидающих событий."""
+        if hasattr(self, "_pending_count"):
+            del self._pending_count
+        self._store_counter = 0
 
     def get_unsent(self, limit: int = 100) -> List[Tuple[int, UnifiedEvent]]:
         """Получение неотправленных событий."""
         try:
+            self._flush()
             cursor = self.conn.execute(
                 "SELECT id, event_json FROM events WHERE sent=0 ORDER BY id LIMIT ?",
                 (limit,),
@@ -103,17 +150,20 @@ class BufferManager:
         if not event_ids:
             return
         try:
+            self._flush()
             self.conn.executemany(
                 "UPDATE events SET sent=1 WHERE id=?",
                 [(id_,) for id_ in event_ids],
             )
             self.conn.commit()
+            self._reset_pending()
             logger.debug(f"Marked {len(event_ids)} events as sent")
         except Exception as e:
             logger.error(f"Error marking events as sent: {e}")
 
     def get_stats(self) -> dict:
         """Статистика буфера."""
+        self._flush()
         cursor = self.conn.execute("""
             SELECT
                 COUNT(*) as total,
@@ -132,6 +182,7 @@ class BufferManager:
 
     def cleanup_old_events(self):
         """Очистка старых отправленных событий."""
+        self._flush()
         self.conn.execute(
             "DELETE FROM events WHERE sent=1 AND created_at < datetime('now', ?)",
             (f"-{self.cleanup_days} days",),
@@ -142,5 +193,6 @@ class BufferManager:
     def close(self):
         """Закрытие соединения."""
         if hasattr(self, "conn"):
+            self._flush()
             self.conn.close()
             logger.info("Buffer closed")

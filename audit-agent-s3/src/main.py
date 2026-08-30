@@ -6,6 +6,7 @@ import time
 import logging
 import socket
 from pathlib import Path
+from logging.handlers import RotatingFileHandler
 
 # Добавляем корень проекта для импорта shared/
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
@@ -22,7 +23,7 @@ logger = None
 
 
 def setup_logging(config: dict):
-    """Настройка логирования."""
+    """Настройка логирования с ротацией файла."""
     global logger
 
     log_level = config.get("logging", {}).get("level", "INFO")
@@ -34,19 +35,41 @@ def setup_logging(config: dict):
     log_file = config.get("logging", {}).get("file", "logs/s3_agent.log")
     Path(log_file).parent.mkdir(parents=True, exist_ok=True)
 
+    logger = logging.getLogger()
+    logger.setLevel(getattr(logging, str(log_level).upper(), logging.INFO))
+
     handlers = [logging.StreamHandler(sys.stdout)]
     try:
-        handlers.append(logging.FileHandler(log_file, encoding="utf-8"))
+        max_bytes = int(config.get("logging", {}).get("max_bytes", 10 * 1024 * 1024))
+        backup_count = int(config.get("logging", {}).get("backup_count", 5))
+        file_handler = RotatingFileHandler(
+            log_file,
+            maxBytes=max_bytes,
+            backupCount=backup_count,
+            encoding="utf-8",
+        )
+        handlers.append(file_handler)
     except Exception as e:
-        logging.warning(f"Cannot create file handler: {e}")
+        logger.warning(f"Cannot create file handler: {e}")
 
-    logging.basicConfig(
-        level=getattr(logging, str(log_level).upper(), logging.INFO),
-        format=log_format,
-        handlers=handlers,
-    )
+    formatter = logging.Formatter(log_format)
+    for handler in handlers:
+        handler.setFormatter(formatter)
+        logger.addHandler(handler)
 
     logger = logging.getLogger(__name__)
+
+
+def print_status(state: StateManager, buffer: BufferManager, collector: S3LogCollector):
+    """Вывод статуса агента."""
+    if logger is None:
+        return
+    logger.info("=" * 60)
+    logger.info(f"Agent ID: {state.get_agent_id()}")
+    logger.info(f"Last processed: {state.get_last_processed()}")
+    logger.info(f"Buffer stats: {buffer.get_stats()}")
+    logger.info(f"Collector: bucket={collector.bucket}, prefix={collector.prefix}")
+    logger.info("=" * 60)
 
 
 def main():
@@ -114,16 +137,25 @@ def main():
     signal.signal(signal.SIGTERM, signal_handler)
 
     logger.info("Agent started, entering main loop...")
+    print_status(state, buffer, collector)
+
+    # Параметры экспоненциальной задержки при ошибках
+    error_delay = 1
+    max_error_delay = int(config.get("main", {}).get("max_error_delay", 300))  # 5 минут
 
     while running:
         try:
+            # 1. Сбор событий
             events = collector.poll()
             if events:
                 logger.info(f"Collected {len(events)} events")
+                error_delay = 1  # Сброс задержки при успехе
 
+            # 2. Буферизация
             for event in events:
                 buffer.store_event(event)
 
+            # 3. Отправка
             unsent = buffer.get_unsent()
             if unsent:
                 event_ids = [e[0] for e in unsent]
@@ -132,20 +164,33 @@ def main():
                 if sender.send_events_batch(events_to_send):
                     buffer.mark_sent(event_ids)
                     logger.info(f"Sent {len(event_ids)} events")
+                    error_delay = 1  # Сброс при успехе
                 else:
-                    logger.warning(f"Failed to send {len(event_ids)} events, will retry")
+                    logger.warning(
+                        f"Failed to send {len(event_ids)} events, will retry"
+                    )
+                    # Задержка при неудаче отправки
+                    error_delay = min(error_delay * 2, max_error_delay)
 
+            # 4. Очистка старых событий
             buffer.cleanup_old_events()
 
             if args.once:
                 logger.info("Run once mode, exiting...")
                 break
 
-            time.sleep(int(config["s3"].get("poll_interval", 60)))
+            # 5. Ожидание с учётом экспоненциальной задержки
+            delay = int(config["s3"].get("poll_interval", 60))
+            if error_delay > 1:
+                delay = min(delay, error_delay)
+                logger.info(f"Backoff active, next poll in {delay}s")
+
+            time.sleep(delay)
 
         except Exception as e:
             logger.error(f"Error in main loop: {e}")
-            time.sleep(5)
+            error_delay = min(error_delay * 2, max_error_delay)
+            time.sleep(error_delay)
 
     # Graceful shutdown
     logger.info("Shutting down...")

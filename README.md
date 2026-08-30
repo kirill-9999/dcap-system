@@ -11,6 +11,7 @@
 | `scanner/` | Агент сканирования | — |
 | `audit-agent-windows/` | Windows-агент аудита (wevtutil) | — |
 | `audit-agent-linux/` | Linux-агент аудита (watchdog) | — |
+| `audit-agent-s3/` | S3/MinIO агент аудита (polling) | — |
 | `shared/` | Единая схема событий (UnifiedEvent) | — |
 
 ## Запуск
@@ -34,6 +35,9 @@ cd audit-agent-windows && python main.py config.json
 
 # Linux-агент аудита
 cd audit-agent-linux && ./start.sh --daemon
+
+# S3/MinIO агент аудита
+cd audit-agent-s3 && python -m src.main --config config/config.json
 ```
 
 ## Архитектура
@@ -56,10 +60,10 @@ cd audit-agent-linux && ./start.sh --daemon
 
 ## Единый формат событий
 
-Все агенты (Windows, Linux, scanner) используют формат `UnifiedEvent`:
+Все агенты (Windows, Linux, S3, scanner) используют формат `UnifiedEvent`:
 
 - `event_type`: read, write, delete, move, rename
-- `event_source`: windows_agent, linux_agent, scanner, api
+- `event_source`: windows_agent, linux_agent, scanner, s3_agent
 - `user`, `user_sid`, `file_path`, `source_host`, `metadata`
 
 ## Версии
@@ -71,6 +75,7 @@ cd audit-agent-linux && ./start.sh --daemon
 | v2.0.1 | Windows-стек полностью готов |
 | v2.1.0 | Linux-агент + унифицированный формат + WebUI фильтр |
 | v3.0.0 | Унификация Manager и WebUI: WebUI — Jinja2 + прокси API на Manager, конфиги портов, run_all.py |
+| v3.1.0 | Гибридная аутентификация (JWT+Bcrypt/SPNEGO) + роли; S3/MinIO агент аудита (polling, буфер, heartbeat, JWT); Windows + Linux аудит |
 
 ## Требования
 

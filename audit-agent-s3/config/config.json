@@ -12,6 +12,7 @@
         "access_key": "${S3_ACCESS_KEY}",
         "secret_key": "${S3_SECRET_KEY}",
         "poll_interval": "${S3_POLL_INTERVAL:-60}",
+        "max_files_per_poll": "${S3_MAX_FILES_PER_POLL:-100}",
         "verify_ssl": "${S3_VERIFY_SSL:-true}",
         "source_type": "${S3_SOURCE_TYPE:-s3}"
     },
@@ -23,15 +24,21 @@
     },
     "buffer": {
         "path": "data/buffer/buffer.db",
-        "max_events": 10000,
-        "cleanup_days": 7
+        "max_events": "${BUFFER_MAX_EVENTS:-100000}",
+        "cleanup_days": "${BUFFER_CLEANUP_DAYS:-7}",
+        "commit_batch": "${BUFFER_COMMIT_BATCH:-100}"
     },
     "heartbeat": {
-        "interval": 30
+        "interval": "${HEARTBEAT_INTERVAL:-30}"
+    },
+    "main": {
+        "max_error_delay": "${MAX_ERROR_DELAY:-300}"
     },
     "logging": {
         "level": "${LOG_LEVEL:-INFO}",
         "format": "%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-        "file": "logs/s3_agent.log"
+        "file": "logs/s3_agent.log",
+        "max_bytes": "${LOG_MAX_BYTES:-10485760}",
+        "backup_count": "${LOG_BACKUP_COUNT:-5}"
     }
 }

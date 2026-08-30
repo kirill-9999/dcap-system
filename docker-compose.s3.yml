@@ -1,0 +1,42 @@
+# docker-compose.s3.yml
+# S3/MinIO аудит-агент как отдельный сервис DCAP.
+version: '3.8'
+
+services:
+  s3-agent:
+    build:
+      context: ./audit-agent-s3
+      dockerfile: Dockerfile
+    container_name: dcap-s3-agent
+    environment:
+      S3_ENDPOINT: ${S3_ENDPOINT:-https://s3.amazonaws.com}
+      S3_BUCKET: ${S3_BUCKET}
+      S3_PREFIX: ${S3_PREFIX:-access-logs/}
+      S3_ACCESS_KEY: ${S3_ACCESS_KEY}
+      S3_SECRET_KEY: ${S3_SECRET_KEY}
+      S3_POLL_INTERVAL: ${S3_POLL_INTERVAL:-60}
+      S3_MAX_FILES_PER_POLL: ${S3_MAX_FILES_PER_POLL:-100}
+      MANAGER_URL: ${MANAGER_URL:-http://manager:8000}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+    volumes:
+      - ./audit-agent-s3/config:/app/config
+      - s3_data:/app/data
+      - s3_logs:/app/logs
+    networks:
+      - dcap-network
+    restart: unless-stopped
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "100m"
+        max-file: "3"
+
+volumes:
+  s3_data:
+    name: dcap-s3-data
+  s3_logs:
+    name: dcap-s3-logs
+
+networks:
+  dcap-network:
+    external: true
