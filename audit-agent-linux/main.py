@@ -50,7 +50,7 @@ def _load_config(config_path: Path) -> Dict:
         sys.exit(1)
 
     try:
-        with open(config_path, 'r', encoding='utf-8-sig') as f:
+        with open(config_path, "r", encoding="utf-8-sig") as f:
             config = json.load(f)
     except json.JSONDecodeError as e:
         print(f"Ошибка: невалидный JSON в конфиге {config_path}: {e}")
@@ -76,27 +76,31 @@ class AuditAgent:
         self.state = self._load_state()
 
         self.buffer = BufferManager(
-            buffer_dir=self.data_dir / "buffer",
-            max_size=self.config["buffer_size"]
+            buffer_dir=self.data_dir / "buffer", max_size=self.config["buffer_size"]
         )
         self.sender = Sender(
-            manager_url=self.config["manager_url"],
-            agent_id=self.state.get("agent_id", 0)
+            manager_url=self.config["manager_url"], agent_id=self.state.get("agent_id", 0)
         )
         self.agent_id = self.state.get("agent_id", 0)
         self.running = True
         self.log = self._setup_logging()
+        # Сбор прав (День 33) — необязательные параметры
+        self.permission_paths = (
+            self.config.get("permission_paths") or self.config.get("watch_paths") or []
+        )
+        self.permissions_interval = self.config.get("permissions_interval", 3600)
+        self.last_permissions_collect = None
 
     def _load_state(self) -> Dict:
         state_path = self.data_dir / "state.json"
         if state_path.exists():
-            with open(state_path, 'r', encoding='utf-8-sig') as f:
+            with open(state_path, "r", encoding="utf-8-sig") as f:
                 return json.load(f)
         return {"agent_id": 0, "last_read": None}
 
     def _save_state(self):
         state_path = self.data_dir / "state.json"
-        with open(state_path, 'w', encoding='utf-8') as f:
+        with open(state_path, "w", encoding="utf-8") as f:
             json.dump(self.state, f, ensure_ascii=False, indent=2)
 
     def _setup_logging(self):
@@ -106,11 +110,11 @@ class AuditAgent:
 
         logging.basicConfig(
             level=log_level,
-            format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+            format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
             handlers=[
-                logging.FileHandler(str(log_path), encoding='utf-8'),
-                logging.StreamHandler(sys.stdout)
-            ]
+                logging.FileHandler(str(log_path), encoding="utf-8"),
+                logging.StreamHandler(sys.stdout),
+            ],
         )
         return logging.getLogger("AuditAgent")
 
@@ -118,14 +122,13 @@ class AuditAgent:
         payload = {
             "name": self.config["agent_name"],
             "hostname": self.config["hostname"],
-            "version": "3.0.0"
+            "version": "3.0.0",
         }
         try:
             import requests
+
             resp = requests.post(
-                f"{self.config['manager_url']}/api/audit/agents/register",
-                json=payload,
-                timeout=10
+                f"{self.config['manager_url']}/api/audit/agents/register", json=payload, timeout=10
             )
             if resp.status_code == 200:
                 self.agent_id = resp.json()["agent_id"]
@@ -143,6 +146,28 @@ class AuditAgent:
         unsent_count = self.buffer.count_unsent()
         return self.sender.send_heartbeat(status, {"events_pending": unsent_count})
 
+    def collect_and_send_permissions(self):
+        """Сбор POSIX-прав по путям и отправка в Manager (День 33)."""
+        if not self.permission_paths:
+            self.log.debug("Нет путей для сбора прав (permission_paths/watch_paths) — пропуск")
+            return
+
+        collector = InotifyCollector(watch_paths=self.permission_paths)
+        all_entries = []
+        for path in self.permission_paths:
+            try:
+                entries = collector.collect_permissions(path)
+                all_entries.extend(entries)
+                self.log.info("Собрано прав для %s: %s", path, len(entries))
+            except Exception as e:
+                self.log.error("Ошибка сбора прав для %s: %s", path, e)
+
+        if all_entries and self.sender.send_permissions(all_entries, agent_type="linux_agent"):
+            self.log.info("Отправлено прав: %s", len(all_entries))
+            self.last_permissions_collect = datetime.now()
+        else:
+            self.log.warning("Права не отправлены (Manager недоступен?)")
+
     def run(self):
         self.log.info(f"Запуск: {self.config['agent_name']}")
 
@@ -155,10 +180,7 @@ class AuditAgent:
             self.buffer.add(event)
             self.log.debug(f"Событие: {event['event_type']} {event['file_path']}")
 
-        collector = InotifyCollector(
-            watch_paths=self.config["watch_paths"],
-            callback=on_event
-        )
+        collector = InotifyCollector(watch_paths=self.config["watch_paths"], callback=on_event)
 
         collector_thread = threading.Thread(target=collector.start, daemon=True)
         collector_thread.start()
@@ -185,6 +207,16 @@ class AuditAgent:
                         self.log.warning("Не удалось отправить события")
 
                 self.buffer.clear_sent()
+
+                # Сбор прав (периодически)
+                now = datetime.now()
+                if self.permission_paths and (
+                    self.last_permissions_collect is None
+                    or (now - self.last_permissions_collect).total_seconds()
+                    >= self.permissions_interval
+                ):
+                    self.collect_and_send_permissions()
+
                 time.sleep(self.config["read_interval"])
 
             except KeyboardInterrupt:

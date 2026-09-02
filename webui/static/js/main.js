@@ -15,6 +15,32 @@ function updateFooterTime() {
     const el = document.getElementById('footerTime');
     if (el) el.textContent = new Date().toLocaleString('ru-RU');
 }
+function openModal(id) {
+    const el = document.getElementById(id);
+    if (el) el.classList.add('show');
+}
+function closeModal(id) {
+    const el = document.getElementById(id);
+    if (el) el.classList.remove('show');
+}
+function showToast(message, type) {
+    type = type || 'info';
+    let container = document.getElementById('toast-container');
+    if (!container) {
+        container = document.createElement('div');
+        container.id = 'toast-container';
+        container.style.cssText = 'position:fixed;top:16px;right:16px;z-index:9999;display:flex;flex-direction:column;gap:8px;';
+        document.body.appendChild(container);
+    }
+    const toast = document.createElement('div');
+    toast.style.cssText = 'padding:12px 18px;border-radius:6px;color:#fff;box-shadow:0 4px 12px rgba(0,0,0,0.2);font-size:13px;min-width:180px;' +
+        (type === 'success' ? 'background:#28a745;' :
+         type === 'error'   ? 'background:#dc3545;' :
+         type === 'warning' ? 'background:#ffc107;color:#333;' : 'background:#007bff;');
+    toast.textContent = message;
+    container.appendChild(toast);
+    setTimeout(() => { toast.remove(); }, 3500);
+}
 document.addEventListener('DOMContentLoaded', function() {
     initSidebar();
     updateFooterTime();

@@ -44,7 +44,7 @@ class ModeResponse(BaseModel):
 
 class ModeSwitchRequest(BaseModel):
     """Запрос на переключение режима"""
-    mode: str  # local, remote
+    mode: str  # local, ad, mixed, remote
 
 
 class SyncRequest(BaseModel):
@@ -93,11 +93,11 @@ def switch_mode(
     request: ModeSwitchRequest,
     db: Session = Depends(get_db)
 ):
-    """Переключить режим сбора прав (local/remote)"""
-    if request.mode not in ["local", "remote", "ad"]:
+    """Переключить режим сбора прав (local/remote/ad/mixed)"""
+    if request.mode not in ["local", "remote", "ad", "mixed"]:
         raise HTTPException(
             status_code=400, 
-            detail=f"Invalid mode: {request.mode}. Supported: local, remote, ad"
+            detail=f"Invalid mode: {request.mode}. Supported: local, remote, ad, mixed"
         )
     
     service = AccessService(db)
@@ -108,6 +108,39 @@ def switch_mode(
         raise HTTPException(503, f"Failed to switch mode: {str(e)}")
     
     return get_mode(db)
+
+
+# ============================================================
+# 1.5. Разрешение SID → имя (AD)
+# ============================================================
+
+@router.get("/resolve/{sid}")
+def resolve_sid(
+    sid: str,
+    db: Session = Depends(get_db)
+):
+    """Разрешить SID в доменное имя пользователя/группы (AD)"""
+    service = AccessService(db)
+    collector = service.collector
+
+    if not hasattr(collector, "resolve_principal"):
+        raise HTTPException(
+            400,
+            "Resolve SID is only available for AD/mixed collector. "
+            f"Current mode: {service.get_current_mode()}"
+        )
+
+    try:
+        name = collector.resolve_principal(sid)
+    except Exception as e:
+        raise HTTPException(503, f"Failed to resolve SID: {str(e)}")
+
+    return {
+        "sid": sid,
+        "name": name,
+        "mode": service.get_current_mode(),
+        "resolved": name is not None,
+    }
 
 
 # ============================================================

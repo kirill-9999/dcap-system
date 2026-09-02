@@ -62,9 +62,9 @@ class AccessService:
         Переключить режим сбора прав
         
         Args:
-            new_mode: "local" или "remote"
+            new_mode: "local", "ad", "mixed" или "remote"
         """
-        if new_mode not in ["local", "remote"]:
+        if new_mode not in ["local", "remote", "ad", "mixed"]:
             raise ValueError(f"Unknown mode: {new_mode}")
         
         self.collector_type = new_mode

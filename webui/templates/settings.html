@@ -1,0 +1,100 @@
+{% extends "base.html" %}
+{% block title %}DCAP — Настройки{% endblock %}
+{% block content %}
+<h2 class="mb-4"><i class="fas fa-cog text-primary"></i> Настройки</h2>
+
+<div class="row g-3">
+    <div class="col-md-6">
+        <div class="card">
+            <div class="card-body">
+                <h5 class="card-title"><i class="fas fa-shield-alt text-primary"></i> Аутентификация</h5>
+                <div class="mb-3">
+                    <label class="form-label">Режим</label>
+                    <select id="authMode" class="form-select">
+                        <option value="local" selected>Загрузка...</option>
+                    </select>
+                </div>
+                <button class="btn btn-primary" onclick="saveSettings()"><i class="fas fa-save"></i> Сохранить</button>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-6">
+        <div class="card">
+            <div class="card-body">
+                <h5 class="card-title"><i class="fas fa-info-circle text-primary"></i> Информация</h5>
+                <div class="text-muted" style="font-size:13px;" id="settingsInfo">Загрузка...</div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="modal" id="passwordModal">
+    <div class="modal-content">
+        <div class="modal-header"><h3>Смена пароля</h3><button class="btn btn-sm" onclick="closeModal('passwordModal')">&times;</button></div>
+        <div class="modal-body">
+            <div class="mb-3"><label class="form-label">Текущий пароль</label><input type="password" id="curPassword" class="form-control"></div>
+            <div class="mb-3"><label class="form-label">Новый пароль</label><input type="password" id="newPassword" class="form-control"></div>
+            <div class="mb-3"><label class="form-label">Подтверждение</label><input type="password" id="newPassword2" class="form-control"></div>
+        </div>
+        <div class="modal-footer">
+            <button class="btn btn-outline-secondary" onclick="closeModal('passwordModal')">Отмена</button>
+            <button class="btn btn-primary" onclick="changePassword()">Сменить</button>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+const MODE_OPTIONS = {
+    'local': 'local — локальные учётные записи',
+    'hybrid': 'hybrid — локальные + Windows Integrated',
+    'windows_integrated': 'windows_integrated — только Windows Integrated',
+};
+
+async function loadAuthMode() {
+    const sel = document.getElementById('authMode');
+    sel.innerHTML = Object.keys(MODE_OPTIONS).map(k => `<option value="${k}">${MODE_OPTIONS[k]}</option>`).join('');
+    try {
+        const r = await api.get('/api/auth/mode');
+        if (r && r.mode) sel.value = r.mode;
+    } catch (e) {
+        sel.value = 'local';
+    }
+}
+async function loadSettingsInfo() {
+    const me = await Auth.me();
+    const el = document.getElementById('settingsInfo');
+    if (!me) { el.textContent = 'Нет данных'; return; }
+    el.innerHTML = '<div>Пользователь: <b>' + (me.full_name || me.username) + '</b></div>' +
+        '<div>Логин: <b>' + me.username + '</b></div>' +
+        '<div>Источник: <b>' + (me.auth_source || 'local') + '</b></div>' +
+        '<div>Роли: <b>' + ((me.roles || []).join(', ') || '—') + '</b></div>' +
+        '<hr><button class="btn btn-outline-secondary btn-sm" onclick="openModal(\'passwordModal\')"><i class="fas fa-key"></i> Сменить пароль</button>';
+}
+async function saveSettings() {
+    try {
+        const mode = document.getElementById('authMode').value;
+        const r = await api.post('/api/auth/mode', { mode });
+        showToast('Режим аутентификации обновлён: ' + r.mode, 'success');
+    } catch (e) {
+        showToast('Ошибка: ' + e.message, 'error');
+    }
+}
+async function changePassword() {
+    const cur = document.getElementById('curPassword').value;
+    const nw = document.getElementById('newPassword').value;
+    const nw2 = document.getElementById('newPassword2').value;
+    if (!nw || nw !== nw2) { showToast('Пароли не совпадают', 'warning'); return; }
+    try {
+        await api.post('/api/auth/change-password', { old_password: cur, new_password: nw });
+        showToast('Пароль изменён', 'success');
+        closeModal('passwordModal');
+        ['curPassword','newPassword','newPassword2'].forEach(id => { document.getElementById(id).value = ''; });
+    } catch (e) {
+        showToast('Ошибка: ' + e.message, 'error');
+    }
+}
+document.addEventListener('DOMContentLoaded', () => { loadAuthMode(); loadSettingsInfo(); });
+</script>
+{% endblock %}

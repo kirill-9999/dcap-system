@@ -45,11 +45,27 @@
                 <span class="nav-icon"><i class="fas fa-microscope"></i></span>
                 <span class="nav-label hide-on-collapse">Сканеры</span>
             </a>
+            <div class="nav-divider nav-admin hide-on-collapse" style="display:none;"></div>
+            <a href="/users" class="nav-item nav-admin {% if page == 'Пользователи' %}active{% endif %}" data-page="users" style="display:none;">
+                <span class="nav-icon"><i class="fas fa-users"></i></span>
+                <span class="nav-label hide-on-collapse">Пользователи</span>
+            </a>
+            <a href="/roles" class="nav-item nav-admin {% if page == 'Роли' %}active{% endif %}" data-page="roles" style="display:none;">
+                <span class="nav-icon"><i class="fas fa-lock"></i></span>
+                <span class="nav-label hide-on-collapse">Роли</span>
+            </a>
+            <a href="/settings" class="nav-item nav-admin {% if page == 'Настройки' %}active{% endif %}" data-page="settings" style="display:none;">
+                <span class="nav-icon"><i class="fas fa-cog"></i></span>
+                <span class="nav-label hide-on-collapse">Настройки</span>
+            </a>
         </nav>
         <div class="sidebar-footer">
             <div class="user-info">
                 <div class="user-avatar">👤</div>
-                <span class="user-name hide-on-collapse">admin</span>
+                <div>
+                    <div class="user-name hide-on-collapse" id="currentUserName">...</div>
+                    <div class="user-roles hide-on-collapse" id="currentUserRoles" style="font-size:11px;opacity:.8;"></div>
+                </div>
             </div>
             <div class="sidebar-actions hide-on-collapse">
                 <button onclick="toggleTheme()" title="Тема"><i class="fas fa-moon" id="themeIcon"></i></button>
@@ -85,9 +101,26 @@
 <script src="/static/js/main.js"></script>
 <script>
 // Защита страниц: если не авторизованы — редирект на /login
-document.addEventListener('DOMContentLoaded', () => {
-    if (window.location.pathname !== '/login') {
-        Auth.check();
+document.addEventListener('DOMContentLoaded', async () => {
+    if (window.location.pathname !== '/login' && typeof Auth !== 'undefined') {
+        const ok = await Auth.check();
+        if (ok) {
+            // Имя пользователя и роли
+            try {
+                const me = await Auth.me();
+                if (me) {
+                    const nameEl = document.getElementById('currentUserName');
+                    if (nameEl) nameEl.textContent = me.full_name || me.username || 'Пользователь';
+                    const rolesEl = document.getElementById('currentUserRoles');
+                    if (rolesEl && me.roles) rolesEl.textContent = me.roles.join(', ');
+                    // Показывать админ-разделы только для admin
+                    const isAdmin = (me.roles || []).includes('admin');
+                    document.querySelectorAll('.nav-admin').forEach(el => {
+                        el.style.display = isAdmin ? '' : 'none';
+                    });
+                }
+            } catch (e) {}
+        }
     }
 });
 </script>

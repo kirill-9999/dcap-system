@@ -1,5 +1,6 @@
 # manager/src/db/init_roles.py
 import logging
+from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from manager.src.auth.models import User, Role
@@ -7,15 +8,28 @@ from manager.src.auth.models import User, Role
 logger = logging.getLogger(__name__)
 
 
+def _ensure_role_columns(db: Session):
+    """Идемпотентно добавить новые колонки ролей (для существующих БД)."""
+    try:
+        db.execute(text("ALTER TABLE roles ADD COLUMN ad_group VARCHAR(100)"))
+        db.commit()
+        logger.info("Added 'ad_group' column to roles table")
+    except Exception:
+        # Колонка уже существует или таблица новая — игнорируем
+        db.rollback()
+
+
 def init_roles_and_admin(db: Session):
     """Инициализация ролей и создание admin (если не существует)."""
 
+    _ensure_role_columns(db)
+
     # Создание ролей
     roles_data = [
-        {"name": "admin", "description": "Full system access"},
-        {"name": "auditor", "description": "Audit and read access"},
-        {"name": "scanner", "description": "Scan execution access"},
-        {"name": "viewer", "description": "Read-only access"},
+        {"name": "admin", "description": "Full system access", "ad_group": "DCAP_Admins"},
+        {"name": "auditor", "description": "Audit and read access", "ad_group": "DCAP_Auditors"},
+        {"name": "scanner", "description": "Scan execution access", "ad_group": "DCAP_Scanners"},
+        {"name": "viewer", "description": "Read-only access", "ad_group": None},
     ]
 
     for role_data in roles_data:
@@ -24,6 +38,9 @@ def init_roles_and_admin(db: Session):
             role = Role(**role_data)
             db.add(role)
             logger.info(f"Created role: {role_data['name']}")
+        elif role.ad_group is None and role_data.get("ad_group"):
+            # Заполнить маппинг AD-групп для существующих ролей
+            role.ad_group = role_data["ad_group"]
 
     db.commit()
 

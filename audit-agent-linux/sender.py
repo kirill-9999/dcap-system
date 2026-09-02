@@ -7,7 +7,7 @@ from typing import List, Dict
 
 class Sender:
     def __init__(self, manager_url: str, agent_id: int, timeout: int = 30):
-        self.manager_url = manager_url.rstrip('/')
+        self.manager_url = manager_url.rstrip("/")
         self.agent_id = agent_id
         self.timeout = timeout
         self.session = requests.Session()
@@ -21,9 +21,7 @@ class Sender:
 
         try:
             resp = self.session.post(
-                f"{self.manager_url}/api/audit/events",
-                json=payload,
-                timeout=self.timeout
+                f"{self.manager_url}/api/audit/events", json=payload, timeout=self.timeout
             )
             return resp.status_code == 200 and resp.json().get("saved", 0) == len(events)
         except Exception:
@@ -33,10 +31,27 @@ class Sender:
         payload = {"agent_id": self.agent_id, "status": status, "stats": stats or {}}
         try:
             resp = self.session.post(
-                f"{self.manager_url}/api/audit/agents/heartbeat",
-                json=payload,
-                timeout=10
+                f"{self.manager_url}/api/audit/agents/heartbeat", json=payload, timeout=10
             )
             return resp.status_code == 200
         except Exception:
+            return False
+
+    def send_permissions(self, permissions: List[Dict], agent_type: str = "linux_agent") -> bool:
+        """Отправить собранные POSIX-права в Manager (POST /api/audit/permissions)"""
+        if not permissions:
+            return True
+
+        payload = {
+            "agent_id": self.agent_id,
+            "agent_type": agent_type,
+            "permissions": permissions,
+        }
+        try:
+            resp = self.session.post(
+                f"{self.manager_url}/api/audit/permissions", json=payload, timeout=self.timeout
+            )
+            return resp.status_code == 200 and resp.json().get("saved", 0) == len(permissions)
+        except Exception as e:
+            print(f"[Sender] Ошибка permissions: {e}")
             return False

@@ -28,7 +28,7 @@ class PermissionCollectorFactory:
         Если source_type не указан — берется из конфига.
         
         Args:
-            source_type: "local", "remote" или "ad"
+            source_type: "local", "remote", "ad" или "mixed"
             **kwargs: параметры для коллектора
         
         Returns:
@@ -38,17 +38,26 @@ class PermissionCollectorFactory:
             config = get_access_config()
             source_type = config.mode
         
+        # Режим mixed собирает данные и из AD, и локально (fallback)
+        if source_type == "mixed":
+            return cls._build_mixed(**kwargs)
+        
         collector_class = cls._collectors.get(source_type)
         if not collector_class:
             raise ValueError(f"Unknown collector type: {source_type}")
         
+        config = get_access_config()
+        
         # Для удаленного режима нужен endpoint
         if source_type == "remote":
-            config = get_access_config()
             if "scanner_endpoint" not in kwargs:
                 kwargs["scanner_endpoint"] = config.scanner_endpoint or "http://scanner:8000"
             if "timeout" not in kwargs:
                 kwargs["timeout"] = config.timeout_seconds
+        
+        # Для AD-режима подставляем конфигурацию AD из конфига
+        if source_type == "ad":
+            kwargs = cls._merge_ad_config(kwargs, config)
         
         collector = collector_class(**kwargs)
         
@@ -58,20 +67,51 @@ class PermissionCollectorFactory:
         return collector
     
     @classmethod
+    def _merge_ad_config(cls, kwargs: Dict[str, Any], config: Any) -> Dict[str, Any]:
+        """Слить переданные аргументы с конфигом AD из access_config"""
+        ad = getattr(config, "ad", None)
+        if ad is None:
+            return kwargs
+        merged = {
+            "server": ad.server,
+            "domain": ad.domain,
+            "base_dn": ad.base_dn,
+            "username": ad.username,
+            "password": ad.password,
+            "use_ssl": ad.use_ssl,
+            "ldap_port": ad.ldap_port,
+            "timeout": ad.timeout,
+            "cache_ttl": ad.cache_ttl,
+            "redis_url": ad.redis_url,
+        }
+        for k, v in kwargs.items():
+            if v is not None:
+                merged[k] = v
+        return merged
+    
+    @classmethod
+    def _build_mixed(cls, **kwargs) -> "MixedPermissionCollector":
+        """Создать mixed-коллектор (AD поверх local)"""
+        try:
+            from .ad import MixedPermissionCollector
+        except ImportError:  # pragma: no cover
+            from manager.src.connectors.permissions.ad import MixedPermissionCollector
+        
+        config = get_access_config()
+        ad_kwargs = cls._merge_ad_config(dict(kwargs), config)
+        return MixedPermissionCollector(ad_kwargs=ad_kwargs)
+    
+    @classmethod
     def get_available_collectors(cls) -> Dict[str, Dict]:
         """Получить список доступных коллекторов с их статусом"""
         result = {}
         config = get_access_config()
         
-        for name, collector_class in cls._collectors.items():
+        collectors_to_check = ["local", "remote", "ad", "mixed"]
+        
+        for name in collectors_to_check:
             try:
-                if name == "remote":
-                    collector = collector_class(
-                        scanner_endpoint=config.scanner_endpoint or "http://scanner:8000"
-                    )
-                else:
-                    collector = collector_class()
-                
+                collector = cls.get_collector(name)
                 result[name] = {
                     "available": collector.is_available(),
                     "source_type": collector.get_source_type()

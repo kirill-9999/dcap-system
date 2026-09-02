@@ -52,6 +52,7 @@ class AuthMiddleware(BaseHTTPMiddleware):
             "/api/audit/agents/register",
             "/api/audit/agents/heartbeat",
             "/api/audit/events",
+            "/api/audit/permissions",
         ]
 
     def _is_public(self, path: str) -> bool:
@@ -124,9 +125,7 @@ class AuthMiddleware(BaseHTTPMiddleware):
             auth_header = request.headers.get("Authorization")
             if auth_header and auth_header.startswith("Basic "):
                 try:
-                    decoded = base64.b64decode(
-                        auth_header.replace("Basic ", "")
-                    ).decode('utf-8')
+                    decoded = base64.b64decode(auth_header.replace("Basic ", "")).decode("utf-8")
                     username, password = decoded.split(":", 1)
                     db = await self._get_db()
                     if db is not None:

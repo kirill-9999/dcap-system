@@ -26,10 +26,11 @@ STALE_THRESHOLD_MINUTES = 2
 def _mark_stale_agents(db: Session):
     """Пометить агентов как offline, если heartbeat старше порога."""
     threshold = datetime.utcnow() - timedelta(minutes=STALE_THRESHOLD_MINUTES)
-    stale = db.query(models.AuditAgent).filter(
-        models.AuditAgent.status == "online",
-        models.AuditAgent.last_heartbeat < threshold
-    ).all()
+    stale = (
+        db.query(models.AuditAgent)
+        .filter(models.AuditAgent.status == "online", models.AuditAgent.last_heartbeat < threshold)
+        .all()
+    )
     for agent in stale:
         agent.status = "offline"
     if stale:
@@ -37,7 +38,7 @@ def _mark_stale_agents(db: Session):
 
 
 class AuditEventPayload(BaseModel):
-    event_type: str          # read, write, delete, move, rename
+    event_type: str  # read, write, delete, move, rename
     event_source: Optional[str] = "agent"  # windows_agent, linux_agent, scanner
     user: Optional[str] = None
     user_sid: Optional[str] = None
@@ -45,7 +46,7 @@ class AuditEventPayload(BaseModel):
     old_path: Optional[str] = None
     source_host: Optional[str] = None
     metadata: Optional[Dict] = {}
-    created_at: Optional[str] = None   # ISO формат
+    created_at: Optional[str] = None  # ISO формат
 
 
 class RegisterAgentRequest(BaseModel):
@@ -67,11 +68,28 @@ class IngestEventsRequest(BaseModel):
     events: List[AuditEventPayload]
 
 
+class PermissionEntryPayload(BaseModel):
+    resource_path: str
+    principal_type: str = "user"  # user, group, local_user, ad_user, ad_group, system
+    principal_name: str
+    principal_sid: Optional[str] = None
+    principal_domain: Optional[str] = None
+    permission_type: Optional[str] = None  # read, write, delete, modify, full_control
+    permission_source: Optional[str] = "direct"
+    is_inherited: bool = False
+    inherited_from: Optional[str] = None
+    permissions: Optional[List[str]] = None  # alternative: список прав
+
+
+class IngestPermissionsRequest(BaseModel):
+    agent_id: int
+    agent_type: Optional[str] = "agent"
+    permissions: List[PermissionEntryPayload]
+    collected_at: Optional[str] = None
+
+
 @router.post("/api/audit/agents/register")
-def register_agent(
-    payload: RegisterAgentRequest,
-    db: Session = Depends(get_db)
-):
+def register_agent(payload: RegisterAgentRequest, db: Session = Depends(get_db)):
     """
     Регистрация нового агента аудита.
     Если агент с таким именем уже существует — обновляет heartbeat и возвращает существующий id.
@@ -97,7 +115,7 @@ def register_agent(
         ip_address=ip_address,
         version=version,
         status="online",
-        last_heartbeat=datetime.utcnow()
+        last_heartbeat=datetime.utcnow(),
     )
     db.add(agent)
     db.commit()
@@ -108,10 +126,7 @@ def register_agent(
 
 
 @router.post("/api/audit/agents/heartbeat")
-def agent_heartbeat(
-    payload: HeartbeatRequest,
-    db: Session = Depends(get_db)
-):
+def agent_heartbeat(payload: HeartbeatRequest, db: Session = Depends(get_db)):
     """Обновление статуса агента"""
     agent_id = payload.agent_id
     status = payload.status
@@ -171,10 +186,7 @@ def list_audit_agents(db: Session = Depends(get_db)):
 
 
 @router.post("/api/audit/events")
-def ingest_audit_events(
-    payload: IngestEventsRequest,
-    db: Session = Depends(get_db)
-):
+def ingest_audit_events(payload: IngestEventsRequest, db: Session = Depends(get_db)):
     """Принять события от агента"""
     agent_id = payload.agent_id
     events = payload.events
@@ -195,7 +207,9 @@ def ingest_audit_events(
             old_path=event.old_path,
             source_host=event.source_host or agent.hostname,
             metadata_json=event.metadata or {},
-            created_at=event.created_at and datetime.fromisoformat(event.created_at) or datetime.utcnow()
+            created_at=event.created_at
+            and datetime.fromisoformat(event.created_at)
+            or datetime.utcnow(),
         )
         db.add(audit)
         saved += 1
@@ -207,16 +221,73 @@ def ingest_audit_events(
     return {"status": "accepted", "saved": saved}
 
 
+@router.post("/api/audit/permissions")
+def ingest_audit_permissions(payload: IngestPermissionsRequest, db: Session = Depends(get_db)):
+    """Принять права доступа от агента (POST /api/audit/permissions).
+
+    Ищет/создаёт ресурс по пути и обновляет записи AccessEntry.
+    Существующие активные записи по ресурсу+субъекту+правам помечаются как неактивные
+    перед записью новой коллекции (простая инкрементальная схема).
+    """
+    agent_id = payload.agent_id
+    agent = db.query(models.AuditAgent).filter(models.AuditAgent.id == agent_id).first()
+    if not agent:
+        raise HTTPException(404, f"Agent {agent_id} not found")
+
+    saved = 0
+    skipped = 0
+    for entry in payload.permissions:
+        resource = (
+            db.query(models.Resource).filter(models.Resource.path == entry.resource_path).first()
+        )
+        if not resource:
+            resource = models.Resource(path=entry.resource_path, type="FILESYSTEM")
+            db.add(resource)
+            db.flush()
+
+        # Права: одно значение permission_type или список permissions
+        perm_type = None
+        if entry.permission_type:
+            perm_type = entry.permission_type.lower()
+        elif entry.permissions:
+            perm_type = ",".join(str(p).lower() for p in entry.permissions)
+
+        if not perm_type:
+            skipped += 1
+            continue
+
+        db.add(
+            models.AccessEntry(
+                resource_id=resource.id,
+                principal_type=entry.principal_type,
+                principal_name=entry.principal_name,
+                principal_sid=entry.principal_sid,
+                principal_domain=entry.principal_domain,
+                permission_type=perm_type,
+                permission_source=entry.permission_source or "direct",
+                inherited_from=entry.inherited_from,
+                is_inherited=entry.is_inherited,
+                granted_by=agent.name,
+                last_verified_at=datetime.utcnow(),
+                collector_source=payload.agent_type or "agent",
+            )
+        )
+        saved += 1
+
+    db.commit()
+    return {"status": "accepted", "saved": saved, "skipped": skipped}
+
+
 @router.get("/api/audit")
 def get_audit_events(
     agent_id: Optional[int] = None,
     user: Optional[str] = None,
     event_type: Optional[str] = None,
     file_path: Optional[str] = None,
-    since: Optional[str] = None,   # ISO формат
+    since: Optional[str] = None,  # ISO формат
     limit: int = Query(100, ge=1, le=1000),
     offset: int = Query(0, ge=0),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
 ):
     """Получить аудит-события с фильтрацией"""
     query = db.query(models.AuditLog)
@@ -256,15 +327,12 @@ def get_audit_events(
                 "created_at": e.created_at.isoformat() if e.created_at else None,
             }
             for e in events
-        ]
+        ],
     }
 
 
 @router.get("/api/audit/stats")
-def get_audit_stats(
-    days: int = Query(7, ge=1, le=30),
-    db: Session = Depends(get_db)
-):
+def get_audit_stats(days: int = Query(7, ge=1, le=30), db: Session = Depends(get_db)):
     """Статистика по аудиту за N дней"""
     since = datetime.utcnow() - timedelta(days=days)
 
@@ -272,32 +340,33 @@ def get_audit_stats(
 
     total = db.query(models.AuditLog).filter(models.AuditLog.created_at >= since).count()
 
-    type_stats = db.query(
-        models.AuditLog.event_type,
-        func.count(models.AuditLog.id).label('count')
-    ).filter(models.AuditLog.created_at >= since)\
-     .group_by(models.AuditLog.event_type).all()
+    type_stats = (
+        db.query(models.AuditLog.event_type, func.count(models.AuditLog.id).label("count"))
+        .filter(models.AuditLog.created_at >= since)
+        .group_by(models.AuditLog.event_type)
+        .all()
+    )
 
-    user_stats = db.query(
-        models.AuditLog.user,
-        func.count(models.AuditLog.id).label('count')
-    ).filter(models.AuditLog.created_at >= since)\
-     .filter(models.AuditLog.user.isnot(None))\
-     .group_by(models.AuditLog.user)\
-     .order_by(func.count(models.AuditLog.id).desc())\
-     .limit(10).all()
+    user_stats = (
+        db.query(models.AuditLog.user, func.count(models.AuditLog.id).label("count"))
+        .filter(models.AuditLog.created_at >= since)
+        .filter(models.AuditLog.user.isnot(None))
+        .group_by(models.AuditLog.user)
+        .order_by(func.count(models.AuditLog.id).desc())
+        .limit(10)
+        .all()
+    )
 
-    source_stats = db.query(
-        models.AuditLog.event_source,
-        func.count(models.AuditLog.id).label('count')
-    ).filter(models.AuditLog.created_at >= since)\
-     .filter(models.AuditLog.event_source.isnot(None))\
-     .group_by(models.AuditLog.event_source)\
-     .order_by(func.count(models.AuditLog.id).desc()).all()
+    source_stats = (
+        db.query(models.AuditLog.event_source, func.count(models.AuditLog.id).label("count"))
+        .filter(models.AuditLog.created_at >= since)
+        .filter(models.AuditLog.event_source.isnot(None))
+        .group_by(models.AuditLog.event_source)
+        .order_by(func.count(models.AuditLog.id).desc())
+        .all()
+    )
 
-    agents_online = db.query(models.AuditAgent).filter(
-        models.AuditAgent.status == "online"
-    ).count()
+    agents_online = db.query(models.AuditAgent).filter(models.AuditAgent.status == "online").count()
     agents_total = db.query(models.AuditAgent).count()
 
     return {
@@ -307,15 +376,12 @@ def get_audit_stats(
         "top_users": [{"user": s[0], "count": s[1]} for s in user_stats],
         "by_source": [{"source": s[0], "count": s[1]} for s in source_stats],
         "agents_total": agents_total,
-        "agents_online": agents_online
+        "agents_online": agents_online,
     }
 
 
 @router.delete("/api/audit/agents/{agent_id}")
-def delete_audit_agent(
-    agent_id: int,
-    db: Session = Depends(get_db)
-):
+def delete_audit_agent(agent_id: int, db: Session = Depends(get_db)):
     """Удалить агент аудита. Связанные события остаются (agent_id = NULL)."""
     agent = db.query(models.AuditAgent).filter(models.AuditAgent.id == agent_id).first()
     if not agent:

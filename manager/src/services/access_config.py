@@ -1,6 +1,6 @@
 # manager/src/services/access_config.py
 
-from typing import Optional, Literal
+from typing import Optional, Literal, Dict, Any
 from pydantic import BaseModel, Field
 import json
 from pathlib import Path
@@ -9,13 +9,35 @@ import logging
 logger = logging.getLogger(__name__)
 
 
+class ADConfig(BaseModel):
+    """Конфигурация подключения к Active Directory (День 33)"""
+    
+    server: str = Field(default="localhost", description="Адрес контроллера домена")
+    domain: str = Field(default="SAMDOM", description="NETBIOS-домен")
+    base_dn: Optional[str] = Field(
+        default=None,
+        description="Базовый DN (например, DC=SAMDOM,DC=EXAMPLE,DC=COM)"
+    )
+    username: Optional[str] = Field(
+        default=None, description="Имя служебной учётной записи"
+    )
+    password: Optional[str] = Field(
+        default=None, description="Пароль служебной учётной записи (env)"
+    )
+    use_ssl: bool = Field(default=False, description="Использовать LDAPS")
+    ldap_port: int = Field(default=389, description="Порт LDAP (636 для LDAPS)")
+    timeout: int = Field(default=10, description="Таймаут подключения (сек)")
+    cache_ttl: int = Field(default=300, description="TTL кэша AD-запросов (сек)")
+    redis_url: Optional[str] = Field(default=None, description="URL Redis для кэша")
+
+
 class AccessConfig(BaseModel):
     """Конфигурация модуля управления доступом"""
     
-    # Режим сбора прав: local или remote
-    mode: Literal["local", "remote"] = Field(
+    # Режим сбора прав: local, ad, mixed или remote
+    mode: Literal["local", "remote", "ad", "mixed"] = Field(
         default="local",
-        description="Режим сбора прав: local (на Manager) или remote (через Scanner)"
+        description="Режим сбора прав: local, ad, mixed или remote (через Scanner)"
     )
     
     # Настройки для удаленного режима
@@ -46,6 +68,9 @@ class AccessConfig(BaseModel):
         default=True,
         description="Автоматическая синхронизация прав при запуске сканирования"
     )
+    
+    # Настройки Active Directory (используются в режимах ad/mixed)
+    ad: ADConfig = Field(default_factory=ADConfig, description="Настройки AD")
 
 
 def load_access_config(config_path: Optional[Path] = None) -> AccessConfig:

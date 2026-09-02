@@ -9,6 +9,7 @@ from .models import User, Role
 from .modes import AuthMode
 from .local_auth import LocalAuthenticator
 from .windows_auth import WindowsAuthenticator
+from .ad_auth import ADAuthenticator
 from .jwt import JWTManager
 
 logger = logging.getLogger(__name__)
@@ -23,6 +24,7 @@ class AuthManager:
 
         self.local_auth = LocalAuthenticator(config)
         self.windows_auth = WindowsAuthenticator(config)
+        self.ad_auth = ADAuthenticator(config)
 
         auth_cfg = config.get("auth", {})
         self.jwt = JWTManager(
@@ -57,7 +59,7 @@ class AuthManager:
         request: Request,
         db: Session,
         username: Optional[str] = None,
-        password: Optional[str] = None
+        password: Optional[str] = None,
     ) -> Tuple[Optional[User], str]:
         """
         Аутентификация пользователя.
@@ -76,7 +78,13 @@ class AuthManager:
                 elif self.mode == AuthMode.WINDOWS_INTEGRATED:
                     return None, "AD authentication failed"
 
-        # 2. Local Auth (JWT + Bcrypt) — для local и hybrid (fallback)
+        # 2. Explicit AD login (пароль) — доступен в hybrid/windows_integrated/ad
+        if self.mode != AuthMode.LOCAL and username and password:
+            user = await self._authenticate_ad_password(db, username, password)
+            if user:
+                return user, "ad_password"
+
+        # 3. Local Auth (JWT + Bcrypt) — для local и hybrid (fallback)
         if self.mode in (AuthMode.LOCAL, AuthMode.HYBRID):
             if username and password:
                 user = self.local_auth.authenticate(username, password, db)
@@ -85,13 +93,71 @@ class AuthManager:
                 elif self.mode == AuthMode.LOCAL:
                     return None, "Invalid credentials"
 
-        # 3. Поиск AD пользователя по username (для hybrid)
+        # 4. Поиск AD пользователя по username (для hybrid)
         if self.mode == AuthMode.HYBRID and username and "\\" in username:
             user = self.windows_auth.get_ad_user_from_db(username, db)
             if user:
                 return user, "cached_ad"
 
         return None, "Authentication failed"
+
+    async def _authenticate_ad_password(
+        self, db: Session, username: str, password: str
+    ) -> Optional[User]:
+        """Явный логин через AD (пароль) с маппингом групп → роли."""
+        if not self.ad_auth.is_available():
+            return None
+        if "\\" in username:
+            domain_user = username
+        else:
+            domain_user = f"{self.ad_auth.domain}\\{username}"
+
+        info = self.ad_auth.authenticate(username, password)
+        if not info:
+            return None
+
+        # Поиск/автосоздание AD-пользователя в БД
+        user = self.windows_auth.get_ad_user_from_db(domain_user, db)
+        if user:
+            user.last_login = datetime.utcnow()
+            db.commit()
+            return user
+
+        if self.config.get("auth", {}).get("auto_create_ad_users", True):
+            groups = info.get("groups", [])
+            roles = self._map_groups_to_roles(groups, db)
+            if not roles:
+                roles = [self.config.get("auth", {}).get("default_role", "viewer")]
+
+            user = User(
+                username=info.get("username", username),
+                email=info.get("email"),
+                full_name=info.get("full_name", ""),
+                domain_user=domain_user,
+                auth_source="ad",
+                is_active=True,
+            )
+            for role_name in roles:
+                role = db.query(Role).filter(Role.name == role_name).first()
+                if role:
+                    user.roles.append(role)
+
+            if not user.roles:
+                default = (
+                    db.query(Role)
+                    .filter(Role.name == self.config.get("auth", {}).get("default_role", "viewer"))
+                    .first()
+                )
+                if default:
+                    user.roles.append(default)
+
+            db.add(user)
+            db.commit()
+            db.refresh(user)
+            logger.info("Created AD user via password login: %s", domain_user)
+            return user
+
+        return None
 
     async def _authenticate_ad_user(self, domain_user: str, db: Session) -> Optional[User]:
         """Аутентификация AD пользователя."""
@@ -115,12 +181,12 @@ class AuthManager:
                     full_name=user_info.get("full_name", ""),
                     domain_user=domain_user,
                     auth_source="ad",
-                    is_active=True
+                    is_active=True,
                 )
 
                 # Назначение ролей на основе AD групп
                 groups = self.windows_auth.get_user_groups(domain_user)
-                roles = self._map_groups_to_roles(groups)
+                roles = self._map_groups_to_roles(groups, db)
                 for role_name in roles:
                     role = db.query(Role).filter(Role.name == role_name).first()
                     if role:
@@ -128,9 +194,13 @@ class AuthManager:
 
                 # Если ролей нет — добавляем default
                 if not user.roles:
-                    default = db.query(Role).filter(
-                        Role.name == self.config.get("auth", {}).get("default_role", "viewer")
-                    ).first()
+                    default = (
+                        db.query(Role)
+                        .filter(
+                            Role.name == self.config.get("auth", {}).get("default_role", "viewer")
+                        )
+                        .first()
+                    )
                     if default:
                         user.roles.append(default)
 
@@ -144,11 +214,22 @@ class AuthManager:
 
         return None
 
-    def _map_groups_to_roles(self, groups: list) -> list:
-        """Маппинг AD групп на роли DCAP."""
-        mapping = self.config.get("auth", {}).get("windows_auth", {}).get("group_mapping", {})
+    def _map_groups_to_roles(self, groups: list, db: Optional[Session] = None) -> list:
+        """Маппинг AD групп на роли DCAP.
+
+        Источники маппинга (по приоритету):
+        1. Конфиг auth.windows_auth.group_mapping
+        2. Поле Role.ad_group (заполняется в init_roles)
+        """
+        mapping = dict(self.config.get("auth", {}).get("windows_auth", {}).get("group_mapping", {}))
         roles = []
         for group in groups:
-            if group in mapping:
-                roles.append(mapping[group])
+            mapped = mapping.get(group)
+            if not mapped and db is not None:
+                # Ищем роль по ad_group
+                role = db.query(Role).filter(Role.ad_group == group).first()
+                if role:
+                    mapped = role.name
+            if mapped:
+                roles.append(mapped)
         return list(set(roles))

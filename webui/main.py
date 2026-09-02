@@ -74,6 +74,21 @@ async def page_scanners(request: Request):
     return render(request, "scanners.html", "Сканеры")
 
 
+@app.get("/users", response_class=HTMLResponse)
+async def page_users(request: Request):
+    return render(request, "users.html", "Пользователи")
+
+
+@app.get("/roles", response_class=HTMLResponse)
+async def page_roles(request: Request):
+    return render(request, "roles.html", "Роли")
+
+
+@app.get("/settings", response_class=HTMLResponse)
+async def page_settings(request: Request):
+    return render(request, "settings.html", "Настройки")
+
+
 @app.get("/login", response_class=HTMLResponse)
 async def page_login(request: Request):
     return templates.TemplateResponse(request, "login.html", {"page": "Вход"})

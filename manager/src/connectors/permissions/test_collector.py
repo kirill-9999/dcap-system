@@ -136,8 +136,8 @@ def test_factory():
 
 
 def test_ad_collector():
-    """Тест 6: Проверка AD коллектора (заглушка)"""
-    print("\n🧪 Тест 6: Проверка AD коллектора (заглушка)...")
+    """Тест 6: Проверка AD коллектора (День 33 — реализация)"""
+    print("\n🧪 Тест 6: Проверка AD коллектора (реализация)...")
     
     try:
         collector = ADPermissionCollector(
@@ -147,18 +147,11 @@ def test_ad_collector():
         
         print(f"   Source type: {collector.get_source_type()}")
         print(f"   Available: {collector.is_available()}")
+        print(f"   Base DN: {collector.base_dn}")
         
-        try:
-            # Должен выбросить NotImplementedError
-            collector.collect("C:\\test")
-            print("   ❌ Should have raised NotImplementedError")
-            return False
-        except NotImplementedError as e:
-            print(f"   ✅ Expected exception: {e}")
-            return True
-        except Exception as e:
-            print(f"   ❌ Unexpected error: {e}")
-            return False
+        # Без подключения к реальному DC коллектор недоступен
+        # (или доступен в mixed-режиме с fallback на local)
+        return True
             
     except Exception as e:
         print(f"   ❌ Error: {e}")

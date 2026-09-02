@@ -1,0 +1,35 @@
+{% extends "base.html" %}
+{% block title %}DCAP — Роли{% endblock %}
+{% block content %}
+<h2 class="mb-4"><i class="fas fa-lock text-primary"></i> Роли</h2>
+<button class="btn btn-primary mb-3" onclick="showCreateRoleModal()"><i class="fas fa-plus"></i> Создать</button>
+
+<div class="table-wrapper">
+    <div class="table-responsive">
+        <table class="table table-sm">
+            <thead><tr><th>Название</th><th>Описание</th><th>AD-группа</th><th>Пользователей</th><th></th></tr></thead>
+            <tbody id="rolesTableBody"><tr><td colspan="5" class="text-center text-muted">Загрузка...</td></tr></tbody>
+        </table>
+    </div>
+</div>
+
+<div class="modal" id="roleModal">
+    <div class="modal-content">
+        <div class="modal-header"><h3 id="roleModalTitle">Создание роли</h3><button class="btn btn-sm" onclick="closeModal('roleModal')">&times;</button></div>
+        <div class="modal-body">
+            <input type="hidden" id="roleId">
+            <div class="mb-3"><label class="form-label">Название *</label><input type="text" id="roleName" class="form-control" required></div>
+            <div class="mb-3"><label class="form-label">Описание</label><input type="text" id="roleDescription" class="form-control"></div>
+            <div class="mb-3"><label class="form-label">AD-группа</label><input type="text" id="roleAdGroup" class="form-control" placeholder="DCAP_Admins"><small class="text-muted">Маппинг AD-группы на роль</small></div>
+        </div>
+        <div class="modal-footer">
+            <button class="btn btn-outline-secondary" onclick="closeModal('roleModal')">Отмена</button>
+            <button class="btn btn-primary" onclick="saveRole()">Сохранить</button>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="/static/js/roles.js"></script>
+{% endblock %}

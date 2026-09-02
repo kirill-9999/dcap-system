@@ -1,0 +1,22 @@
+{
+    "access_management": {
+        "mode": "mixed",
+        "scanner_endpoint": null,
+        "timeout_seconds": 30,
+        "excessive_days_threshold": 90,
+        "alerts_enabled": true,
+        "auto_sync_on_scan": true,
+        "ad": {
+            "server": "127.0.0.1",
+            "domain": "SAMDOM",
+            "base_dn": "DC=samdom,DC=example,DC=com",
+            "username": "administrator",
+            "password": "Passw0rd",
+            "use_ssl": false,
+            "ldap_port": 389,
+            "timeout": 10,
+            "cache_ttl": 300,
+            "redis_url": null
+        }
+    }
+}

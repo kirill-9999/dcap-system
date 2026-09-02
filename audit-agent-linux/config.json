@@ -7,6 +7,7 @@
     "batch_size": 50,
     "buffer_size": 10000,
     "heartbeat_interval": 30,
+    "permissions_interval": 3600,
     "log_level": "INFO",
     "log_file": "logs/audit_agent.log"
 }
