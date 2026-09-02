@@ -41,6 +41,31 @@
         "mtls_strict": false,
         "certs_dir": "certs"
     },
+    "retention": {
+        "enabled": true,
+        "interval_hours": 24,
+        "audit_events": {
+            "ttl_days": 90,
+            "archive_ttl_days": 365,
+            "archive_enabled": true,
+            "archive_table": "audit_logs_archive"
+        },
+        "findings": {
+            "ttl_days": 180
+        },
+        "tasks": {
+            "ttl_days": 30
+        },
+        "logs": {
+            "rotate_days": 30,
+            "max_size_mb": 100
+        },
+        "export": {
+            "enabled": true,
+            "format": "json",
+            "path": "data/archive/"
+        }
+    },
     "logging": {
         "level": "INFO"
     }

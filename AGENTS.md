@@ -8,8 +8,8 @@ DCAP — система сканирования и аудита данных (P
 
 ## Текущий статус
 
-**Версия:** v3.2.0
-**Статус:** ✅ Windows + Linux аудит готов; ✅ Manager/WebUI унифицированы; ✅ Гибридная аутентификация (JWT+Bcrypt/SPNEGO) + роли; ✅ S3/MinIO аудит-агент; ✅ Active Directory интеграция + RBAC WebUI; ✅ Безопасность (mTLS relaxed/strict, CertificateManager, SecretsManager, CRL, docs)
+**Версия:** v3.3.0
+**Статус:** ✅ Windows + Linux аудит готов; ✅ Manager/WebUI унифицированы; ✅ Гибридная аутентификация (JWT+Bcrypt/SPNEGO) + роли; ✅ S3/MinIO аудит-агент; ✅ Active Directory интеграция + RBAC WebUI; ✅ Безопасность (mTLS relaxed/strict, CertificateManager, SecretsManager, CRL, docs); ✅ Архивация данных (retention, политики хранения, экспорт JSON/CSV)
 **Следующий этап:** API-ключи для агентов / доработки по приоритету
 
 ## Релизы
@@ -26,6 +26,7 @@ DCAP — система сканирования и аудита данных (P
 | v3.1.0++ | 2026-09-01 | S3-агент (завершение): нагрузочные тесты, отказоустойчивость (экспоненциальная задержка, throttling), документация, Docker Compose, ротация логов, статус |
 | v3.1.0# | 2026-09-01 | Active Directory интеграция + RBAC WebUI (день 33) |
 | v3.2.0 | 2026-09-02 | Безопасность (день 34): mTLS (relaxed/strict), CertificateManager, SecretsManager, CRL, generate_certs.py/rotate_certs.py, docker-compose.yml+secrets, SECURITY.md |
+| v3.3.0 | 2026-09-02 | Архивация данных (день 35): retention (RetentionPolicy/Archiver/Cleaner/Exporter), архивные таблицы, экспорт JSON/CSV, планировщик (фоновый поток вместо Celery), API /api/retention/*, WebUI настройки хранения |
 
 ## Запуск (локально, из корня репо)
 

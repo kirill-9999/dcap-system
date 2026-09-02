@@ -13,6 +13,7 @@ from manager.src.api.scanner import router as scanner_router
 from manager.src.api.permissions import router as permissions_router
 from manager.src.api.audit import router as audit_router
 from manager.src.api.webui import router as webui_router
+from manager.src.api.retention import router as retention_router
 
 from manager.src.config import get_config
 from manager.src.auth.manager import AuthManager
@@ -24,7 +25,7 @@ from manager.src.db import session
 app = FastAPI(
     title="DCAP System Manager",
     description="Data-Centric Audit and Protection System",
-    version="3.2.0"
+    version="3.3.0",
 )
 
 # CORS
@@ -67,8 +68,7 @@ else:
 
         sec_logger = logging.getLogger("dcap.security")
         sec_logger.warning(
-            "mTLS enabled but certificates missing — server runs on plain HTTP "
-            "(relaxed mode)"
+            "mTLS enabled but certificates missing — server runs on plain HTTP " "(relaxed mode)"
         )
 
 app.add_middleware(
@@ -85,9 +85,11 @@ app.add_middleware(
 # Manager — чистое API: легаси-статика удалена, корень редиректит на UI.
 # ============================================================
 
+
 @app.get("/", include_in_schema=False)
 async def root():
     return RedirectResponse(url="http://localhost:8001")
+
 
 # ============================================================
 # ПОДКЛЮЧЕНИЕ РОУТЕРОВ
@@ -101,6 +103,7 @@ app.include_router(scanner_router)
 app.include_router(permissions_router)
 app.include_router(audit_router)
 app.include_router(webui_router)
+app.include_router(retention_router)
 app.include_router(auth_router)
 
 
@@ -108,9 +111,10 @@ app.include_router(auth_router)
 # API ЭНДПОИНТЫ
 # ============================================================
 
+
 @app.get("/api/health")
 async def health_check():
-    return {"status": "healthy", "version": "3.2.0"}
+    return {"status": "healthy", "version": "3.3.0"}
 
 
 @app.post("/api/folders/pick")
@@ -119,6 +123,7 @@ def pick_folder():
     try:
         import tkinter
         from tkinter import filedialog
+
         root = tkinter.Tk()
         root.withdraw()
         root.attributes("-topmost", True)
@@ -140,12 +145,14 @@ async def api_root():
 # ЗАПУСК СЕРВЕРА
 # ============================================================
 
+
 @app.on_event("startup")
 async def on_startup():
     """Создание таблиц и инициализация ролей/admin при старте."""
     try:
         session.init_db()
         from manager.src.db.init_roles import init_roles_and_admin
+
         db = session.SessionLocal()
         try:
             init_roles_and_admin(db)
@@ -154,12 +161,16 @@ async def on_startup():
     except Exception as e:
         print(f"[auth] Ошибка инициализации ролей: {e}")
 
+    # День 35: периодическая архивация данных (фоновый поток вместо Celery)
+    try:
+        from manager.src.retention.scheduler import start_scheduler
+
+        start_scheduler()
+    except Exception as e:
+        print(f"[retention] Ошибка запуска планировщика: {e}")
+
+
 if __name__ == "__main__":
     import uvicorn
-    
-    uvicorn.run(
-        "manager.src.main:app",
-        host="0.0.0.0",
-        port=8000,
-        reload=True
-    )
+
+    uvicorn.run("manager.src.main:app", host="0.0.0.0", port=8000, reload=True)

@@ -64,6 +64,31 @@ _defaults = {
     },
     "webui": {"enabled": True, "host": "127.0.0.1", "port": 8001},
     "logging": {"level": "INFO"},
+    "retention": {
+        "enabled": True,
+        "interval_hours": 24,
+        "audit_events": {
+            "ttl_days": 90,
+            "archive_ttl_days": 365,
+            "archive_enabled": True,
+            "archive_table": "audit_logs_archive",
+        },
+        "findings": {
+            "ttl_days": 180,
+        },
+        "tasks": {
+            "ttl_days": 30,
+        },
+        "logs": {
+            "rotate_days": 30,
+            "max_size_mb": 100,
+        },
+        "export": {
+            "enabled": True,
+            "format": "json",
+            "path": "data/archive/",
+        },
+    },
 }
 
 

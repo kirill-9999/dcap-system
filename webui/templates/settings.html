@@ -28,6 +28,63 @@
     </div>
 </div>
 
+<div class="card mt-4">
+    <div class="card-body">
+        <h5 class="card-title"><i class="fas fa-database text-primary"></i> Хранение данных (архивация/очистка)</h5>
+        <p class="text-muted" style="font-size:13px;">Политики хранения управляются конфигом Manager (<code>manager/config/config.json &rarr; retention</code>). Ниже отображаются текущие значения.</p>
+        <div class="row g-3">
+            <div class="col-md-3">
+                <div class="card border-secondary h-100">
+                    <div class="card-body">
+                        <h6>Аудит-события</h6>
+                        <div class="mb-2"><span class="text-muted">TTL:</span> <b id="retAuditTtl">—</b> дн.</div>
+                        <div class="mb-2"><span class="text-muted">Архив TTL:</span> <b id="retAuditArchiveTtl">—</b> дн.</div>
+                        <div class="mb-0"><span class="text-muted">Архивация:</span> <b id="retAuditArchiveOn">—</b></div>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="card border-secondary h-100">
+                    <div class="card-body">
+                        <h6>Находки</h6>
+                        <div class="mb-2"><span class="text-muted">TTL:</span> <b id="retFindingsTtl">—</b> дн.</div>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="card border-secondary h-100">
+                    <div class="card-body">
+                        <h6>Задачи</h6>
+                        <div class="mb-2"><span class="text-muted">TTL:</span> <b id="retTasksTtl">—</b> дн.</div>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="card border-secondary h-100">
+                    <div class="card-body">
+                        <h6>Экспорт</h6>
+                        <div class="mb-2"><span class="text-muted">Формат:</span> <b id="retExportFormat">—</b></div>
+                        <div class="mb-0"><span class="text-muted">Путь:</span> <b id="retExportPath">—</b></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div class="row g-3 mt-1">
+            <div class="col-md-3"><div class="stat-item"><span class="stat-label">Аудит-события</span><span class="stat-value" id="statAuditCount">0</span></div></div>
+            <div class="col-md-3"><div class="stat-item"><span class="stat-label">Архивные события</span><span class="stat-value" id="statArchiveCount">0</span></div></div>
+            <div class="col-md-3"><div class="stat-item"><span class="stat-label">Находки</span><span class="stat-value" id="statFindingsCount">0</span></div></div>
+            <div class="col-md-3"><div class="stat-item"><span class="stat-label">Заверш. задачи</span><span class="stat-value" id="statTasksCount">0</span></div></div>
+        </div>
+        <div class="mt-3">
+            <button class="btn btn-warning" onclick="runRetention(false)"><i class="fas fa-play"></i> Запустить архивацию сейчас</button>
+            <button class="btn btn-outline-warning" onclick="runRetention(true)"><i class="fas fa-eye"></i> Dry-run</button>
+            <button class="btn btn-info" onclick="exportArchive('audit')"><i class="fas fa-file-export"></i> Экспорт аудит</button>
+            <button class="btn btn-info" onclick="exportArchive('findings')"><i class="fas fa-file-export"></i> Экспорт находки</button>
+        </div>
+        <div class="mt-2 text-muted" style="font-size:13px;" id="retentionStatus">Загрузка...</div>
+    </div>
+</div>
+
 <div class="modal" id="passwordModal">
     <div class="modal-content">
         <div class="modal-header"><h3>Смена пароля</h3><button class="btn btn-sm" onclick="closeModal('passwordModal')">&times;</button></div>
@@ -95,6 +152,57 @@ async function changePassword() {
         showToast('Ошибка: ' + e.message, 'error');
     }
 }
-document.addEventListener('DOMContentLoaded', () => { loadAuthMode(); loadSettingsInfo(); });
+document.addEventListener('DOMContentLoaded', () => { loadAuthMode(); loadSettingsInfo(); loadRetention(); });
+
+async function loadRetention() {
+    try {
+        const p = await api.get('/api/retention/policies');
+        const pol = p.policies || {};
+        if (pol.audit_events) {
+            document.getElementById('retAuditTtl').textContent = pol.audit_events.ttl_days;
+            document.getElementById('retAuditArchiveTtl').textContent = pol.audit_events.archive_ttl_days;
+            document.getElementById('retAuditArchiveOn').textContent = pol.audit_events.archive_enabled ? 'вкл' : 'выкл';
+        }
+        if (pol.findings) document.getElementById('retFindingsTtl').textContent = pol.findings.ttl_days;
+        if (pol.tasks) document.getElementById('retTasksTtl').textContent = pol.tasks.ttl_days;
+    } catch (e) {
+        document.getElementById('retentionStatus').textContent = 'Политики недоступны: ' + e.message;
+    }
+    try {
+        const r = await api.get('/api/retention/status');
+        const last = r.last_run ? new Date(r.last_run).toLocaleString() : '—';
+        document.getElementById('retentionStatus').textContent = 'Интервал: ' + r.interval_hours + ' ч · Последний запуск: ' + last + (r.running ? ' · Выполняется…' : '');
+    } catch (e) {
+        document.getElementById('retentionStatus').textContent = 'Статус недоступен: ' + e.message;
+    }
+}
+
+async function runRetention(dryRun) {
+    try {
+        const r = await api.post('/api/retention/run' + (dryRun ? '?dry_run=true' : ''));
+        const res = r.result || {};
+        const parts = [];
+        const aud = res.archived_audit || {}; if (aud.archived) parts.push('архив аудит: ' + aud.archived);
+        const fin = res.archived_findings || {}; if (fin.archived) parts.push('архив находок: ' + fin.archived);
+        const ca = res.cleaned_archive || {}; let caSum = 0;
+        Object.values(ca).forEach(v => { if (v && v.deleted) caSum += v.deleted; });
+        if (caSum) parts.push('очистка архива: ' + caSum);
+        const ct = res.cleaned_tasks || {}; if (ct.deleted) parts.push('очистка задач: ' + ct.deleted);
+        const ex = res.exported || {}; if (ex.exported) parts.push('экспорт: ' + ex.exported);
+        showToast('Архивация завершена' + (dryRun ? ' (dry-run)' : '') + (parts.length ? ': ' + parts.join(', ') : ''), 'success');
+        loadRetention();
+    } catch (e) {
+        showToast('Ошибка архивации: ' + e.message, 'error');
+    }
+}
+
+async function exportArchive(dataType) {
+    try {
+        const r = await api.post('/api/retention/export', { data_type: dataType, limit: 10000 });
+        showToast('Экспортировано: ' + (r.exported || 0) + ' -> ' + (r.file || '—'), 'success');
+    } catch (e) {
+        showToast('Ошибка экспорта: ' + e.message, 'error');
+    }
+}
 </script>
 {% endblock %}
