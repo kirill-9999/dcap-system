@@ -95,3 +95,15 @@ manager/data/
 # WebUI (runtime)
 webui/data/
 
+# Сертификаты (День 34)
+certs/
+*.crt
+*.key
+*.csr
+*.pem
+
+# Секреты (День 34)
+secrets/*.txt
+secrets/*.key
+!secrets/.gitkeep
+

@@ -36,6 +36,11 @@
         "host": "127.0.0.1",
         "port": 8001
     },
+    "security": {
+        "mtls_enabled": false,
+        "mtls_strict": false,
+        "certs_dir": "certs"
+    },
     "logging": {
         "level": "INFO"
     }

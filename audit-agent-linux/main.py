@@ -79,7 +79,10 @@ class AuditAgent:
             buffer_dir=self.data_dir / "buffer", max_size=self.config["buffer_size"]
         )
         self.sender = Sender(
-            manager_url=self.config["manager_url"], agent_id=self.state.get("agent_id", 0)
+            manager_url=self.config["manager_url"], agent_id=self.state.get("agent_id", 0),
+            cert_path=self.config.get("cert_path"),
+            key_path=self.config.get("key_path"),
+            ca_path=self.config.get("ca_path"),
         )
         self.agent_id = self.state.get("agent_id", 0)
         self.running = True

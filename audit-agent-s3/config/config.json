@@ -20,7 +20,10 @@
         "url": "${MANAGER_URL:-http://localhost:8000}",
         "timeout": "${MANAGER_TIMEOUT:-30}",
         "max_retries": "${MANAGER_MAX_RETRIES:-3}",
-        "retry_delay": "${MANAGER_RETRY_DELAY:-5}"
+        "retry_delay": "${MANAGER_RETRY_DELAY:-5}",
+        "cert_path": "${MTLS_CERT_PATH:-}",
+        "key_path": "${MTLS_KEY_PATH:-}",
+        "ca_path": "${MTLS_CA_PATH:-}"
     },
     "buffer": {
         "path": "data/buffer/buffer.db",

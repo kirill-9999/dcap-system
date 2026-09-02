@@ -26,6 +26,17 @@ class Sender:
             "User-Agent": "dcap-s3-agent/3.0.0",
         })
 
+        # mTLS (День 34): cert/key/ca из config manager.{cert_path,key_path,ca_path}
+        cert_path = config["manager"].get("cert_path")
+        key_path = config["manager"].get("key_path")
+        ca_path = config["manager"].get("ca_path")
+        if cert_path and key_path and ca_path:
+            self.session.cert = (cert_path, key_path)
+            self.session.verify = ca_path
+            logger.info("mTLS enabled for sender (cert=%s)", cert_path)
+        else:
+            logger.warning("mTLS not configured, using plain HTTP")
+
         self.token = None
 
         logger.info(f"Sender initialized: {self.manager_url}")

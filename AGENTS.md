@@ -8,8 +8,8 @@ DCAP — система сканирования и аудита данных (P
 
 ## Текущий статус
 
-**Версия:** v3.1.0
-**Статус:** ✅ Windows + Linux аудит готов; ✅ Manager/WebUI унифицированы; ✅ Гибридная аутентификация (JWT+Bcrypt/SPNEGO) + роли; ✅ S3/MinIO аудит-агент (polling, Server Access Logs CSV + MinIO webhook JSON, буфер, heartbeat, JWT); ✅ S3-агент завершён (нагрузочные тесты, отказоустойчивость, документация, Docker Compose)
+**Версия:** v3.2.0
+**Статус:** ✅ Windows + Linux аудит готов; ✅ Manager/WebUI унифицированы; ✅ Гибридная аутентификация (JWT+Bcrypt/SPNEGO) + роли; ✅ S3/MinIO аудит-агент; ✅ Active Directory интеграция + RBAC WebUI; ✅ Безопасность (mTLS relaxed/strict, CertificateManager, SecretsManager, CRL, docs)
 **Следующий этап:** API-ключи для агентов / доработки по приоритету
 
 ## Релизы
@@ -24,6 +24,8 @@ DCAP — система сканирования и аудита данных (P
 | v3.1.0 | 2026-08-30 | Гибридная аутентификация (JWT + Windows Integrated Auth): режимы local/hybrid/windows_integrated, роли admin/viewer/auditor/scanner, WebUI login |
 | v3.1.0+ | 2026-08-31 | S3/MinIO аудит-агент: polling-режим, Server Access Logs (CSV) + MinIO webhook (JSON), конвертация в UnifiedEvent (s3_agent), SQLite-буфер, heartbeat, JWT |
 | v3.1.0++ | 2026-09-01 | S3-агент (завершение): нагрузочные тесты, отказоустойчивость (экспоненциальная задержка, throttling), документация, Docker Compose, ротация логов, статус |
+| v3.1.0# | 2026-09-01 | Active Directory интеграция + RBAC WebUI (день 33) |
+| v3.2.0 | 2026-09-02 | Безопасность (день 34): mTLS (relaxed/strict), CertificateManager, SecretsManager, CRL, generate_certs.py/rotate_certs.py, docker-compose.yml+secrets, SECURITY.md |
 
 ## Запуск (локально, из корня репо)
 
@@ -49,7 +51,7 @@ python audit-agent-s3/scripts/start.sh                     # S3/MinIO аудит
 - `run_audit_agent.py <конфиг>` — Windows-агент аудита. Агент не пакет (в `audit-agent-windows/main.py` топ-уровневые импорты collector/buffer/sender), поэтому скрипт добавляет `audit-agent-windows/` в sys.path и вызывает `main.run(config)`. Runtime-данные (`data/state.json`, `data/buffer/`) создаются в `audit-agent-windows/data/` (от `config_path.parent`).
 - `run_audit_agent_linux.py` — на Windows выводит подсказку. Реальное использование Linux-агента: `cd audit-agent-linux && ./start.sh --daemon` (или `python main.py config.json`).
 
-- `Makefile`/`docker-compose` — фикция: `docker-compose.yml` и пакет `shared/` из `manager/Dockerfile` отсутствуют в репо. Реальный флоу — только локальный запуск.
+- `Makefile`/`docker-compose` — `docker-compose.yml` создан в День 34 (Manager + WebUI + Redis + Docker Secrets + certs-тома), но **полная докеризация образов вторична**: реальный флоу — только локальный запуск (`run_all.py`). Пакет `shared/` из `manager/Dockerfile` отсутствует в репо.
 - Для сканера на Windows могут понадобиться `PYTHONUTF8=1` / `PYTHONIOENCODING=utf-8` (кириллица в консоли). Исторически используется env `/d/dev/anaconda3/python` (Git Bash) с presidio/spacy.
 
 ## Важно про WebUI и БД
@@ -91,6 +93,19 @@ Pytest отсутствует (папка `manager/tests/` пуста). Тест
 - `webui/main.py` — актуальный WebUI (Jinja2 + `webui/templates/*.html` + `webui/static/`), единственный UI проекта. `run_webui.py` запускает именно `webui.main:app`. Вся работа с данными — через прокси в Manager (`webui/api/routes.py`), прямого доступа к БД нет.
 - `manager/src/auth/` — гибридная аутентификация (День 30): `manager.py` (AuthManager, режимы local/hybrid/windows_integrated), `local_auth.py` (JWT+Bcrypt), `windows_auth.py` (SPNEGO-stub + mock без AD), `jwt.py` (JWTManager, HS256), `models.py` (User/Role + связь user_roles; Bcrypt hash), `schemas.py`, `dependencies.py` (require_auth/require_admin/require_viewer/require_auditor/require_scanner), `middleware.py` (AuthMiddleware), `router.py` (POST /api/auth/login, /mode, /refresh, /logout, /me, /change-password, /users admin, /check), `rate_limit.py`. Защита `/api/*` в middleware; публичные и machine-эндпоинты (агенты/сканер `/api/scanner*`, `/api/audit/agents/*`, `/api/audit/events`) пропускаются без JWT. Роли и дефолтный admin создаются `db/init_roles.py` при старте (admin/admin123 — сменить!). Конфиг auth — `manager/config/config.json` (+env: AUTH_MODE, JWT_SECRET_KEY, AD_*). Для WebUI JWT хранится в localStorage и шлётся заголовком `Authorization: Bearer` (прокси форвардит его в Manager); HttpOnly-cookie Manager'а через прокси не распространяются, поэтому в WebUI используется Bearer-заголовок. После обновления кода обязательно перезапустить Manager — устаревший процесс на :8000 без auth-router возвращает 404.
 - `structure.txt` и `project_context.md` частично устарели — сверяйся с кодом, а не с ними.
+
+## Безопасность (День 34)
+
+- **mTLS**: взаимная аутентификация Manager ↔ WebUI ↔ агенты ↔ сканер. Режимы: `relaxed` (по умолчанию — работает на plain HTTP при отсутствии сертификатов) и `strict` (Manager не стартует без PKI).
+- **Генерация сертификатов**: `python scripts/generate_certs.py` (чистое Python, cryptography; CA + manager/webui/agents/scanner + CRL; SKI/AKID-расширения обязательны, иначе `Missing Authority Key Identifier`). **Ротация**: `python scripts/rotate_certs.py [--component X]`. Результат — `certs/` (git-ignored).
+- **CertificateManager** `manager/src/core/security.py`: загрузка серверного сертификата+CA, `get_server_ssl_context` (uvicorn), `verify_client_cert`, `is_revoked` (CRL). Создаётся в `manager/src/main.py` из секции `security` конфига, передаётся в `AuthMiddleware`.
+- **mTLS в Manager**: `run_manager.py` при `mtls_enabled:true` запускает uvicorn с `ssl_*` параметрами, `ssl_cert_reqs=ssl.CERT_OPTIONAL` (relaxed). `AuthMiddleware._check_mtls` для machine-эндпоинтов извлекает клиентский CN, заполняет `request.state.client_cert_cn`; в strict без сертификата — 401.
+- **Agents mTLS**: `sender.py` (Windows/Linux/S3) и `ManagerClient` (scanner) читают `cert_path/key_path/ca_path` из конфига; при наличии — `requests.Session.cert/verify`. S3 конфиг — env `MTLS_CERT_PATH/KEY_PATH/CA_PATH`.
+- **SecretsManager** `manager/src/core/secrets.py`: приоритет Docker Secrets (`/run/secrets/`) → env → default, кэширование, `get_secrets_manager()` (синглтон).
+- **docker-compose.yml** (корень, NEW для дня 34): Manager + WebUI + Redis + Docker Secrets (`jwt_secret_key`, `db_password`, `ad_service_password`) + тома certs. Докеризация образов — вторична (локальный запуск — run_all.py).
+- **Конфиг mTLS** — `manager/config/config.json` секция `security`: `{mtls_enabled:false, mtls_strict:false, certs_dir:certs}` (по умолчанию выключено, relaxed). Env: `MTLS_ENABLED`, `MTLS_STRICT`, `CERTS_DIR`.
+- **Docs**: `SECURITY.md` (политика), `docs/security_checklist.md` (чеклист production).
+- **Тесты**: `python -m pytest manager/tests/test_security.py -v` (CertificateManager, SecretsManager, cert_utils, CRL).
 
 ## Ограничения платформы
 

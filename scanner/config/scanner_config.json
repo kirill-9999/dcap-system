@@ -49,6 +49,9 @@
     "client": {
         "timeout": 30,
         "heartbeat_timeout": 10,
-        "submit_timeout": 60
+        "submit_timeout": 60,
+        "cert_path": "",
+        "key_path": "",
+        "ca_path": ""
     }
 }

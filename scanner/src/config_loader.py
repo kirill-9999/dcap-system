@@ -197,13 +197,19 @@ class ClientConfig:
     timeout: int = 10
     heartbeat_timeout: int = 5
     submit_timeout: int = 30
+    cert_path: Optional[str] = None
+    key_path: Optional[str] = None
+    ca_path: Optional[str] = None
     
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> 'ClientConfig':
         return cls(
             timeout=data.get("timeout", 10),
             heartbeat_timeout=data.get("heartbeat_timeout", 5),
-            submit_timeout=data.get("submit_timeout", 30)
+            submit_timeout=data.get("submit_timeout", 30),
+            cert_path=data.get("cert_path"),
+            key_path=data.get("key_path"),
+            ca_path=data.get("ca_path")
         )
 
 

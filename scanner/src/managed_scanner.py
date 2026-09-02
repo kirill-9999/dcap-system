@@ -62,6 +62,17 @@ class ManagerClient:
             self.timeout = config.client.timeout
             self.heartbeat_timeout = config.client.heartbeat_timeout
             self.submit_timeout = config.client.submit_timeout
+
+            # mTLS (День 34): cert/key/ca из config.client
+            cert_path = getattr(config.client, "cert_path", None)
+            key_path = getattr(config.client, "key_path", None)
+            ca_path = getattr(config.client, "ca_path", None)
+            if cert_path and key_path and ca_path:
+                self.session.cert = (cert_path, key_path)
+                self.session.verify = ca_path
+                logger.info("[ManagerClient] mTLS enabled")
+            else:
+                logger.info("[ManagerClient] mTLS not configured, plain HTTP")
         else:
             self.timeout = 30
             self.heartbeat_timeout = 10

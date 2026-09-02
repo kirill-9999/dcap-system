@@ -18,12 +18,13 @@ from manager.src.config import get_config
 from manager.src.auth.manager import AuthManager
 from manager.src.auth.middleware import AuthMiddleware
 from manager.src.auth.router import router as auth_router, set_auth_manager
+from manager.src.core.security import CertificateManager
 from manager.src.db import session
 
 app = FastAPI(
     title="DCAP System Manager",
     description="Data-Centric Audit and Protection System",
-    version="3.0.0"
+    version="3.2.0"
 )
 
 # CORS
@@ -43,7 +44,39 @@ _config = get_config()
 _auth_manager = AuthManager(_config)
 set_auth_manager(_auth_manager)
 
-app.add_middleware(AuthMiddleware, auth_manager=_auth_manager, db_session_factory=session.SessionLocal)
+# ============================================================
+# БЕЗОПАСНОСТЬ / mTLS (День 34)
+# ============================================================
+
+_security_config = {
+    "mtls_enabled": _config.get("security", {}).get("mtls_enabled", False),
+    "mtls_strict": _config.get("security", {}).get("mtls_strict", False),
+    "certs_dir": _config.get("security", {}).get("certs_dir", "certs"),
+}
+
+_cert_manager = CertificateManager(_security_config)
+
+if _cert_manager.is_available:
+    import logging
+
+    sec_logger = logging.getLogger("dcap.security")
+    sec_logger.warning("mTLS is active for Manager")
+else:
+    if _security_config["mtls_enabled"]:
+        import logging
+
+        sec_logger = logging.getLogger("dcap.security")
+        sec_logger.warning(
+            "mTLS enabled but certificates missing — server runs on plain HTTP "
+            "(relaxed mode)"
+        )
+
+app.add_middleware(
+    AuthMiddleware,
+    auth_manager=_auth_manager,
+    db_session_factory=session.SessionLocal,
+    cert_manager=_cert_manager,
+)
 
 
 # ============================================================
@@ -77,7 +110,7 @@ app.include_router(auth_router)
 
 @app.get("/api/health")
 async def health_check():
-    return {"status": "healthy", "version": "3.0.0"}
+    return {"status": "healthy", "version": "3.2.0"}
 
 
 @app.post("/api/folders/pick")

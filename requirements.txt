@@ -25,6 +25,9 @@ pyspnego>=0.10.0
 ldap3>=2.9.1
 redis>=5.0.0
 
+# Безопасность / mTLS (День 34)
+cryptography>=42.0.0
+
 # Обработка файлов (для Scanner)
 python-magic>=0.4.27
 pdfplumber>=0.10.0
