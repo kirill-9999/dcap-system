@@ -11,11 +11,13 @@ import io
 import subprocess
 import time
 import warnings
+import logging
 from pathlib import Path
 from typing import Optional, List, Tuple
 
-# Отключаем предупреждения pypdf
+# Отключаем предупреждения pypdf (warnings + логгер: "Multiple definitions in dictionary")
 warnings.filterwarnings("ignore", category=UserWarning, module="pypdf")
+logging.getLogger("pypdf").setLevel(logging.ERROR)
 
 try:
     import pytesseract

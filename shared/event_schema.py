@@ -14,6 +14,38 @@ from pydantic import BaseModel, Field
 from datetime import datetime
 
 
+# Категории находок сканера (день 34.5).
+# Находки передаются в metadata["findings"][*]["subcategory"].
+SCANNER_CREDENTIAL_SUBCATEGORIES = [
+    "CRED_API_KEY",
+    "CRED_AWS_ACCESS_KEY",
+    "CRED_AWS_SECRET_KEY",
+    "CRED_JWT_TOKEN",
+    "CRED_PASSWORD",
+    "CRED_DATABASE_URL",
+    "CRED_SSH_PRIVATE_KEY",
+    "CRED_GITHUB_TOKEN",
+    "CRED_GITHUB_TOKEN_OLD",
+    "CRED_SLACK_TOKEN",
+    "CRED_DISCORD_TOKEN",
+    "CRED_GENERIC_TOKEN",
+    "CRED_GENERIC_SECRET",
+    "CRED_BEARER_TOKEN",
+    "CRED_BASIC_AUTH",
+    "CRED_HIGH_ENTROPY",
+    "CRED_SSH_PRIVATE_KEY",
+    "CRED_POSTGRES_PASSWORD",
+    "CRED_NETRC_CREDENTIALS",
+    "CRED_KUBECONFIG",
+    "CRED_JAAS_CREDENTIALS",
+    "CRED_SECRETS_FILE",
+    "CRED_ENV_FILE",
+    "CRED_HTPASSWD_CREDENTIALS",
+    "CRED_PASSWD_FILE",
+    "CRED_SHADOW_FILE",
+]
+
+
 class UnifiedEvent(BaseModel):
     """Единый формат событий для Windows и Linux-агентов"""
 

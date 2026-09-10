@@ -35,21 +35,45 @@ class ScannerConfig:
         )
 
 
+DEFAULT_EXTENSIONS = [
+    "txt", "csv", "log", "json", "yaml", "yml", "xml", "toml", "ini", "cfg", "conf",
+    "env", "envrc", "properties", "py", "js", "ts", "tsx", "java", "c", "cpp", "h",
+    "hpp", "go", "rs", "sh", "bash", "zsh", "ps1", "cmd", "bat", "sql", "php", "rb",
+    "lua", "r", "swift", "kt", "md", "rst", "html", "css", "scss", "dockerfile",
+    "makefile", "tf", "hcl",
+    "pem", "key", "crt", "csr", "cert", "p12", "pfx", "jks",
+    "doc", "docx", "xls", "xlsx",
+    "pdf", "png", "jpg", "jpeg", "gif", "bmp", "tiff", "webp",
+]
+
+DEFAULT_SKIP_DIRS = [
+    "$Recycle.Bin", "System Volume Information", "tmp", "temp", "cache",
+    "__pycache__", ".git", ".hg", ".svn", "node_modules", "vendor", "dist", "build",
+    "target", ".idea", ".vscode",
+    "_example", "sample", "template", "examples", "samples", "templates",
+    "test_data", "fixtures", "mocks",
+]
+
+
 @dataclass
 class ConnectorConfig:
     """Конфигурация коннектора"""
-    extensions: list = field(default_factory=lambda: ["txt", "pdf", "docx", "xlsx", "png", "jpg", "jpeg", "json", "csv", "log"])
+    extensions: list = field(default_factory=lambda: list(DEFAULT_EXTENSIONS))
     max_file_size_mb: int = 50
     recursive: bool = True
-    skip_dirs: list = field(default_factory=lambda: ["$Recycle.Bin", "System Volume Information", "tmp", "temp", "cache"])
+    skip_dirs: list = field(default_factory=lambda: list(DEFAULT_SKIP_DIRS))
+    buffer_size: int = 1024 * 1024
+    max_text_chars: int = 200000
     
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> 'ConnectorConfig':
         return cls(
-            extensions=data.get("extensions", ["txt", "pdf", "docx", "xlsx", "png", "jpg", "jpeg", "json", "csv", "log"]),
+            extensions=data.get("extensions", list(DEFAULT_EXTENSIONS)),
             max_file_size_mb=data.get("max_file_size_mb", 50),
             recursive=data.get("recursive", True),
-            skip_dirs=data.get("skip_dirs", ["$Recycle.Bin", "System Volume Information", "tmp", "temp", "cache"])
+            skip_dirs=data.get("skip_dirs", list(DEFAULT_SKIP_DIRS)),
+            buffer_size=data.get("buffer_size", 1024 * 1024),
+            max_text_chars=data.get("max_text_chars", 200000)
         )
 
 
@@ -84,14 +108,24 @@ class CredentialsConfig:
     """Конфигурация Credentials классификатора"""
     enabled: bool = True
     entropy_threshold: float = 4.5
+    min_length: int = 8
     max_file_size_mb: int = 50
+    strict_filter: bool = True
+    confidence_threshold: float = 0.7
+    no_generic: bool = False
+    require_mixed: bool = False
     
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> 'CredentialsConfig':
         return cls(
             enabled=data.get("enabled", True),
             entropy_threshold=data.get("entropy_threshold", 4.5),
-            max_file_size_mb=data.get("max_file_size_mb", 50)
+            min_length=data.get("min_length", 8),
+            max_file_size_mb=data.get("max_file_size_mb", 50),
+            strict_filter=data.get("strict_filter", True),
+            confidence_threshold=data.get("confidence_threshold", 0.7),
+            no_generic=data.get("no_generic", False),
+            require_mixed=data.get("require_mixed", False)
         )
 
 
@@ -261,7 +295,9 @@ class AppConfig:
                 "extensions": self.connector.extensions,
                 "max_file_size_mb": self.connector.max_file_size_mb,
                 "recursive": self.connector.recursive,
-                "skip_dirs": self.connector.skip_dirs
+                "skip_dirs": self.connector.skip_dirs,
+                "buffer_size": self.connector.buffer_size,
+                "max_text_chars": self.connector.max_text_chars
             },
             "classifiers": {
                 "pii": {
@@ -277,7 +313,12 @@ class AppConfig:
                 "credentials": {
                     "enabled": self.classifiers.credentials.enabled,
                     "entropy_threshold": self.classifiers.credentials.entropy_threshold,
-                    "max_file_size_mb": self.classifiers.credentials.max_file_size_mb
+                    "min_length": self.classifiers.credentials.min_length,
+                    "max_file_size_mb": self.classifiers.credentials.max_file_size_mb,
+                    "strict_filter": self.classifiers.credentials.strict_filter,
+                    "confidence_threshold": self.classifiers.credentials.confidence_threshold,
+                    "no_generic": self.classifiers.credentials.no_generic,
+                    "require_mixed": self.classifiers.credentials.require_mixed
                 },
                 "code": {
                     "enabled": self.classifiers.code.enabled,

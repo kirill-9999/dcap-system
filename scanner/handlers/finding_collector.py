@@ -219,6 +219,91 @@ class FindingCollector(IOutputHandler):
             "category_stats": dict(self.category_stats),
             "subcategory_stats": dict(self.subcategory_stats)
         }
+    
+    @staticmethod
+    def mask_value(value: str, keep: int = 4) -> str:
+        """Маскирование значения секрета для лог-отчёта.
+        
+        Значение не выводится полностью — только первые `keep` символов
+        и длина, чтобы избежать утечки секретов в текстовых отчётах/логах.
+        """
+        if not value:
+            return ""
+        value = str(value)
+        if len(value) <= keep:
+            return "*" * len(value)
+        if value.startswith("<file: "):
+            return value
+        return value[:keep] + "*" * min(len(value) - keep, 20)
+    
+    def generate_report(self, file_path: Optional[str] = None) -> str:
+        """Сгенерировать текстовый лог-отчёт о результатах сканирования.
+        
+        Отчёт не содержит значений секретов — только типы, количество,
+        пути файлов и степень уверенности (confidence).
+        
+        Args:
+            file_path: Если задан — отчёт только по этому файлу.
+        
+        Returns:
+            str: Текст отчёта
+        """
+        lines = []
+        lines.append("=" * 68)
+        lines.append(f"DCAP SCAN REPORT — {datetime.now().isoformat(timespec='seconds')}")
+        lines.append("=" * 68)
+        lines.append(f"Files scanned      : {self.files_scanned}")
+        lines.append(f"Files with findings: {self.files_with_findings}")
+        lines.append(f"Files failed       : {len(self.failed_files)}")
+        lines.append(f"Findings total     : {self.total_findings} (unique: {len(self.findings)})")
+        if self.start_time and self.end_time:
+            lines.append(f"Duration           : {self.end_time - self.start_time:.1f}s")
+        
+        if self.category_stats:
+            lines.append("-" * 68)
+            lines.append("BY CATEGORY")
+            for cat, cnt in sorted(self.category_stats.items(), key=lambda x: -x[1]):
+                lines.append(f"  {cat:<20} {cnt}")
+        
+        target_findings = self.findings
+        if file_path:
+            target_findings = [f for f in self.findings if f.get("file_path") == file_path]
+            lines.append(f"\nFILE: {file_path}")
+        
+        if target_findings:
+            lines.append("-" * 68)
+            lines.append("FINDINGS (values masked)")
+            
+            # Группировка по категориям
+            by_category = defaultdict(list)
+            for f in target_findings:
+                by_category[f.get("category", "unknown")].append(f)
+            
+            i = 0
+            for cat in sorted(by_category.keys()):
+                lines.append(f"\n  == {cat.upper()} ==")
+                for f in by_category[cat]:
+                    i += 1
+                    value = self.mask_value(f.get("value", ""))
+                    lines.append(
+                        f"  {i:>4}. [{f.get('subcategory', 'unknown'):<24}] "
+                        f"conf={f.get('confidence', 0):.2f} "
+                        f"file={f.get('file_path', '?')}"
+                    )
+                    lines.append(f"        value={value} method={f.get('detection_method', '?')}")
+        else:
+            lines.append("\nNo findings.")
+        
+        if self.failed_files:
+            lines.append("-" * 68)
+            lines.append("[FAILED TO PROCESS]")
+            for fail in self.failed_files[:50]:
+                lines.append(f"  {fail.get('path', '?')}: {fail.get('error', '?')}")
+            if len(self.failed_files) > 50:
+                lines.append(f"  ... ещё {len(self.failed_files) - 50} файлов")
+        
+        lines.append("=" * 68)
+        return "\n".join(lines)
 
 
 __all__ = ['FindingCollector']

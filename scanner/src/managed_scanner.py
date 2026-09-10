@@ -293,7 +293,12 @@ class ManagedScanner:
                 if cred_config:
                     cred_config_dict = {
                         "entropy_threshold": cred_config.entropy_threshold,
-                        "max_file_size_mb": cred_config.max_file_size_mb
+                        "min_length": cred_config.min_length,
+                        "max_file_size_mb": cred_config.max_file_size_mb,
+                        "strict_filter": cred_config.strict_filter,
+                        "confidence_threshold": cred_config.confidence_threshold,
+                        "no_generic": cred_config.no_generic,
+                        "require_mixed": cred_config.require_mixed,
                     }
                 cred.configure(cred_config_dict)
                 self.classifiers.append(cred)
@@ -347,13 +352,17 @@ class ManagedScanner:
                 "extensions": self.config.connector.extensions,
                 "max_file_size_mb": self.config.connector.max_file_size_mb or 500,
                 "recursive": self.config.connector.recursive,
-                "skip_dirs": self.config.connector.skip_dirs
+                "skip_dirs": self.config.connector.skip_dirs,
+                "buffer_size": self.config.connector.buffer_size,
+                "max_text_chars": self.config.connector.max_text_chars
             }
         return {
             "extensions": ["*"],
             "max_file_size_mb": 500,
             "recursive": True,
-            "skip_dirs": ["$Recycle.Bin", "System Volume Information", "tmp", "temp", "cache", "__pycache__", "node_modules", "venv", "logs", ".git"]
+            "skip_dirs": ["$Recycle.Bin", "System Volume Information", "tmp", "temp", "cache", "__pycache__", "node_modules", "venv", "logs", ".git"],
+            "buffer_size": 1024 * 1024,
+            "max_text_chars": 200000
         }
     
     def _get_orchestrator_config(self) -> Dict[str, Any]:

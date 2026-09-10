@@ -25,16 +25,29 @@
             "ocr_enabled": true
         },
         "credentials_classifier": {
-            "enabled": true
+            "enabled": true,
+            "entropy_threshold": 4.5,
+            "min_length": 8,
+            "max_file_size_mb": 50,
+            "strict_filter": true,
+            "confidence_threshold": 0.7,
+            "no_generic": false,
+            "require_mixed": false
         },
         "code_classifier": {
             "enabled": true
         }
     },
     "connector": {
-        "skip_dirs": ["$Recycle.Bin", "System Volume Information", "tmp", "temp", "cache", "__pycache__", "node_modules", "venv", "logs"],
+        "skip_dirs": [
+            "$Recycle.Bin", "System Volume Information", "tmp", "temp", "cache",
+            "__pycache__", "node_modules", "venv", "logs", ".git", "models",
+            "_example", "sample", "template", "examples", "samples", "templates"
+        ],
         "follow_symlinks": false,
-        "scan_hidden": true
+        "scan_hidden": true,
+        "buffer_size": 1048576,
+        "max_text_chars": 200000
     },
     "logging": {
         "level": "INFO",
