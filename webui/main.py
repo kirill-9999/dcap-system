@@ -94,5 +94,10 @@ async def page_login(request: Request):
     return templates.TemplateResponse(request, "login.html", {"page": "Вход"})
 
 
+@app.get("/health")
+async def health():
+    return {"status": "ok", "version": "3.5.0"}
+
+
 if __name__ == "__main__":
     uvicorn.run(app, host=WEBUI_HOST, port=WEBUI_PORT, reload=DEBUG)

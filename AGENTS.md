@@ -8,8 +8,8 @@ DCAP — система сканирования и аудита данных (P
 
 ## Текущий статус
 
-**Версия:** v3.5.0
-**Статус:** ✅ Windows + Linux аудит готов; ✅ Manager/WebUI унифицированы; ✅ Гибридная аутентификация (JWT+Bcrypt/SPNEGO) + роли; ✅ S3/MinIO аудит-агент; ✅ Active Directory интеграция + RBAC WebUI; ✅ Безопасность (mTLS relaxed/strict, CertificateManager, SecretsManager, CRL, docs); ✅ Архивация данных (retention, политики хранения, экспорт JSON/CSV); ✅ Интеграция Secret Scanner (FP-фильтры, префильтр, буферизация, расширенные типы, лог-отчёт); ✅ Масштабирование (PostgreSQL + Alembic, партиционирование audit_logs, Redis, Celery worker/beat, Flower, docker-compose полный стек)
+**Версия:** v3.6.0
+**Статус:** ✅ Windows + Linux аудит готов; ✅ Manager/WebUI унифицированы; ✅ Гибридная аутентификация (JWT+Bcrypt/SPNEGO) + роли; ✅ S3/MinIO аудит-агент; ✅ Active Directory интеграция + RBAC WebUI; ✅ Безопасность (mTLS relaxed/strict, CertificateManager, SecretsManager, CRL, docs); ✅ Архивация данных (retention, политики хранения, экспорт JSON/CSV); ✅ Интеграция Secret Scanner (FP-фильтры, префильтр, буферизация, расширенные типы, лог-отчёт); ✅ Масштабирование (PostgreSQL + Alembic, партиционирование audit_logs, Redis, Celery worker/beat, Flower, docker-compose полный стек); ✅ Контейнеризация и деплой (multi-stage Dockerfile, docker-compose полный стек + prod overrides, скрипты deploy/stop/logs/status/healthcheck, docs/deployment.md)
 **Следующий этап:** API-ключи для агентов / доработки по приоритету
 
 ## Релизы
@@ -29,6 +29,7 @@ DCAP — система сканирования и аудита данных (P
 | v3.3.0 | 2026-09-02 | Архивация данных (день 35): retention (RetentionPolicy/Archiver/Cleaner/Exporter), архивные таблицы, экспорт JSON/CSV, планировщик (фоновый поток вместо Celery), API /api/retention/*, WebUI настройки хранения |
 | v3.4.0 | 2026-09-09 | Интеграция Secret Scanner (день 34.5): FP-фильтры (плейсхолдеры/комментарии/дампы), префильтр одним regex, буферизованное чтение 1 МБ, расширенные типы (.pem/.key/.crt/.env/.p12/.pfx/.jks/Office), детекция кред-файлов по имени (id_rsa/.env/kubeconfig), текстовый лог-отчёт без секретов |
 | v3.5.0 | 2026-09-10 | Масштабирование (дни 36-37): PostgreSQL 16 + Alembic (партиционирование audit_logs по месяцам, архивные таблицы, миграция данных SQLite→PG), Redis (кэш/брокер/rate-limit, fail-open), Celery worker/beat + Flower (:5555), очереди audit_events/scanner_tasks/retention/reports, полный docker-compose стек одной командой |
+| v3.6.0 | 2026-09-10 | Контейнеризация и деплой (день 38): multi-stage Dockerfile (Manager/WebUI/S3/Linux-агент, непривилегированный пользователь, healthcheck), .dockerignore, docker-compose полный стек + prod overrides (лимиты, mTLS, репликация), скрипты deploy/stop/logs/status/healthcheck, docs/deployment.md |
 
 ## Запуск (локально, из корня репо)
 
@@ -54,7 +55,7 @@ python audit-agent-s3/scripts/start.sh                     # S3/MinIO аудит
 - `run_audit_agent.py <конфиг>` — Windows-агент аудита. Агент не пакет (в `audit-agent-windows/main.py` топ-уровневые импорты collector/buffer/sender), поэтому скрипт добавляет `audit-agent-windows/` в sys.path и вызывает `main.run(config)`. Runtime-данные (`data/state.json`, `data/buffer/`) создаются в `audit-agent-windows/data/` (от `config_path.parent`).
 - `run_audit_agent_linux.py` — на Windows выводит подсказку. Реальное использование Linux-агента: `cd audit-agent-linux && ./start.sh --daemon` (или `python main.py config.json`).
 
-- `Makefile`/`docker-compose` — `docker-compose.yml` создан в День 34 (Manager + WebUI + Redis + Docker Secrets + certs-тома), но **полная докеризация образов вторична**: реальный флоу — только локальный запуск (`run_all.py`). Пакет `shared/` из `manager/Dockerfile` отсутствует в репо.
+- `Makefile`/`docker-compose` — с Дня 38 docker-compose (корень) — **полный контейнерный стек**: PostgreSQL + Redis + Manager + WebUI + Celery worker/beat/flower + S3-агент (profile `agents`). Dockerfile — multi-stage для каждого компонента (`manager/Dockerfile`, `webui/Dockerfile`, `audit-agent-s3/Dockerfile`, `audit-agent-linux/Dockerfile`), `.dockerignore`. **Build-контекст Manager/WebUI/S3 — корень репо** (компоненты импортируют пакет `shared/`), для webui — `./webui`. Локальный запуск (`run_all.py`) остаётся основным флоу разработки; docker-compose — для deployment (см. `docs/deployment.md`).
 - Для сканера на Windows могут понадобиться `PYTHONUTF8=1` / `PYTHONIOENCODING=utf-8` (кириллица в консоли). Исторически используется env `/d/dev/anaconda3/python` (Git Bash) с presidio/spacy.
 
 ## Важно про WebUI и БД

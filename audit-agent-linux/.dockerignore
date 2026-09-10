@@ -1,0 +1,25 @@
+# DCAP Linux-агент — .dockerignore.
+# Контекст: audit-agent-linux/.
+
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+
+# Версии/кэши
+.git/
+.gitignore
+
+# Окружение и данные (тома монтируются из compose)
+.env
+.venv/
+data/
+logs/
+*.log
+*.db
+agent.pid
+state*.json
+
+# Служебные
+service/
+*.md

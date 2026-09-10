@@ -17,8 +17,8 @@
         }
     },
     "auth": {
-        "mode": "hybrid",
-        "jwt_secret_key": "change-me-in-production-32-chars-long",
+        "mode": "${AUTH_MODE:-hybrid}",
+        "jwt_secret_key": "${JWT_SECRET_KEY:-change-me-in-production-32-chars-long}",
         "jwt_access_ttl_minutes": 1440,
         "jwt_refresh_ttl_days": 7,
         "bcrypt_rounds": 12,
@@ -47,9 +47,9 @@
         "port": 8001
     },
     "security": {
-        "mtls_enabled": false,
-        "mtls_strict": false,
-        "certs_dir": "certs"
+        "mtls_enabled": "${MTLS_ENABLED:-false}",
+        "mtls_strict": "${MTLS_STRICT:-false}",
+        "certs_dir": "${CERTS_DIR:-certs}"
     },
     "retention": {
         "enabled": true,

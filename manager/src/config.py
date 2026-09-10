@@ -21,8 +21,17 @@ def _resolve_env(value):
         inner = value[2:-1]
         if ":-" in inner:
             var, default = inner.split(":-", 1)
-            return os.environ.get(var, default)
-        return os.environ.get(inner, value)
+            value = os.environ.get(var, default)
+        else:
+            value = os.environ.get(inner, value)
+        # Нормализация булевых значений из env-переменных
+        if isinstance(value, str):
+            low = value.strip().lower()
+            if low in ("true", "1", "yes"):
+                return True
+            if low in ("false", "0", "no"):
+                return False
+        return value
     return value
 
 

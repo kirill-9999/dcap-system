@@ -1,0 +1,51 @@
+# DCAP Manager — .dockerignore (применяется при сборке из корня репо)
+# Dockerfile: manager/Dockerfile, контекст: корень репо.
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+*.egg-info/
+
+# Версии/кэши
+.git/
+.gitignore
+
+# Окружение и секреты
+.env
+.env.*
+venv/
+.venv/
+secrets/
+cert*.pem
+cert*.key
+*.crt
+*.key
+*.csr
+
+# БД и данные (тома монтируются из compose)
+*.db
+*.sqlite
+*.sqlite3
+data/
+logs/
+*.log
+temp/
+state*.json
+*.pid
+
+# Тесты и документация (не входят в образ)
+tests/
+prompts/
+docs/
+*.md
+!manager/README.md
+
+# Локальные артефакты
+manager/dcap.db
+manager/src/db/dcap.db

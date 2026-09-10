@@ -64,6 +64,21 @@ docker compose up -d     # postgres(5432) + redis(6379) + manager(8000) + webui(
 
 Локальный запуск (без Docker) остаётся прежним: SQLite + без RabbitMQ/Celery (асинхронные задачи опциональны).
 
+## Контейнеризация и деплой (День 38)
+
+Полная контейнеризация всех компонентов — одна команда поднимает весь стек.
+
+```bash
+cp .env.example .env    # настроить пароли и ключи
+./scripts/deploy.sh     # сборка образов + запуск всех сервисов + healthcheck
+```
+
+- **Dockerfile** (multi-stage, непривилегированный пользователь, healthcheck): `manager/` (Manager + Celery worker/beat), `webui/`, `audit-agent-s3/`, `audit-agent-linux/`; `.dockerignore` для каждого (build-контекст Manager/WebUI/S3 — корень репо, т.к. нужен пакет `shared/` и корневой `requirements.txt`).
+- **docker-compose.yml** — полный стек: postgres(5432) + redis(6379) + manager(8000) + webui(8001) + celery worker/beat + flower(5555). S3-агент — profile `agents`: `docker compose --profile agents up -d`.
+- **docker-compose.prod.yml** — production overrides (лимиты CPU/RAM, mTLS, репликация worker).
+- **Скрипты**: `scripts/deploy.sh`, `stop.sh`, `logs.sh`, `status.sh`, `healthcheck.sh`.
+- **Документация**: `docs/deployment.md`.
+
 ## Архитектура
 
 ```
@@ -104,6 +119,7 @@ docker compose up -d     # postgres(5432) + redis(6379) + manager(8000) + webui(
 | v3.3.0 | Архивация данных: retention, политики хранения, экспорт JSON/CSV, WebUI настройки хранения |
 | v3.4.0 | Интеграция Secret Scanner (FP-фильтры, префильтр, буферизация, расширенные типы, лог-отчёт) |
 | v3.5.0 | Масштабирование: PostgreSQL + Alembic, партиционирование audit_logs, Redis (кэш/брокер/rate-limit), Celery worker/beat + Flower, docker-compose полный стек |
+| v3.6.0 | Контейнеризация и деплой: multi-stage Dockerfile для Manager/WebUI/S3/Linux-агент, .dockerignore, docker-compose полный стек + prod overrides, скрипты deploy/stop/logs/status/healthcheck, docs/deployment.md |
 
 ## Требования
 

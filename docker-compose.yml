@@ -1,150 +1,212 @@
-# DCAP System — основной docker-compose (production)
-# NOTE: используется только для deployment-сценариев. Локальный запуск —
-# через run_all.py / run_manager.py / run_webui.py (см. AGENTS.md).
+# DCAP System — полный стек (День 38)
+# Деплой одной командой: docker compose up -d
+# Production overrides: docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
 #
-# Стек (День 36-37): PostgreSQL 16 + Redis 7 + Manager + WebUI +
-# Celery worker / beat / flower (:5555).
+# Агенты (S3/MinIO) запускаются через profile: agents
+#   docker compose --profile agents up -d
+#
+# Build-контекст manager/worker/beat/s3 — КОРЕНЬ репо (пакет shared/ + root requirements.txt).
 
-secrets:
-  jwt_secret_key:
-    file: ./secrets/jwt_secret_key.txt
-  db_password:
-    file: ./secrets/db_password.txt
-  ad_service_password:
-    file: ./secrets/ad_service_password.txt
+x-logging: &default-logging
+  driver: "json-file"
+  options:
+    max-size: "100m"
+    max-file: "3"
+
+x-restart: &default-restart
+  restart: unless-stopped
 
 services:
+  # ===== БАЗА ДАННЫХ =====
   postgres:
     image: postgres:16-alpine
     container_name: dcap-postgres
     environment:
-      - POSTGRES_DB=${POSTGRES_DB:-dcap}
-      - POSTGRES_USER=${POSTGRES_USER:-dcap}
-      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-dcap123}
+      POSTGRES_DB: ${POSTGRES_DB:-dcap}
+      POSTGRES_USER: ${POSTGRES_USER:-dcap}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-dcap123}
     volumes:
-      - pg_data:/var/lib/postgresql/data
+      - postgres_data:/var/lib/postgresql/data
     ports:
-      - "5432:5432"
+      - "${POSTGRES_PORT:-5432}:5432"
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-dcap} -d ${POSTGRES_DB:-dcap}"]
-      interval: 5s
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-dcap}"]
+      interval: 10s
       timeout: 5s
-      retries: 10
+      retries: 5
+    <<: *default-restart
+    logging: *default-logging
+    networks:
+      - dcap-network
 
+  # ===== REDIS =====
   redis:
     image: redis:7-alpine
     container_name: dcap-redis
-    command: ["redis-server", "--requirepass", "$${REDIS_PASSWORD}"]
-    environment:
-      - REDIS_PASSWORD=${REDIS_PASSWORD:-redis123}
+    command: redis-server --requirepass ${REDIS_PASSWORD:-redis123} --appendonly yes
     volumes:
       - redis_data:/data
     ports:
-      - "6379:6379"
+      - "${REDIS_PORT:-6379}:6379"
     healthcheck:
-      test: ["CMD", "redis-cli", "-a", "$REDIS_PASSWORD", "ping"]
-      interval: 5s
+      test: ["CMD", "redis-cli", "--raw", "incr", "ping"]
+      interval: 10s
       timeout: 5s
-      retries: 10
+      retries: 5
+    <<: *default-restart
+    logging: *default-logging
+    networks:
+      - dcap-network
 
+  # ===== MANAGER =====
   manager:
     build:
       context: .
       dockerfile: manager/Dockerfile
+    image: dcap/manager:${VERSION:-3.5.0}
     container_name: dcap-manager
-    ports:
-      - "8000:8000"
-    volumes:
-      - ./certs/manager:/app/certs/manager:ro
-      - ./certs/ca:/app/certs/ca:ro
-      - ./certs/crl:/app/certs/crl:ro
     environment:
-      - DATABASE_URL=postgresql://${POSTGRES_USER:-dcap}:${POSTGRES_PASSWORD:-dcap123}@postgres:5432/${POSTGRES_DB:-dcap}
-      - REDIS_URL=redis://:${REDIS_PASSWORD:-redis123}@redis:6379/0
-      - MTLS_ENABLED=true
-      - CERT_PATH=/app/certs/manager/manager.crt
-      - KEY_PATH=/app/certs/manager/manager.key
-      - CA_PATH=/app/certs/ca/ca.crt
-      - JWT_SECRET_KEY_FILE=/run/secrets/jwt_secret_key
-      - DB_PASSWORD_FILE=/run/secrets/db_password
-      - AD_SERVICE_PASSWORD_FILE=/run/secrets/ad_service_password
-    secrets:
-      - jwt_secret_key
-      - db_password
-      - ad_service_password
+      DATABASE_URL: postgresql://${POSTGRES_USER:-dcap}:${POSTGRES_PASSWORD:-dcap123}@postgres:5432/${POSTGRES_DB:-dcap}
+      REDIS_URL: redis://:${REDIS_PASSWORD:-redis123}@redis:6379/0
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-redis123}
+      JWT_SECRET_KEY: ${JWT_SECRET_KEY:-change-me-in-production}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+    volumes:
+      - ./manager/certs:/app/certs:ro
+      - manager_data:/app/data
+      - manager_logs:/app/logs
+    ports:
+      - "${MANAGER_PORT:-8000}:8000"
     depends_on:
       postgres:
         condition: service_healthy
       redis:
         condition: service_healthy
+    <<: *default-restart
+    logging: *default-logging
+    networks:
+      - dcap-network
 
-  webui:
-    build:
-      context: .
-      dockerfile: webui/Dockerfile
-    container_name: dcap-webui
-    ports:
-      - "8001:8001"
-    volumes:
-      - ./certs/webui:/app/certs/webui:ro
-      - ./certs/ca:/app/certs/ca:ro
-    environment:
-      - MANAGER_URL=${MANAGER_URL:-http://manager:8000}
-      - MTLS_ENABLED=true
-      - CERT_PATH=/app/certs/webui/webui.crt
-      - KEY_PATH=/app/certs/webui/webui.key
-      - CA_PATH=/app/certs/ca/ca.crt
-    depends_on:
-      - manager
-
+  # ===== CELERY WORKER =====
   celery_worker:
     build:
       context: .
       dockerfile: manager/Dockerfile
-    container_name: dcap-celery-worker
-    command: celery -A manager.src.workers.celery_app:app worker --loglevel=INFO --queues=audit_events,scanner_tasks,retention,reports --concurrency=2
-    volumes:
-      - ./certs/ca:/app/certs/ca:ro
+    image: dcap/manager:${VERSION:-3.5.0}
     environment:
-      - DATABASE_URL=postgresql://${POSTGRES_USER:-dcap}:${POSTGRES_PASSWORD:-dcap123}@postgres:5432/${POSTGRES_DB:-dcap}
-      - REDIS_URL=redis://:${REDIS_PASSWORD:-redis123}@redis:6379/0
-      - JWT_SECRET_KEY_FILE=/run/secrets/jwt_secret_key
-    secrets:
-      - jwt_secret_key
+      DATABASE_URL: postgresql://${POSTGRES_USER:-dcap}:${POSTGRES_PASSWORD:-dcap123}@postgres:5432/${POSTGRES_DB:-dcap}
+      REDIS_URL: redis://:${REDIS_PASSWORD:-redis123}@redis:6379/0
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-redis123}
+      JWT_SECRET_KEY: ${JWT_SECRET_KEY:-change-me-in-production}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+    command: celery -A manager.src.workers.celery_app:app worker -Q audit_events,scanner_tasks,retention,reports -c 4 --loglevel=info
     depends_on:
       postgres:
         condition: service_healthy
       redis:
         condition: service_healthy
+    <<: *default-restart
+    logging: *default-logging
+    networks:
+      - dcap-network
 
+  # ===== CELERY BEAT =====
   celery_beat:
     build:
       context: .
       dockerfile: manager/Dockerfile
+    image: dcap/manager:${VERSION:-3.5.0}
     container_name: dcap-celery-beat
-    command: celery -A manager.src.workers.celery_app:app beat --loglevel=INFO
     environment:
-      - REDIS_URL=redis://:${REDIS_PASSWORD:-redis123}@redis:6379/0
-    secrets:
-      - jwt_secret_key
+      REDIS_URL: redis://:${REDIS_PASSWORD:-redis123}@redis:6379/0
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-redis123}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+    command: celery -A manager.src.workers.celery_app:app beat --loglevel=info
     depends_on:
-      redis:
-        condition: service_healthy
+      - redis
+    <<: *default-restart
+    logging: *default-logging
+    networks:
+      - dcap-network
 
+  # ===== FLOWER =====
   celery_flower:
+    image: mher/flower:latest
+    container_name: dcap-flower
+    environment:
+      CELERY_BROKER_URL: redis://:${REDIS_PASSWORD:-redis123}@redis:6379/0
+      FLOWER_PORT: 5555
+    ports:
+      - "${FLOWER_PORT:-5555}:5555"
+    depends_on:
+      - redis
+    <<: *default-restart
+    logging: *default-logging
+    networks:
+      - dcap-network
+
+  # ===== WEBUI =====
+  webui:
+    build:
+      context: ./webui
+      dockerfile: Dockerfile
+    image: dcap/webui:${VERSION:-3.5.0}
+    container_name: dcap-webui
+    environment:
+      MANAGER_URL: http://manager:8000
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+    ports:
+      - "${WEBUI_PORT:-8001}:8001"
+    depends_on:
+      manager:
+        condition: service_healthy
+    <<: *default-restart
+    logging: *default-logging
+    networks:
+      - dcap-network
+
+  # ===== S3 AGENT (MinIO/S3) =====
+  s3_agent:
     build:
       context: .
-      dockerfile: manager/Dockerfile
-    container_name: dcap-celery-flower
-    command: celery -A manager.src.workers.celery_app:app flower --port=5555 --loglevel=INFO
-    ports:
-      - "5555:5555"
+      dockerfile: audit-agent-s3/Dockerfile
+    image: dcap/s3-agent:${VERSION:-3.5.0}
+    container_name: dcap-s3-agent
     environment:
-      - REDIS_URL=redis://:${REDIS_PASSWORD:-redis123}@redis:6379/0
+      S3_ENDPOINT: ${S3_ENDPOINT:-https://s3.amazonaws.com}
+      S3_BUCKET: ${S3_BUCKET:-dcap-logs}
+      S3_ACCESS_KEY: ${S3_ACCESS_KEY}
+      S3_SECRET_KEY: ${S3_SECRET_KEY}
+      MANAGER_URL: http://manager:8000
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+    volumes:
+      - s3_agent_data:/app/audit-agent-s3/data
+      - s3_agent_logs:/app/audit-agent-s3/logs
     depends_on:
-      redis:
+      manager:
         condition: service_healthy
+    profiles:
+      - agents
+    <<: *default-restart
+    logging: *default-logging
+    networks:
+      - dcap-network
+
+networks:
+  dcap-network:
+    driver: bridge
+    name: dcap-network
 
 volumes:
+  postgres_data:
+    name: dcap-postgres-data
   redis_data:
-  pg_data:
+    name: dcap-redis-data
+  manager_data:
+    name: dcap-manager-data
+  manager_logs:
+    name: dcap-manager-logs
+  s3_agent_data:
+    name: dcap-s3-agent-data
+  s3_agent_logs:
+    name: dcap-s3-agent-logs

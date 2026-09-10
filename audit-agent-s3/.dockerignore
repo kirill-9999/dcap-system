@@ -1,0 +1,35 @@
+# DCAP S3-агент — .dockerignore.
+# Применяется при сборке из корня репо (контекст: корень).
+
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Версии/кэши
+.git/
+.gitignore
+
+# Окружение и секреты
+.env
+.env.*
+venv/
+.venv/
+
+# БД, данные и логи (тома монтируются из compose)
+*.db
+*.sqlite
+data/
+logs/
+*.log
+temp/
+agent.pid
+state*.json
+
+# Тесты и документация
+tests/
+docs/
+*.md
+!audit-agent-s3/README.md
