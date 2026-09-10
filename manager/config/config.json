@@ -6,6 +6,16 @@
     "database": {
         "url": "sqlite:///manager/dcap.db"
     },
+    "redis": {
+        "url": "${REDIS_URL:-redis://localhost:6379/0}",
+        "password": "${REDIS_PASSWORD:-}",
+        "enabled": "${REDIS_ENABLED:-true}",
+        "cache_ttl": 300,
+        "rate_limit": {
+            "max_requests": 300,
+            "window_seconds": 60
+        }
+    },
     "auth": {
         "mode": "hybrid",
         "jwt_secret_key": "change-me-in-production-32-chars-long",

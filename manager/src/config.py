@@ -38,6 +38,13 @@ def _deep_merge(base, override):
 _defaults = {
     "server": {"host": "127.0.0.1", "port": 8000},
     "database": {"url": "sqlite:///manager/dcap.db"},
+    "redis": {
+        "url": "${REDIS_URL:-redis://localhost:6379/0}",
+        "password": "${REDIS_PASSWORD:-}",
+        "enabled": "${REDIS_ENABLED:-true}",
+        "cache_ttl": 300,
+        "rate_limit": {"max_requests": 300, "window_seconds": 60},
+    },
     "auth": {
         "mode": "${AUTH_MODE:-local}",
         "jwt_secret_key": "${JWT_SECRET_KEY:-change-me-in-production-32-chars-long}",

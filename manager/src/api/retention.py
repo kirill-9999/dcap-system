@@ -9,7 +9,6 @@ from ..db.session import get_db
 from ..retention.policies import RetentionPolicy
 from ..retention.exporter import Exporter
 from ..retention.runtime import run_retention
-from ..retention.scheduler import start_scheduler
 from ..retention import state
 from ..auth.dependencies import require_admin
 from ..auth.models import User
@@ -54,9 +53,20 @@ def get_retention_status(_: User = Depends(require_admin)):
 
 @router.post("/start")
 def start_retention_scheduler(_: User = Depends(require_admin)):
-    """Запуск фонового планировщика архивации."""
-    thread = start_scheduler()
-    return {"status": "started", "scheduler": thread.name if thread else None}
+    """Постановка прогона архивации в очередь Celery (retention).
+
+    День 36-37: фоновый планировщик заменён Celery Beat; этот эндпоинт
+    отправляет задачу run_retention в очередь для немедленного выполнения.
+    Если Celery недоступен — возвращает 503 (Manager работает, но задача
+    не выполнится без worker'а).
+    """
+    try:
+        from ..workers.tasks import run_retention as run_retention_task
+
+        result = run_retention_task.delay(dry_run=False)
+        return {"status": "queued", "task_id": result.id}
+    except Exception:
+        raise HTTPException(503, "Celery broker unavailable")
 
 
 @router.post("/export")

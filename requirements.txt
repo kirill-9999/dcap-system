@@ -5,9 +5,15 @@ uvicorn[standard]>=0.24.0
 # База данных
 sqlalchemy>=2.0.0
 aiosqlite>=0.19.0
+alembic>=1.13.0
+psycopg2-binary>=2.9.0
 
 # HTTP клиент для Scanner
 requests>=2.31.0
+
+# Очереди и фоновые задачи (День 36-37)
+celery>=5.3.0
+redis>=5.0.0
 
 # Дополнительно
 python-multipart>=0.0.6
@@ -23,7 +29,6 @@ pyspnego>=0.10.0
 
 # Active Directory (День 33)
 ldap3>=2.9.1
-redis>=5.0.0
 
 # Безопасность / mTLS (День 34)
 cryptography>=42.0.0

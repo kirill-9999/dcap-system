@@ -25,7 +25,7 @@ from manager.src.db import session
 app = FastAPI(
     title="DCAP System Manager",
     description="Data-Centric Audit and Protection System",
-    version="3.3.0",
+    version="3.5.0",
 )
 
 # CORS
@@ -108,13 +108,29 @@ app.include_router(auth_router)
 
 
 # ============================================================
+# RATE LIMITING (День 36-37): общий лимит /api/* с Redis-бэкендом
+# и fail-open in-memory fallback. Добавляем ПЕРЕД CORS-порядком не
+# критично — starlette применяет middleware в обратном порядке.
+# ============================================================
+
+from manager.src.core.rate_limit import RateLimitMiddleware  # noqa: E402
+
+_redis_cfg = _config.get("redis", {})
+app.add_middleware(
+    RateLimitMiddleware,
+    max_requests=_redis_cfg.get("rate_limit", {}).get("max_requests", 300),
+    window_seconds=_redis_cfg.get("rate_limit", {}).get("window_seconds", 60),
+)
+
+
+# ============================================================
 # API ЭНДПОИНТЫ
 # ============================================================
 
 
 @app.get("/api/health")
 async def health_check():
-    return {"status": "healthy", "version": "3.3.0"}
+    return {"status": "healthy", "version": "3.5.0"}
 
 
 @app.post("/api/folders/pick")
@@ -161,13 +177,19 @@ async def on_startup():
     except Exception as e:
         print(f"[auth] Ошибка инициализации ролей: {e}")
 
-    # День 35: периодическая архивация данных (фоновый поток вместо Celery)
+    # День 36-37: проверка Redis (fail-open). Фоновый планировщик removal:
+    # периодическая архивация теперь выполняется Celery Beat (очередь retention),
+    # scheduler.py удалён из retention/.
     try:
-        from manager.src.retention.scheduler import start_scheduler
+        from manager.src.cache.redis_client import get_redis
 
-        start_scheduler()
+        redis = get_redis()
+        if redis.available:
+            print(f"[redis] Redis OK ({redis.url})")
+        else:
+            print("[redis] Redis unavailable — no-op mode (fail-open)")
     except Exception as e:
-        print(f"[retention] Ошибка запуска планировщика: {e}")
+        print(f"[redis] Ошибка инициализации: {e}")
 
 
 if __name__ == "__main__":

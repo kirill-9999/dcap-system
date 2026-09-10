@@ -40,6 +40,30 @@ cd audit-agent-linux && ./start.sh --daemon
 cd audit-agent-s3 && python -m src.main --config config/config.json
 ```
 
+## Масштабирование (День 36-37): PostgreSQL + Redis + Celery
+
+Production-стек поднимается одной командой:
+
+```bash
+docker compose up -d     # postgres(5432) + redis(6379) + manager(8000) + webui(8001) + celery worker/beat + flower(5555)
+```
+
+- **PostgreSQL 16** — основная БД (`postgres:16-alpine`). Миграции — Alembic:
+  ```bash
+  alembic upgrade head
+  python scripts/migrate_sqlite_to_postgres.py  # перенос данных из SQLite (все таблицы + архивы)
+  ```
+- **Партиционирование** `audit_logs` по месяцам (RANGE on `created_at`), создаётся миграцией `001_initial_postgres` для PostgreSQL; SQLite-режим не затронут.
+- **Redis 7** — брокер Celery + кэш + rate-limit. При недоступности Redis Manager работает в no-op режиме (rate-limit fail-open в памяти).
+- **Celery** — очереди: `audit_events`, `scanner_tasks`, `retention`, `reports`. Периодическая архивация — Celery Beat (заменила фоновый поток дня 35).
+  ```bash
+  celery -A manager.src.workers.celery_app:app worker --queues=audit_events,scanner_tasks,retention,reports
+  celery -A manager.src.workers.celery_app:app beat
+  ```
+- **Flower** — мониторинг задач на :5555.
+
+Локальный запуск (без Docker) остаётся прежним: SQLite + без RabbitMQ/Celery (асинхронные задачи опциональны).
+
 ## Архитектура
 
 ```
@@ -54,7 +78,7 @@ cd audit-agent-s3 && python -m src.main --config config/config.json
                     └─────────────┘
 ```
 
-- **Manager** — REST API, прием событий от агентов, хранение в SQLite
+- **Manager** — REST API, прием событий от агентов, хранение в PostgreSQL (или SQLite в dev-режиме)
 - **WebUI** — дашборд с фильтрацией по источнику (Windows/Linux), удаление агентов/сканеров. Все `/api/*` запросы проксируются в Manager (нет прямого доступа к БД)
 - **Агенты** — легкие компоненты, буферизуют события в SQLite, отправляют батчами
 
@@ -76,9 +100,14 @@ cd audit-agent-s3 && python -m src.main --config config/config.json
 | v2.1.0 | Linux-агент + унифицированный формат + WebUI фильтр |
 | v3.0.0 | Унификация Manager и WebUI: WebUI — Jinja2 + прокси API на Manager, конфиги портов, run_all.py |
 | v3.1.0 | Гибридная аутентификация (JWT+Bcrypt/SPNEGO) + роли; S3/MinIO агент аудита (polling, буфер, heartbeat, JWT); Windows + Linux аудит |
+| v3.2.0 | Безопасность: mTLS (relaxed/strict), CertificateManager, SecretsManager, CRL, generate_certs.py/rotate_certs.py |
+| v3.3.0 | Архивация данных: retention, политики хранения, экспорт JSON/CSV, WebUI настройки хранения |
+| v3.4.0 | Интеграция Secret Scanner (FP-фильтры, префильтр, буферизация, расширенные типы, лог-отчёт) |
+| v3.5.0 | Масштабирование: PostgreSQL + Alembic, партиционирование audit_logs, Redis (кэш/брокер/rate-limit), Celery worker/beat + Flower, docker-compose полный стек |
 
 ## Требования
 
 - Python 3.8+
 - Windows: wevtutil (встроен), права администратора для аудита
 - Linux: watchdog, optional: paramiko (SSH-мониторинг)
+- Production: Docker (PostgreSQL 16, Redis 7)

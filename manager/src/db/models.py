@@ -1,6 +1,6 @@
 # manager/src/db/models.py
 
-from sqlalchemy import Column, Integer, String, DateTime, Boolean, ForeignKey, Text, JSON, Float
+from sqlalchemy import Column, Integer, String, DateTime, Boolean, ForeignKey, Text, JSON, Float, Index
 from sqlalchemy.orm import relationship
 from sqlalchemy.ext.declarative import declarative_base
 from datetime import datetime
@@ -393,6 +393,13 @@ class AuditAgent(Base):
 class AuditLog(Base):
     __tablename__ = "audit_logs"
 
+    # Индексы для поиска. Партиционирование audit_logs по месяцам выполняется
+    # на PostgreSQL через Alembic-миграцию (001_initial_postgres.py):
+    # на SQLite DDL PARTITION OF не применяется, поэтому здесь только индексы.
+    __table_args__ = (
+        Index("idx_audit_source_created", "event_source", "created_at"),
+    )
+
     id = Column(Integer, primary_key=True)
     agent_id = Column(Integer, ForeignKey("audit_agents.id"), nullable=True, index=True)
 
@@ -505,3 +512,65 @@ __all__ = [
     "AuditLogArchive",
     "FindingArchive",
 ]
+
+
+def create_monthly_partition(engine, year: int, month: int) -> str:
+    """Создание партиции audit_logs для указанного месяца (PostgreSQL).
+
+    Возвращает имя созданной партиции. На SQLite — no-op.
+    """
+    if engine.dialect.name != "postgresql":
+        return ""
+    from sqlalchemy import text
+
+    partition_name = f"audit_logs_{year}_{month:02d}"
+    start_date = f"{year}-{month:02d}-01"
+    end_month = month + 1
+    end_year = year
+    if end_month > 12:
+        end_month = 1
+        end_year = year + 1
+    end_date = f"{end_year}-{end_month:02d}-01"
+
+    with engine.begin() as conn:
+        conn.execute(
+            text(
+                f"""
+                CREATE TABLE IF NOT EXISTS {partition_name} PARTITION OF audit_logs
+                FOR VALUES FROM ('{start_date}') TO ('{end_date}')
+                """
+            )
+        )
+    return partition_name
+
+
+def ensure_audit_log_partitions(engine, months_ahead: int = 12) -> list:
+    """Создание партиций аудита на текущий месяц + N вперёд (PostgreSQL).
+
+    SQLite — возвращает пустой список (партиционирование недоступно).
+    """
+    if engine.dialect.name != "postgresql":
+        return []
+    from datetime import date
+    from sqlalchemy import text
+
+    # Проверяем, что audit_logs — партиционированная таблица
+    # (иначе DDL «PARTITION OF» упадёт).
+    with engine.connect() as conn:
+        is_partitioned = conn.execute(
+            text(
+                "SELECT 1 FROM pg_partitioned_table "
+                "WHERE partrelid = to_regclass('audit_logs')"
+            )
+        ).fetchone()
+    if not is_partitioned:
+        return []
+
+    created = []
+    today = date.today()
+    year, month = today.year, today.month
+    for i in range(months_ahead + 1):
+        y = year + (month - 1 + i) // 12
+        m = (month - 1 + i) % 12 + 1
+        created.append(create_monthly_partition(engine, y, m))
+    return created

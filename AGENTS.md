@@ -8,8 +8,8 @@ DCAP — система сканирования и аудита данных (P
 
 ## Текущий статус
 
-**Версия:** v3.4.0
-**Статус:** ✅ Windows + Linux аудит готов; ✅ Manager/WebUI унифицированы; ✅ Гибридная аутентификация (JWT+Bcrypt/SPNEGO) + роли; ✅ S3/MinIO аудит-агент; ✅ Active Directory интеграция + RBAC WebUI; ✅ Безопасность (mTLS relaxed/strict, CertificateManager, SecretsManager, CRL, docs); ✅ Архивация данных (retention, политики хранения, экспорт JSON/CSV); ✅ Интеграция Secret Scanner (FP-фильтры, префильтр, буферизация, расширенные типы, лог-отчёт)
+**Версия:** v3.5.0
+**Статус:** ✅ Windows + Linux аудит готов; ✅ Manager/WebUI унифицированы; ✅ Гибридная аутентификация (JWT+Bcrypt/SPNEGO) + роли; ✅ S3/MinIO аудит-агент; ✅ Active Directory интеграция + RBAC WebUI; ✅ Безопасность (mTLS relaxed/strict, CertificateManager, SecretsManager, CRL, docs); ✅ Архивация данных (retention, политики хранения, экспорт JSON/CSV); ✅ Интеграция Secret Scanner (FP-фильтры, префильтр, буферизация, расширенные типы, лог-отчёт); ✅ Масштабирование (PostgreSQL + Alembic, партиционирование audit_logs, Redis, Celery worker/beat, Flower, docker-compose полный стек)
 **Следующий этап:** API-ключи для агентов / доработки по приоритету
 
 ## Релизы
@@ -28,6 +28,7 @@ DCAP — система сканирования и аудита данных (P
 | v3.2.0 | 2026-09-02 | Безопасность (день 34): mTLS (relaxed/strict), CertificateManager, SecretsManager, CRL, generate_certs.py/rotate_certs.py, docker-compose.yml+secrets, SECURITY.md |
 | v3.3.0 | 2026-09-02 | Архивация данных (день 35): retention (RetentionPolicy/Archiver/Cleaner/Exporter), архивные таблицы, экспорт JSON/CSV, планировщик (фоновый поток вместо Celery), API /api/retention/*, WebUI настройки хранения |
 | v3.4.0 | 2026-09-09 | Интеграция Secret Scanner (день 34.5): FP-фильтры (плейсхолдеры/комментарии/дампы), префильтр одним regex, буферизованное чтение 1 МБ, расширенные типы (.pem/.key/.crt/.env/.p12/.pfx/.jks/Office), детекция кред-файлов по имени (id_rsa/.env/kubeconfig), текстовый лог-отчёт без секретов |
+| v3.5.0 | 2026-09-10 | Масштабирование (дни 36-37): PostgreSQL 16 + Alembic (партиционирование audit_logs по месяцам, архивные таблицы, миграция данных SQLite→PG), Redis (кэш/брокер/rate-limit, fail-open), Celery worker/beat + Flower (:5555), очереди audit_events/scanner_tasks/retention/reports, полный docker-compose стек одной командой |
 
 ## Запуск (локально, из корня репо)
 
@@ -67,6 +68,23 @@ Manager и WebUI работают с **одной** БД — `manager/dcap.db` (
 - Конфиги: `manager/config/config.json` (секция `server` host/port) и `webui/config/config.json` (секции `server`, `manager.url`, `database`, `logging`). `webui/config.py` — загрузчик со слиянием дефолтов, `utf-8-sig`, env-приоритет.
 
 Копировать `manager/src/db/dcap.db` не нужно. Корневой `dcap.db` — устаревший/легаси, не трогать.
+
+## База данных (Дни 36-37): PostgreSQL + Alembic
+
+- **SQLite** — основной dev-режим (`manager/config/config.json` → `database.url`, дефолт `sqlite:///manager/dcap.db`). Партиционирование и Celery при этом не используются.
+- **PostgreSQL 16** — production (`DATABASE_URL` env-переменная, приоритет → config → sqlite-дефолт). `manager/src/db/session.py` на PG включает пул: `pool_size=10`, `max_overflow=20`, `pool_pre_ping=True`, `pool_recycle=3600`. Pubstats — `get_pool_stats()`.
+- **Миграции**: `alembic.ini` (корень) + `manager/src/db/migrations/` (`env.py`, `script.py.mako`, `versions/001_initial_postgres.py`). Запуск: `alembic upgrade head` (из корня репо). Модели подтягиваются из `manager.src.db.models` + `auth.models`. URL берётся из `DATABASE_URL` → config → `sqlalchemy.url`.
+- **Партиционирование**: `audit_logs` — RANGE (created_at), месячные партиции + default, создаётся миграцией `001_initial_postgres` (только PG; SQLite не затронут). Хелперы — `manager/src/db/models.py`: `create_monthly_partition()`/`ensure_audit_log_partitions()` (вызываются в `init_db()` после create_all; проверяют, что таблица реально партиционированная).
+- ВАЖНО для PG: сначала `alembic upgrade head`, потом `python scripts/migrate_sqlite_to_postgres.py` (перенос ВСЕХ таблиц, включая архивные), потом запуск Manager. `init_db()` create_all пропускает существующие таблицы.
+
+## Redis + Celery (Дни 36-37)
+
+- **Redis** (`manager/src/cache/redis_client.py`): кэш/rate-limit/брокер. Конфиг — секция `redis` в config.json (`url`, `password`, `enabled`, `cache_ttl`, `rate_limit.{max_requests,window_seconds}`), env `REDIS_URL`/`REDIS_PASSWORD`/`REDIS_ENABLED`. **No-op/fail-open**: нет Redis — методы возвращают дефолт, Manager работает.
+- **Rate-limit** (`manager/src/core/rate_limit.py`): `RateLimitMiddleware` для всех `/api/*` (кроме `/api/health`), добавлен в `manager/src/main.py`. Redis-счётчики или in-memory fallback. При 429 — JSON `{"detail":"Too many requests"}`.
+- **Celery** (`manager/src/workers/`): `celery_app.py` (app, broker = Redis, task_routes), `tasks.py` (10 задач), `beat_schedule.py` (Beat-расписание: retention 03:00, sweep сканера */2ч, ротация логов 03:30). Очереди: `audit_events`, `scanner_tasks`, `retention`, `reports`.
+- `manager/src/retention/scheduler.py` **удалён** (фоновый поток убран). Периодическая архивация — Celery Beat (`run_retention` в очередь retention). `POST /api/retention/start` теперь отправляет задачу в Celery (503, если брокер недоступен).
+- Запуск: `celery -A manager.src.workers.celery_app:app worker --queues=audit_events,scanner_tasks,retention,reports`, `celery -A manager.src.workers.celery_app:app beat`, Flower: `celery -A manager.src.workers.celery_app:app flower --port=5555`.
+- **docker-compose.yml**: postgres(5432, healthcheck) + redis(6379) + manager(8000) + webui(8001) + celery_worker + celery_beat + celery_flower(5555). `docker compose up -d` поднимает весь стек.
 
 ## Импорты — два стиля, не смешивать
 
