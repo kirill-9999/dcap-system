@@ -13,7 +13,8 @@ services:
       POSTGRES_USER: dcap_test
       POSTGRES_PASSWORD: dcap_test
     ports: ["15432:5432"]
-    tmpfs: /var/lib/postgresql/data  # быстро, без persistence
+    volumes:
+      - postgres_test_data:/var/lib/postgresql/data  # переживает stop/start (chaos-тесты)
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U dcap_test"]
       interval: 5s
@@ -39,6 +40,8 @@ services:
       REDIS_URL: redis://redis_test:6379/0
       AUTH_MODE: local
       MTLS_ENABLED: "false"
+      RATE_LIMIT_MAX_REQUESTS: "100000"
+      AUTH_LOGIN_MAX_ATTEMPTS: "100000"
     ports: ["18000:8000"]
     depends_on:
       postgres_test: { condition: service_healthy }
@@ -57,3 +60,6 @@ services:
 networks:
   default:
     name: dcap-test-network
+
+volumes:
+  postgres_test_data:

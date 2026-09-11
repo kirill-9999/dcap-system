@@ -1,11 +1,13 @@
 # tests/load/test_agents_load.py
 import concurrent.futures
+import os
 import time
 import uuid
 
 import pytest
 
 AGENT_NAME = f"load-agent-{uuid.uuid4().hex[:8]}"
+_TIMEOUT = (5, 300)
 
 
 def _make_event(i):
@@ -27,13 +29,14 @@ def test_10000_events(api_client, manager_url):
     r = api_client.post(
         f"{manager_url}/api/audit/agents/register",
         json={"name": AGENT_NAME, "hostname": "load-test-host", "version": "3.7.0"},
+        timeout=_TIMEOUT,
     )
     assert r.status_code in (200, 201), f"Register failed: {r.text}"
     agent_id = r.json().get("agent_id")
     assert agent_id
 
     # 2. Отправляем батчами по 100
-    N = 10000
+    N = int(os.getenv("DCAP_LOAD_EVENTS", "10000"))
     BATCH = 100
     errors = []
     saved = []
@@ -44,6 +47,7 @@ def test_10000_events(api_client, manager_url):
             r = api_client.post(
                 f"{manager_url}/api/audit/events",
                 json={"agent_id": agent_id, "events": events},
+                timeout=_TIMEOUT,
             )
             if r.status_code >= 500:
                 errors.append(r.status_code)

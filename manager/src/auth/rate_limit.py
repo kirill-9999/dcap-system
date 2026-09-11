@@ -1,4 +1,5 @@
 # manager/src/auth/rate_limit.py
+import os
 import time
 from collections import defaultdict
 from typing import Dict, List
@@ -6,10 +7,13 @@ from fastapi import HTTPException
 
 # Простой in-memory rate limiter по ключу (IP имя пользователя).
 # В production — заменить на Redis/более строгий механизм.
+# Лимит настраивается через env (для тестов и высоконагруженных deploy).
+_LOGIN_MAX_ATTEMPTS = int(os.getenv("AUTH_LOGIN_MAX_ATTEMPTS", "5"))
+_LOGIN_WINDOW_SECONDS = int(os.getenv("AUTH_LOGIN_WINDOW_SECONDS", "60"))
 
 
 class RateLimiter:
-    def __init__(self, max_attempts: int = 5, window_seconds: int = 60):
+    def __init__(self, max_attempts: int = _LOGIN_MAX_ATTEMPTS, window_seconds: int = _LOGIN_WINDOW_SECONDS):
         self.max_attempts = max_attempts
         self.window_seconds = window_seconds
         self._attempts: Dict[str, List[float]] = defaultdict(list)

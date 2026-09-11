@@ -1,4 +1,5 @@
 # manager/src/main.py
+import os
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -120,10 +121,11 @@ app.include_router(auth_router)
 from manager.src.core.rate_limit import RateLimitMiddleware  # noqa: E402
 
 _redis_cfg = _config.get("redis", {})
+_rl = _redis_cfg.get("rate_limit", {})
 app.add_middleware(
     RateLimitMiddleware,
-    max_requests=_redis_cfg.get("rate_limit", {}).get("max_requests", 300),
-    window_seconds=_redis_cfg.get("rate_limit", {}).get("window_seconds", 60),
+    max_requests=int(os.getenv("RATE_LIMIT_MAX_REQUESTS", str(_rl.get("max_requests", 300)))),
+    window_seconds=int(os.getenv("RATE_LIMIT_WINDOW_SECONDS", str(_rl.get("window_seconds", 60)))),
 )
 
 

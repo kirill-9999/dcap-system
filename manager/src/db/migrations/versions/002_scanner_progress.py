@@ -9,6 +9,7 @@ HeartbeatThread сканера передаёт в POST /api/scanner/heartbeat.
 """
 import sqlalchemy as sa
 from alembic import op
+from sqlalchemy import inspect
 
 # revision identifiers, used by Alembic.
 revision = "002_scanner_progress"
@@ -17,25 +18,19 @@ branch_labels = None
 depends_on = None
 
 
+def _column_exists(bind, table: str, column: str) -> bool:
+    """Колонка уже существует (001 создаёт scan_tasks из текущих моделей)."""
+    cols = [c["name"] for c in inspect(bind).get_columns(table)]
+    return column in cols
+
+
 def upgrade() -> None:
     bind = op.get_bind()
-    if bind.dialect.name == "postgresql":
+    if not _column_exists(bind, "scan_tasks", "progress"):
         op.add_column("scan_tasks", sa.Column("progress", sa.JSON(), nullable=True))
-    else:
-        # SQLite: SQLAlchemy 2.0 поддерживает ALTER TABLE ADD COLUMN.
-        try:
-            op.add_column("scan_tasks", sa.Column("progress", sa.JSON(), nullable=True))
-        except Exception:
-            pass  # колонка может уже существовать (create_all)
 
 
 def downgrade() -> None:
     bind = op.get_bind()
-    if bind.dialect.name == "postgresql":
+    if _column_exists(bind, "scan_tasks", "progress"):
         op.drop_column("scan_tasks", "progress")
-    else:
-        # SQLite ALTER TABLE DROP COLUMN поддерживается с 3.35; пробуем, иначе пропускаем.
-        try:
-            op.drop_column("scan_tasks", "progress")
-        except Exception:
-            pass

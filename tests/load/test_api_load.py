@@ -1,5 +1,6 @@
 # tests/load/test_api_load.py
 import concurrent.futures
+import os
 import time
 
 import pytest
@@ -16,7 +17,7 @@ def test_create_1000_tasks(api_client, manager_url, test_files_dir):
     NB: rate-limit Manager'а (300 req/min по IP) может вернуть 429 —
     это не 5xx, поэтому в errors не попадает.
     """
-    N = 1000
+    N = int(os.getenv("DCAP_LOAD_TASKS", "1000"))
     errors = []
     latencies = []
     created = []
@@ -55,7 +56,7 @@ def test_get_findings_load(api_client, manager_url):
 
     def get_one(_):
         try:
-            r = api_client.get(f"{manager_url}/api/findings", params={"limit": 100})
+            r = api_client.get(f"{manager_url}/api/findings", params={"limit": 100}, timeout=(5, 60))
             if r.status_code >= 500:
                 errors.append(r.status_code)
         except Exception as e:

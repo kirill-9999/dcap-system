@@ -17,7 +17,10 @@ case $MODE in
     pytest tests/load/ -v --timeout=300 -m load
     ;;
   all)
-    pytest tests/ -v --timeout=600
+    # Chaos идёт ПОСЛЕДНИМ: он разрушительный (останавливает контейнеры),
+    # а load/e2e должны работать на стабильном стеке.
+    pytest tests/e2e/ tests/load/ -v --timeout=600
+    pytest tests/chaos/ -v --timeout=600
     ;;
   quick)
     pytest tests/e2e/ -v --timeout=120 -m "e2e and not slow"

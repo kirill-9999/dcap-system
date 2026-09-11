@@ -1,5 +1,6 @@
 # tests/load/test_concurrent_scanners.py
 import concurrent.futures
+import os
 import time
 
 import pytest
@@ -12,7 +13,7 @@ from fixtures.manager import create_task
 @pytest.mark.requires_manager
 def test_concurrent_task_creation(api_client, manager_url, test_files_dir):
     """Создание 100 заданий параллельно (имитация N сканеров)."""
-    N = 100
+    N = int(os.getenv("DCAP_LOAD_SCANNERS", "100"))
     errors = []
     created = []
 

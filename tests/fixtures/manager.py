@@ -4,6 +4,9 @@ from typing import Dict, Optional
 
 READY_STATUSES = ("assigned", "running", "completed")
 
+# Таймауты HTTP (поддерживаемый timeout в средах с медленным Docker-стеком).
+_TIMEOUT = (5, 300)
+
 
 def create_task(client, base_url: str, resource_path: str, resource_type: str = "FILESYSTEM"):
     """Создать задание через POST /api/tasks/create (WebUI-формат).
@@ -13,13 +16,14 @@ def create_task(client, base_url: str, resource_path: str, resource_type: str = 
     r = client.post(
         f"{base_url}/api/tasks/create",
         json={"resource_path": resource_path, "resource_type": resource_type},
+        timeout=_TIMEOUT,
     )
     task_id = (r.json() or {}).get("task_id") or (r.json() or {}).get("id")
     return task_id
 
 
 def get_task(client, base_url: str, task_id: int) -> Dict:
-    r = client.get(f"{base_url}/api/tasks/{task_id}")
+    r = client.get(f"{base_url}/api/tasks/{task_id}", timeout=_TIMEOUT)
     r.raise_for_status()
     return r.json()
 
@@ -28,7 +32,7 @@ def delete_task(client, base_url: str, task_id: Optional[int]):
     if task_id is None:
         return
     try:
-        client.delete(f"{base_url}/api/tasks/{task_id}")
+        client.delete(f"{base_url}/api/tasks/{task_id}", timeout=_TIMEOUT)
     except Exception:
         pass
 
@@ -45,7 +49,7 @@ def wait_task_status(
     deadline = time.time() + timeout
     status = None
     while time.time() < deadline:
-        r = client.get(f"{base_url}/api/tasks/{task_id}")
+        r = client.get(f"{base_url}/api/tasks/{task_id}", timeout=_TIMEOUT)
         assert r.status_code == 200, f"GET task {task_id}: {r.status_code} {r.text}"
         task = r.json()
         status = task.get("status")
@@ -67,7 +71,7 @@ def wait_task_assigned(
     deadline = time.time() + timeout
     status = None
     while time.time() < deadline:
-        r = client.get(f"{base_url}/api/tasks/{task_id}")
+        r = client.get(f"{base_url}/api/tasks/{task_id}", timeout=_TIMEOUT)
         assert r.status_code == 200
         status = r.json().get("status")
         if status in READY_STATUSES:

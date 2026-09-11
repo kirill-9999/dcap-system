@@ -29,6 +29,7 @@ WebUI-совместимые эндпоинты Manager.
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 from sqlalchemy import func
+from sqlalchemy.exc import IntegrityError
 from typing import Optional, Dict, Any
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -241,8 +242,23 @@ def create_task(
                                    status="ACTIVE", enabled=True,
                                    scan_config=json.loads(config))
         db.add(resource)
-        db.flush()
-        resource_id = resource.id
+        try:
+            db.flush()
+        except IntegrityError:
+            # Конкурентное создание ресурса с тем же путём (load/parallel):
+            # unique constraint resources_path_key — переиспользуем существующий.
+            db.rollback()
+            resource = (
+                db.query(models.Resource)
+                .filter(models.Resource.type == resource_type,
+                        models.Resource.path == resource_path)
+                .first()
+            )
+            if resource is None:
+                raise
+            resource_id = resource.id
+        else:
+            resource_id = resource.id
 
     task = models.ScanTask(
         resource_id=resource_id,
