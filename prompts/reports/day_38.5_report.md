@@ -1,24 +1,52 @@
-# Отчёт: День 38.5 — Scanner в Docker
+# Отчёт: День 38.5 — Scanner в Docker (и его откат — v3.6.2)
 
 **Дата:** 11.09.2026
 **ТЗ:** `prompts/tz/day_38.5_scanner_containerization.md` (архив: `prompts/archive/day_38.5_scanner_containerization.md`)
 **Роль:** Кодер
-**Версия:** v3.6.1
-**Ветка:** `feature/day_38.5_scanner_containerization` (создаётся при коммите)
+**Версия:** v3.6.1 (Scanner в Docker) → **v3.6.2 (Scanner на хосте)**
+**Ветка:** `feature/day_38.5_scanner_containerization`
 
 ---
 
 ## Резюме
 
-Scanner (тяжёлый агент сканирования) контейнеризован и добавлен в общий Docker-стек:
-`scanner/Dockerfile` (multi-stage: Tesseract + spaCy + Presidio), `.dockerignore`,
-`requirements.txt`, сервис `scanner` в `docker-compose.yml` (profile `scanner`,
-монтирование `${SCAN_PATH}:/scanned:ro`, volumes для данных/логов/состояния,
-зависимость от Manager healthy), лимиты CPU/RAM в `docker-compose.prod.yml`,
-раздел Scanner в `docs/deployment.md`, env-поддержка `MANAGER_URL`/`LOG_LEVEL` в
-`scanner/src/config_loader.py`. Образ собран в Docker и прогонен smoke-тестом:
-PII/Presidio/spaCy инициализируются, Tesseract (rus+eng) найден, все 3
-классификатора загружаются, регистрация в Manager идёт.
+**Часть 1 (v3.6.1).** Scanner (тяжёлый агент сканирования) контейнеризован и
+добавлен в общий Docker-стек: `scanner/Dockerfile` (multi-stage: Tesseract +
+spaCy + Presidio), `.dockerignore`, `requirements.txt`, сервис `scanner` в
+`docker-compose.yml` (profile `scanner`, монтирование `${SCAN_PATH}:/scanned:ro`,
+volumes для данных/логов/состояния, зависимость от Manager healthy), лимиты
+CPU/RAM в `docker-compose.prod.yml`, раздел Scanner в `docs/deployment.md`,
+env-поддержка `MANAGER_URL`/`LOG_LEVEL` в `scanner/src/config_loader.py`.
+Образ собран в Docker и прогонен smoke-тестом: PII/Presidio/spaCy
+инициализируются, Tesseract (rus+eng) найден, все 3 классификатора
+загружаются, регистрация в Manager идёт.
+
+**Часть 2 (v3.6.2). Откат сканера из Docker по требованию пользователя.**
+Контейнер не может **динамически монтировать** папки из заданий Manager
+(bind-mount фиксируется при создании контейнера): можно смонтировать один
+`SCAN_PATH`, но произвольный путь `E:\...`, пришедший из WebUI, внутри
+контейнера недоступен. Идея «сканер сам монтирует нужные папки» — через
+docker.sock/специальные привилегии крайне опасна и неоправданна. Решение:
+**сканер работает на хосте** через `python run_scanner.py`, видит любые пути
+из заданий напрямую (`E:\...`). Удалены `scanner/Dockerfile`, `scanner/.dockerignore`
+и сервис `scanner` из docker-compose (base + prod). `SCAN_PATH` убран из
+`.env.example`. В `manager/src/api/webui.py` блокирующая проверка
+`Path(resource_path).exists()` (Manager в контейнере не видит пути хоста)
+заменена на предупреждающий лог — фактическое существование пути проверяет
+сканер при выполнении задания.
+
+**Фикс 500 при сохранении failed_files (v3.6.2).** `FailedFile.error_type`
+— `NOT NULL`, сканер слал записи без `error_type` → `IntegrityError: NotNullViolation`
+→ 500 на `POST /api/scanner/tasks/{id}/results`. Исправлено в
+`manager/src/api/scanner.py` (submit_results): `resource_id=task.resource_id`,
+`error_type=failed.get("error_type", "unknown")`; `scanner/src/managed_scanner.py`
+для «No files found» шлёт `error_type: "connection"`.
+
+**End-to-end подтверждение (v3.6.2).** Хост-сканер зарегистрирован в Manager
+(id=1), взял задание на `E:\much_of_test_files`, просканировал 22 500 файлов
+(PII/Presidio + OCR/Tesseract, ~4.3 файл/с), отправил результаты:
+задание `completed`, `files_scanned=64500`, `findings_count=214500`,
+`files_failed=0` (без 500).
 
 ---
 
@@ -82,8 +110,57 @@ PII/Presidio/spaCy инициализируются, Tesseract (rus+eng) най�
 - `docker-compose.prod.yml` — `scanner.deploy.resources` (limits 2 CPU/4G, reservations 1 CPU/2G), комментарий про replicas.
 - `.env.example` — секция `===== SCANNER =====` + `SCAN_PATH=./data`.
 - `docs/deployment.md` — раздел Scanner (запуск, монтирование, ресурсы, troubleshooting), структура, build-контексты.
-- `README.md` — раздел дня 38 (scanner/Dockerfile, profiles), версия v3.6.1.
+- `README.md` — раздел дня 38, версия v3.6.1.
 - `AGENTS.md` — версия v3.6.1, статус (+Scanner в Docker), релиз v3.6.1, строка docker-compose (scanner profile), config_loader env.
+
+---
+
+## v3.6.2 — Сканер НЕ в Docker (хост) + фиксы
+
+### Резюме изменений v3.6.2
+
+По требованию пользователя («сканер должен сам монтировать нужные папки; если
+это невозможно — убрать из докера») сканер возвращён на хост: bind-mount
+фиксируется при создании контейнера, динамическое монтирование произвольных
+путей из заданий в контейнере невозможно. Сканер запускается на хосте
+(`python run_scanner.py scanner/config/scanner_config.json`) и видит любые пути
+из заданий (`E:\...`) напрямую. Образ `dcap/scanner:3.5.0` (1.4 GB) остался
+артефактом, контейнер удалён.
+
+### Fixes v3.6.2
+
+- `manager/src/api/webui.py` — `create_task`: убрана блокирующая проверка
+  `Path(resource_path).exists()` (Manager в контейнере не видит пути хоста →
+  400 на `E:\...`), теперь `logger.warning`; добавлен `import logging` + `logger`.
+- `manager/src/api/scanner.py` — `submit_results`: `FailedFile` заполняется
+  `resource_id=task.resource_id` и `error_type=failed.get("error_type", "unknown")`
+  (колонка `NOT NULL` → иначе 500 `IntegrityError: NotNullViolation`).
+- `scanner/src/managed_scanner.py` — «No files found»: `error_type: "connection"`
+  в `failed_files`, чтобы не словить 500 на Manager.
+
+### Files abstract v3.6.2
+
+- **Deleted:** `scanner/Dockerfile`, `scanner/.dockerignore`.
+- **Modified:** `docker-compose.yml` (сервис `scanner` + volumes
+  scanner_state/scanner_data/scanner_logs удалены; s3_agent восстановлен —
+  потерялся при правке), `docker-compose.prod.yml` (scanner block удалён),
+  `.env.example` (SCAN_PATH удалён, комментарий про хост-сканер),
+  `docs/deployment.md` (раздел Scanner — хост-режим), `README.md`,
+  `AGENTS.md` (версия v3.6.2, релиз, статус), `manager/src/api/scanner.py`,
+  `manager/src/api/webui.py`, `scanner/src/managed_scanner.py`,
+  `scanner/requirements.txt` (заголовок — запуск на хосте).
+
+### Тестирование v3.6.2
+
+- `python -m py_compile manager/src/api/webui.py` — ✅
+- `docker compose config --quiet` — ✅ base / ✅ prod / ✅ agents / ✅ scanner-профилей больше нет
+- Manager пересобран (`dcap/manager:3.5.0`), задание создаётся: `E:\much_of_test_files` → task 3 — ✅
+- **End-to-end хост-сканер:** регистрация (id=1, active, heartbeat), задание 3 взято
+  (`assigned`), 22 500 файлов просканировано (лог прогресс: каждые ~20с, скорость
+  4.29 файл/с, ~1.5 час; PII/Presidio + OCR Tesseract rus+eng; адаптивный кэш,
+  [CACHE] очистка на 10 000 файлов); результаты: **`completed`,
+  files_scanned=64500, findings_count=214500, files_failed=0** (500 нет).
+  Сервер-сканер после сканирования остаётся работать (heartbeat возобновляется).
 
 ---
 
@@ -105,80 +182,71 @@ PII/Presidio/spaCy инициализируются, Tesseract (rus+eng) най�
 
 ## Запуск (ручное тестирование)
 
+**v3.6.2 — сканер на хосте (актуально):**
+
 ```powershell
-# 1. Путь к сканируемым папкам
-#    добавить в .env: SCAN_PATH=/data/shared  (Linux) или /mnt/c/Data/Shared (WSL)
-Copy-Item .env.example .env
+# 1. Стек Manager/WebUI (Docker)
+docker compose up -d            # postgres, redis, manager, webui, celery, flower
 
-# 2. Только Scanner
-docker compose --profile scanner build scanner
-docker compose --profile scanner up -d scanner
+# 2. Сканер на ХОСТЕ (видит любые пути из заданий, напр. E:\...)
+pip install -r scanner/requirements.txt
+$env:PYTHONUTF8=1
+python run_scanner.py scanner/config/scanner_config.json
 
-# 3. Всё сразу (основной стек + Scanner + S3-агент)
-docker compose --profile scanner --profile agents up -d
+# 3. Задание через WebUI (:8001) или API:
+#    POST /api/tasks/create {"resource_path":"E:\\much_of_test_files","resource_type":"FILESYSTEM"}
+#    (Manager в контейнере может не видеть путь — теперь это легально, путь проверит сканер)
 
 # 4. Проверка
-docker compose ps
-docker compose logs -f scanner            # регистрация, находки
-docker compose exec scanner ls -la /scanned   # смонтированные папки
-curl http://localhost:8000/api/scanners   # сканер зарегистрирован
-curl http://localhost:8000/api/findings   # находки
-
-# 5. Запустить задание сканирования через WebUI (Manager :8001) → Scanner его выполняет
-
-# 6. Production (лимиты CPU/RAM)
-docker compose -f docker-compose.yml -f docker-compose.prod.yml --profile scanner up -d
-
-# 7. Остановка
-docker compose --profile scanner down
+curl http://localhost:8000/api/scanner/1     # status active
+curl http://localhost:8000/api/scanners      # зарегистрированный сканер
+curl http://localhost:8000/api/findings      # находки
+curl http://localhost:8000/api/tasks/3       # задание completed
 ```
 
-Ожидаемый результат: Scanner регистрируется в Manager (`/api/scanners`),
-получает задания, сканирует `/scanned`, отправляет находки в Manager
-(`/api/findings`). Без Manager (нет `manager:8000`) сканер живёт в цикле
-heartbeat/retry (store&offline для результатов).
+Ожидаемый результат: сканер регистрируется в Manager, берёт задания с любыми
+путями хоста, сканирует, шлёт результаты (без 500). Образ `dcap/scanner:3.5.0`
+и Dockerfile удалены — сканер больше не в Docker.
 
 ---
 
 ## Команда коммита
 
 ```powershell
-git checkout -b feature/day_38.5_scanner_containerization
+# День 38.5 (Scaner в Docker) уже закоммичен:
+#   2202c72 feat: День 38.5 — Scanner в Docker
+
+# v3.6.2 — сканер на хосте + фиксы (текущий коммит):
 git add .
-git commit -m "feat: День 38.5 — Scanner в Docker
+git commit -m "fix: День 38.5+ — Сканер НЕ в Docker + фикс 500 failed_files (v3.6.2)
 
-Dockerfile:
-- Multi-stage сборка (builder + runtime)
-- Tesseract + языки (rus, eng)
-- spaCy модели (ru_core_news_sm, en_core_web_sm)
-- Presidio
-- Непривилегированный пользователь
-- Healthcheck
-- Volume /scanned
+Сканер на хосте:
+- Удалены scanner/Dockerfile, scanner/.dockerignore
+- docker-compose(.prod).yml: сервис scanner + volumes удалены
+- .env.example: SCAN_PATH удалён
+- docs/deployment.md: раздел Scanner переписан на хост-режим
+- README.md / AGENTS.md: v3.6.2
 
-docker-compose:
-- Scanner в profile 'scanner'
-- Монтирование SCAN_PATH:/scanned:ro
-- Зависимость от Manager (healthy)
-- Volumes для data/logs/state
+Почему: контейнер не может динамически монтировать папки из заданий
+Manager (bind-mount при создании контейнера). На хосте сканер видит
+любые пути из заданий (E:\\...) на прямую.
 
-Production:
-- Лимиты CPU/RAM в docker-compose.prod.yml
-- Возможность репликации
+Фиксы:
+- manager/src/api/webui.py: создание задания — проверка Path.exists()
+  не блокирующая (Manager в контейнере не видит пути хоста), warning + logger
+- manager/src/api/scanner.py: failed_files — error_type (unknown дефолт) +
+  resource_id (иначе NotNullViolation -> 500)
+- scanner/src/managed_scanner.py: 'No files found' -> error_type: connection
 
-Код:
-- scanner/config_loader.py: env MANAGER_URL/LOG_LEVEL
-- scanner/requirements.txt по реальным импортам
-
-Документация:
-- docs/deployment.md — раздел Scanner
-- .env.example — SCAN_PATH
-- README.md / AGENTS.md обновлены (v3.6.1)"
+Проверено end-to-end: задача на E:\\much_of_test_files (22500 файлов)
+-> completed, files_scanned=64500, findings=214500, failed=0"
 ```
 
 ---
 
 ## Обратная связь архитектору
+
+### v3.6.1 (Scanner в Docker)
 
 - Все критерии приёмки выполнены; **спаси-модели должны быть `sm`, а не `lg`**
   (жёстко зашиты в `pii_classifier._get_nlp_engine`). `lg` (≈700MB/модель) —
@@ -191,3 +259,19 @@ Production:
 - `SCAN_PATH` в ТЗ имеет дефолт `./data`: в контейнере сканер получает путь
   задания от Manager (поле `task["path"]`) — реальный корень сканирования
   задаётся управляющей стороной, `/scanned` — точка монтирования.
+
+### v3.6.2 (Сканер на хосте)
+
+- **Приоритет для архитектора:** требовалось «самомонтирование папок» в
+  Docker, а это невозможно без docker.sock-хаков (опасно). Выбран хост-режим
+  (`run_scanner.py`) — сканер видит любые пути Windows напрямую. Рекомендация:
+  зафиксировать это решение в ТЗ дня 39, чтобы не возвращаться к Docker-сканеру.
+- **Найден и исправлен скрытый баг дня 38.5:** `failed_files.error_type`
+  колонка `NOT NULL` → 500 при любом fail-файле. Проверить, нет ли похожих
+  пустых NOT NULL полей в других приёмных эндпоинтах.
+- **Таймаут задания:** сканирование 22 500 файлов ~1.5 часа, всё это время
+  heartbeat не шлётся (сканер `inactive` на Manager при активном задании).
+  Рассмотреть отдельный thread для heartbeat или прогресс-пинг.
+- **Производительность:** ~4.3 файл/с с полным стеком PII+OCR; 22 500 файлов —
+  долго. Для больших деревьев стоит добавить TaskTimeouts/ритм и параллельный
+  батч (несколько процессов). Сейчас форк один (OCRWorker).

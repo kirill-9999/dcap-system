@@ -485,7 +485,7 @@ class ManagedScanner:
                 return {
                     "findings": [],
                     "catalog_entries": [],
-                    "failed_files": [{"path": resource_path, "error": "No files found"}],
+                    "failed_files": [{"path": resource_path, "error": "No files found", "error_type": "connection"}],
                     "stats": {"files_scanned": 0, "files_failed": 1, "total_findings": 0}
                 }
             

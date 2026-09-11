@@ -1,4 +1,8 @@
-# scanner/requirements.txt (День 38.5)
+# scanner/requirements.txt — зависимости сканера для запуска НА ХОСТЕ
+# Использование: python -m pip install -r scanner/requirements.txt
+# Сканер НЕ в Docker (День 38.5+): run_scanner.py запускается на хосте,
+# чтобы видеть любые пути из заданий.
+# spaCy модели: python -m spacy download ru_core_news_sm en_core_web_sm
 # Основные
 requests>=2.31.0
 python-dotenv>=1.0.0

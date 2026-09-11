@@ -53,19 +53,3 @@ services:
         limits:
           cpus: '2'
           memory: 2G
-
-  # ===== SCANNER =====
-  scanner:
-    deploy:
-      resources:
-        limits:
-          cpus: '2'
-          memory: 4G
-        reservations:
-          cpus: '1'
-          memory: 2G
-    environment:
-      LOG_LEVEL: ${LOG_LEVEL:-INFO}
-    # Для больших объёмов — несколько реплик
-    # deploy:
-    #   replicas: 2

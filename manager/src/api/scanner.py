@@ -360,7 +360,9 @@ async def submit_results(
     for failed in payload.get("failed_files", []):
         failed_file = models.FailedFile(
             task_id=task_id,
+            resource_id=task.resource_id,
             file_path=failed.get("path", ""),
+            error_type=failed.get("error_type", failed.get("error_type", "unknown")),
             error_message=failed.get("error", "")
         )
         db.add(failed_file)

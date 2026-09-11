@@ -1,7 +1,13 @@
 # Развертывание DCAP System (День 38)
 
-Полная контейнеризация всех компонентов: Manager, WebUI, Celery (worker/beat/flower),
+Полная контейнеризация компонентов: Manager, WebUI, Celery (worker/beat/flower),
 PostgreSQL 16, Redis 7, S3/MinIO аудит-агент. Стек поднимается одной командой.
+
+**Сканер в Docker не запускается** (День 38.5+): задания приходят с путями хоста
+(`E:\...`, `/mnt/...`), а контейнер может видеть только заранее смонтированные
+тома и не может сам примонтировать папку из задания. Сканер работает **на хосте**
+через `python run_scanner.py scanner/config/scanner_config.json` — так он видит
+любые пути напрямую (см. раздел «Сканер» ниже).
 
 ## Требования
 
@@ -20,7 +26,7 @@ dcap-system/
 ├── webui/Dockerfile            # WebUI
 ├── audit-agent-s3/Dockerfile   # S3/MinIO аудит-агент
 ├── audit-agent-linux/Dockerfile# Linux аудит-агент
-├── scanner/Dockerfile          # Scanner (Tesseract + spaCy + Presidio)
+├── scanner/                    # Scanner (НЕ в Docker, запуск на хосте)
 ├── .dockerignore               # корневой (для сборки из корня репо)
 ├── docker-compose.yml          # полный стек
 ├── docker-compose.prod.yml     # production overrides
@@ -51,7 +57,7 @@ python scripts/generate_certs.py
 ./scripts/deploy.sh
 ```
 
-Примечание: build-контекст для Manager/Scanner/S3-агента — **корень репо**
+Примечание: build-контекст для Manager/S3-агента — **корень репо**
 (компоненты используют пакет `shared/` и/или корневой код импортов),
 `webui/Dockerfile` — контекст `./webui`.
 
@@ -81,34 +87,36 @@ docker compose --profile agents up -d
 ## Scanner (тяжёлый агент сканирования)
 
 Scanner — агент сканирования файлов (Tesseract, spaCy, Presidio), управляется через
-Manager (REST-задания). Запускается через profile `scanner`.
+Manager (REST-задания). **Работает на хосте, не в Docker.**
+
+Причина: задания приходят с путями хоста (`E:\shared`, `/mnt/data`, UNC и т.д.).
+Docker-контейнер видит только тома, смонтированные при его создании, и не может
+сам примонтировать папку из задания. Сканер на хосте видит любые пути напрямую.
+
+### Требования окружения (на хосте)
+
+```bash
+python -m pip install -r scanner/requirements.txt
+# spaCy модели: python -m spacy download ru_core_news_sm en_core_web_sm
+# Windows: apt отсутствует — Tesseract ставится отдельно (см. scanner/README)
+```
 
 ### Запуск
 
 ```bash
-# Только Scanner
-docker compose --profile scanner up -d scanner
-
-# Всё сразу (Scanner + агенты)
-docker compose --profile scanner --profile agents up -d
+# Порядок: сначала Manager (run_all.py / run_manager.py / docker compose up -d), затем сканер
+python run_scanner.py scanner/config/scanner_config.json
 ```
 
-### Монтирование папок
+Manager URL задаётся в `scanner/config/scanner_config.json` → `scanner.manager_url`
+(по умолчанию `http://localhost:8000`; поддержан env-override `MANAGER_URL`,
+`LOG_LEVEL` — см. `scanner/src/config_loader.py`).
 
-По умолчанию Scanner монтирует `${SCAN_PATH}` в `/scanned` (read-only).
-
-Примеры:
-
-```bash
-# Linux
-SCAN_PATH=/data/shared
-
-# Windows (WSL)
-SCAN_PATH=/mnt/c/Data/Shared
-
-# Сетевые папки (сначала монтировать на хосте)
-SCAN_PATH=/mnt/smb-share
-```
+Сканер регистрируется в Manager (`/api/scanner/register`), каждые N сек берёт
+задание из очереди (`/api/scanner/tasks/pending`), сканирует путь из задания
+(доступен напрямую на хосте), отправляет результаты
+(`/api/scanner/tasks/{id}/results`). При недоступности Manager результаты
+сохраняются в `scanner/data/offline/` и автоматически досылаются.
 
 ### Ресурсы
 
@@ -118,28 +126,16 @@ SCAN_PATH=/mnt/smb-share
 | RAM      | 4 GB    | 8 GB          |
 | Диск     | 10 GB   | 50 GB         |
 
-Размер образа: ~1.5 GB (Tesseract + spaCy + Presidio).
-
 ### Troubleshooting
-
-Scanner не видит файлы:
-
-```bash
-# Проверить монтирование
-docker compose exec scanner ls -la /scanned
-
-# Проверить SCAN_PATH
-grep SCAN_PATH .env
-```
 
 Scanner не регистрируется:
 
 ```bash
-# Проверить Manager
-docker compose logs manager | grep scanner
+# Проверить, что Manager поднят и виден
+curl http://localhost:8000/api/health
 
-# Проверить логи Scanner
-docker compose logs scanner
+# Проверить логи сканера
+tail -f logs/scanner.log
 ```
 
 ## Production

@@ -34,9 +34,12 @@ from datetime import datetime, timedelta
 from pathlib import Path
 import json
 import io
+import logging
 
 from manager.src.db.session import get_db
 from manager.src.db import models
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["webui"])
 
@@ -210,8 +213,12 @@ def create_task(
     if not resource_path:
         raise HTTPException(400, "resource_path is required")
 
+    # Путь может существовать только на хосте сканера (сканер НЕ в Docker),
+    # а Manager может работать в контейнере. Поэтому проверка `exists()`
+    # не является блокирующей — фактическое существование проверит сканер.
     if resource_type == "FILESYSTEM" and not Path(resource_path).exists():
-        raise HTTPException(400, f"Папка не существует: {resource_path}")
+        logger.warning(f"Resource path not visible from Manager host, "
+                       f"will be checked by scanner: {resource_path}")
 
     extensions = payload.get("extensions") or "txt,pdf,docx,xlsx,png,jpg,jpeg"
     max_file_size_mb = payload.get("max_file_size_mb") or 50
