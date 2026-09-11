@@ -192,6 +192,33 @@ services:
     networks:
       - dcap-network
 
+# ===== SCANNER (тяжёлый агент сканирования) =====
+  scanner:
+    build:
+      context: .
+      dockerfile: scanner/Dockerfile
+    image: dcap/scanner:${VERSION:-3.5.0}
+    container_name: dcap-scanner
+    environment:
+      MANAGER_URL: http://manager:8000
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+    volumes:
+      # Реальные runtime-пути сканера (относительно WORKDIR /app)
+      - scanner_state:/app/scanner/state
+      - scanner_data:/app/scanner/data
+      - scanner_logs:/app/logs
+      # Монтирование сканируемых папок (read-only)
+      - ${SCAN_PATH:-./data}:/scanned:ro
+    depends_on:
+      manager:
+        condition: service_healthy
+    profiles:
+      - scanner
+    <<: *default-restart
+    logging: *default-logging
+    networks:
+      - dcap-network
+
 networks:
   dcap-network:
     driver: bridge
@@ -210,3 +237,9 @@ volumes:
     name: dcap-s3-agent-data
   s3_agent_logs:
     name: dcap-s3-agent-logs
+  scanner_state:
+    name: dcap-scanner-state
+  scanner_data:
+    name: dcap-scanner-data
+  scanner_logs:
+    name: dcap-scanner-logs

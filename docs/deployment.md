@@ -20,6 +20,7 @@ dcap-system/
 ├── webui/Dockerfile            # WebUI
 ├── audit-agent-s3/Dockerfile   # S3/MinIO аудит-агент
 ├── audit-agent-linux/Dockerfile# Linux аудит-агент
+├── scanner/Dockerfile          # Scanner (Tesseract + spaCy + Presidio)
 ├── .dockerignore               # корневой (для сборки из корня репо)
 ├── docker-compose.yml          # полный стек
 ├── docker-compose.prod.yml     # production overrides
@@ -50,8 +51,8 @@ python scripts/generate_certs.py
 ./scripts/deploy.sh
 ```
 
-Примечание: build-контекст для Manager/WebUI/S3-агента — **корень репо**
-(компоненты используют пакет `shared/` и корневой `requirements.txt`),
+Примечание: build-контекст для Manager/Scanner/S3-агента — **корень репо**
+(компоненты используют пакет `shared/` и/или корневой код импортов),
 `webui/Dockerfile` — контекст `./webui`.
 
 ## Проверка
@@ -76,6 +77,70 @@ docker compose --profile agents up -d
 ```
 
 Для него в `.env` заполните `S3_ENDPOINT`, `S3_BUCKET`, `S3_ACCESS_KEY`, `S3_SECRET_KEY`.
+
+## Scanner (тяжёлый агент сканирования)
+
+Scanner — агент сканирования файлов (Tesseract, spaCy, Presidio), управляется через
+Manager (REST-задания). Запускается через profile `scanner`.
+
+### Запуск
+
+```bash
+# Только Scanner
+docker compose --profile scanner up -d scanner
+
+# Всё сразу (Scanner + агенты)
+docker compose --profile scanner --profile agents up -d
+```
+
+### Монтирование папок
+
+По умолчанию Scanner монтирует `${SCAN_PATH}` в `/scanned` (read-only).
+
+Примеры:
+
+```bash
+# Linux
+SCAN_PATH=/data/shared
+
+# Windows (WSL)
+SCAN_PATH=/mnt/c/Data/Shared
+
+# Сетевые папки (сначала монтировать на хосте)
+SCAN_PATH=/mnt/smb-share
+```
+
+### Ресурсы
+
+| Параметр | Минимум | Рекомендуется |
+|----------|---------|---------------|
+| CPU      | 2       | 4             |
+| RAM      | 4 GB    | 8 GB          |
+| Диск     | 10 GB   | 50 GB         |
+
+Размер образа: ~1.5 GB (Tesseract + spaCy + Presidio).
+
+### Troubleshooting
+
+Scanner не видит файлы:
+
+```bash
+# Проверить монтирование
+docker compose exec scanner ls -la /scanned
+
+# Проверить SCAN_PATH
+grep SCAN_PATH .env
+```
+
+Scanner не регистрируется:
+
+```bash
+# Проверить Manager
+docker compose logs manager | grep scanner
+
+# Проверить логи Scanner
+docker compose logs scanner
+```
 
 ## Production
 

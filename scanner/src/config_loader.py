@@ -386,6 +386,7 @@ def load_config(config_path: str) -> AppConfig:
         print(f"❌ Error reading config: {e}")
         sys.exit(1)
 
+    _apply_env_overrides(data)
     _validate_required(data)
 
     try:
@@ -395,6 +396,20 @@ def load_config(config_path: str) -> AppConfig:
     except Exception as e:
         print(f"❌ Error loading config: {e}")
         sys.exit(1)
+
+
+def _apply_env_overrides(data: Dict[str, Any]):
+    """Применение env-переопределений (для контейнерного запуска).
+
+    MANAGER_URL / LOG_LEVEL имеют приоритет над значениями из файла конфига.
+    """
+    env_manager_url = os.environ.get("MANAGER_URL")
+    if env_manager_url:
+        data.setdefault("scanner", {})["manager_url"] = env_manager_url
+
+    env_log_level = os.environ.get("LOG_LEVEL")
+    if env_log_level:
+        data.setdefault("scanner", {})["log_level"] = env_log_level
 
 
 def _validate_required(data: Dict[str, Any]):
