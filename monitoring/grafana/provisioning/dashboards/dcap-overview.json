@@ -1,0 +1,142 @@
+{
+  "uid": "dcap-overview",
+  "title": "DCAP Overview",
+  "tags": ["dcap"],
+  "timezone": "browser",
+  "editable": false,
+  "refresh": "30s",
+  "schemaVersion": 39,
+  "version": 1,
+  "panels": [
+    {
+      "id": 1,
+      "type": "stat",
+      "title": "Active scanners",
+      "gridPos": { "h": 4, "w": 4, "x": 0, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        { "exemplar": true, "expr": "sum(dcap_scanner_active)", "refId": "A" }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "thresholds": { "mode": "absolute", "steps": [ { "color": "green", "value": null } ] }
+        }
+      }
+    },
+    {
+      "id": 2,
+      "type": "timeseries",
+      "title": "Scanner heartbeat age (seconds)",
+      "gridPos": { "h": 4, "w": 8, "x": 4, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        { "exemplar": true, "expr": "dcap_scanner_heartbeat_age_seconds", "legendFormat": "scanner {{ scanner_id }}", "refId": "A" }
+      ],
+      "fieldConfig": { "defaults": { "unit": "s" } }
+    },
+    {
+      "id": 3,
+      "type": "timeseries",
+      "title": "Tasks rate by status",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 4 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        { "exemplar": true, "expr": "sum by (status) (rate(dcap_tasks_total[5m]))", "legendFormat": "{{ status }}", "refId": "A" }
+      ],
+      "fieldConfig": { "defaults": { "unit": "ops" } }
+    },
+    {
+      "id": 4,
+      "type": "timeseries",
+      "title": "Task duration p50/p95/p99",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 4 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        { "exemplar": true, "expr": "histogram_quantile(0.50, sum by (le) (rate(dcap_task_duration_seconds_bucket[5m])))", "legendFormat": "p50", "refId": "A" },
+        { "exemplar": true, "expr": "histogram_quantile(0.95, sum by (le) (rate(dcap_task_duration_seconds_bucket[5m])))", "legendFormat": "p95", "refId": "B" },
+        { "exemplar": true, "expr": "histogram_quantile(0.99, sum by (le) (rate(dcap_task_duration_seconds_bucket[5m])))", "legendFormat": "p99", "refId": "C" }
+      ],
+      "fieldConfig": { "defaults": { "unit": "s" } }
+    },
+    {
+      "id": 5,
+      "type": "timeseries",
+      "title": "Findings rate by type",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 12 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        { "exemplar": true, "expr": "sum by (type) (rate(dcap_findings_total[5m]))", "legendFormat": "{{ type }}", "refId": "A" }
+      ],
+      "fieldConfig": { "defaults": { "unit": "ops" } }
+    },
+    {
+      "id": 6,
+      "type": "timeseries",
+      "title": "HTTP RPS",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 12 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        { "exemplar": true, "expr": "sum by (method) (rate(dcap_http_requests_total[5m]))", "legendFormat": "{{ method }}", "refId": "A" }
+      ],
+      "fieldConfig": { "defaults": { "unit": "ops" } }
+    },
+    {
+      "id": 7,
+      "type": "timeseries",
+      "title": "HTTP error rate (5xx)",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 20 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        { "exemplar": true, "expr": "sum(rate(dcap_http_requests_total{status=~\"5..\"}[5m]))", "legendFormat": "5xx", "refId": "A" }
+      ],
+      "fieldConfig": { "defaults": { "unit": "ops" } }
+    },
+    {
+      "id": 8,
+      "type": "timeseries",
+      "title": "HTTP latency p95",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 20 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        { "exemplar": true, "expr": "histogram_quantile(0.95, sum by (le) (rate(dcap_http_request_duration_seconds_bucket[5m])))", "legendFormat": "p95", "refId": "A" }
+      ],
+      "fieldConfig": { "defaults": { "unit": "s" } }
+    },
+    {
+      "id": 9,
+      "type": "timeseries",
+      "title": "Celery queue size",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 28 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        { "exemplar": true, "expr": "dcap_celery_queue_size", "legendFormat": "{{ queue }}", "refId": "A" }
+      ],
+      "fieldConfig": { "defaults": { "unit": "short" } }
+    },
+    {
+      "id": 10,
+      "type": "timeseries",
+      "title": "PostgreSQL connections",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 28 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        { "exemplar": true, "expr": "pg_stat_activity_count", "legendFormat": "connections", "refId": "A" }
+      ],
+      "fieldConfig": { "defaults": { "unit": "short" } }
+    },
+    {
+      "id": 11,
+      "type": "stat",
+      "title": "Celery tasks (total)",
+      "gridPos": { "h": 4, "w": 4, "x": 0, "y": 36 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        { "exemplar": true, "expr": "celery_tasks_total", "refId": "A" }
+      ],
+      "fieldConfig": { "defaults": { "unit": "short" } }
+    }
+  ],
+  "time": { "from": "now-1h", "to": "now" },
+  "templating": { "list": [] }
+}

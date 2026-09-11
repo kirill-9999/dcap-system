@@ -17,6 +17,13 @@ from .buffer import BufferManager
 from .sender import Sender
 from .heartbeat import HeartbeatThread
 from .state import StateManager
+from .metrics import (
+    start_metrics_server,
+    events_collected,
+    events_sent,
+    send_errors,
+    set_buffer_size,
+)
 
 VERSION = "3.0.0"
 logger = None
@@ -125,6 +132,9 @@ def main():
     heartbeat = HeartbeatThread(sender, heartbeat_interval)
     heartbeat.start()
 
+    # Prometheus-метрики на :9103 (День 39)
+    start_metrics_server(int(config.get("metrics", {}).get("port", 9103)))
+
     running = True
 
     def signal_handler(sig, frame):
@@ -149,6 +159,7 @@ def main():
             events = collector.poll()
             if events:
                 logger.info(f"Collected {len(events)} events")
+                events_collected.inc(len(events))
                 error_delay = 1  # Сброс задержки при успехе
 
             # 2. Буферизация
@@ -163,9 +174,11 @@ def main():
 
                 if sender.send_events_batch(events_to_send):
                     buffer.mark_sent(event_ids)
+                    events_sent.inc(len(event_ids))
                     logger.info(f"Sent {len(event_ids)} events")
                     error_delay = 1  # Сброс при успехе
                 else:
+                    send_errors.inc(len(event_ids))
                     logger.warning(
                         f"Failed to send {len(event_ids)} events, will retry"
                     )
@@ -174,6 +187,7 @@ def main():
 
             # 4. Очистка старых событий
             buffer.cleanup_old_events()
+            set_buffer_size(buffer.get_stats().get("pending", 0))
 
             if args.once:
                 logger.info("Run once mode, exiting...")
@@ -202,8 +216,10 @@ def main():
         events_to_send = [e[1] for e in unsent]
         if sender.send_events_batch(events_to_send):
             buffer.mark_sent(event_ids)
+            events_sent.inc(len(event_ids))
             logger.info(f"Sent {len(event_ids)} events during shutdown")
         else:
+            send_errors.inc(len(event_ids))
             logger.warning(f"Failed to send {len(event_ids)} events during shutdown")
 
     sender.send_heartbeat(status="offline")

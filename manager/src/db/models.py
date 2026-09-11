@@ -95,6 +95,7 @@ class ScanTask(Base):
     files_failed = Column(Integer, default=0)
     findings_count = Column(Integer, default=0)
     error_message = Column(Text, nullable=True)
+    progress = Column(JSON, nullable=True)
 
     def __repr__(self):
         return f"<ScanTask(id={self.id}, resource_id={self.resource_id}, status='{self.status}')>"

@@ -147,10 +147,30 @@ docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
 
 Prod-надстройка добавляет:
 - ограничения CPU/RAM для manager/postgres/redis/webui/celery_worker;
+- лимиты для сервисов мониторинга (prometheus/grafana/alertmanager/exporters);
 - `POSTGRES_INITDB_ARGS=--data-checksums`;
 - `--maxmemory 512mb --maxmemory-policy allkeys-lru` для Redis;
 - `replicas: 2` для celery_worker;
 - mTLS (при включенном `MTLS_ENABLED=true` и наличии `certs/`).
+
+## Мониторинг (День 39)
+
+Стек мониторинга поднимается вместе с остальными сервисами:
+
+```bash
+docker compose up -d prometheus grafana alertmanager \
+  postgres_exporter redis_exporter celery_exporter
+```
+
+- **Grafana** — http://localhost:3000 (`admin` / `${GRAFANA_PASSWORD}`, дефолт `admin`);
+- **Prometheus** — http://localhost:9090;
+- **Alertmanager** — http://localhost:9093.
+
+Scaner отдаёт метрики на :9101 **с хоста** (он не в Docker) — Prometheus
+собирает через `host.docker.internal:9101` (для Linux-хостов в compose
+сервиса prometheus добавлен `extra_hosts`).
+
+Полная документация мониторинга — [docs/monitoring.md](monitoring.md).
 
 ## Остановка
 

@@ -1,0 +1,21 @@
+# DCAP System — Alertmanager (День 39)
+route:
+  receiver: 'default'
+  group_by: ['alertname', 'severity']
+  group_wait: 10s
+  group_interval: 5m
+  repeat_interval: 1h
+
+receivers:
+  - name: 'default'
+    webhook_configs:
+      - url: 'http://manager:8000/api/alerts/webhook'  # опционально
+        send_resolved: true
+    # Опционально — email/Slack/Telegram (через env):
+    # slack_configs:
+    #   - api_url: 'https://hooks.slack.com/services/...'
+    #     channel: '#dcap-alerts'
+    # email_configs:
+    #   - to: 'ops@example.com'
+    #     from: 'dcap@example.com'
+    #     smarthost: 'smtp.example.com:587'

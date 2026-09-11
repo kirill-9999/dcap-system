@@ -80,6 +80,27 @@ cp .env.example .env    # настроить пароли и ключи
 - **Скрипты**: `scripts/deploy.sh`, `stop.sh`, `logs.sh`, `status.sh`, `healthcheck.sh`.
 - **Документация**: `docs/deployment.md`.
 
+## Мониторинг (День 39): Prometheus + Grafana + Alertmanager
+
+Стек мониторинга поднимается вместе с docker-compose:
+
+```bash
+docker compose up -d prometheus grafana alertmanager \
+  postgres_exporter redis_exporter celery_exporter
+```
+
+- **Grafana** — http://localhost:3000 (`admin` / `${GRAFANA_PASSWORD}`, дефолт `admin`); provisioning дашбордов из `monitoring/grafana/provisioning/`
+- **Prometheus** — http://localhost:9090; таргеты в `monitoring/prometheus/prometheus.yml`
+- **Alertmanager** — http://localhost:9093; уведомления (webhook/email/Slack/Telegram)
+- **Алерты** — `monitoring/prometheus/alerts.yml` (ScannerInactive, TaskFailed, HighErrorRate, CeleryQueueBacklog)
+- **Метрики**:
+  - Manager — `GET /metrics` (HTTP, tasks, findings, scanner heartbeat age, celery queues)
+  - Scanner (хост, :9101) — files/findings/duration/errors, собирается через `host.docker.internal`
+  - Linux-агент (:9102), S3-агент (:9103), экспортеры Celery/PostgreSQL/Redis
+- **Heartbeat-тред сканера**: фоновый поток шлёт heartbeat каждые 30 с (в т.ч. прогресс длинных заданий) — сканер больше не помечается "inactive" во время сканирования
+- **Статус**: `./scripts/monitoring-status.sh` (полный) и `-q` (только проблемы)
+- **Документация**: `docs/monitoring.md`
+
 ## Архитектура
 
 ```
@@ -123,6 +144,7 @@ cp .env.example .env    # настроить пароли и ключи
 | v3.6.0 | Контейнеризация и деплой: multi-stage Dockerfile для Manager/WebUI/S3/Linux-агент, .dockerignore, docker-compose полный стек + prod overrides, скрипты deploy/stop/logs/status/healthcheck, docs/deployment.md |
 | v3.6.1 (день 38.5) | Scanner в Docker: scanner/Dockerfile (multi-stage, Tesseract + spaCy + Presidio), profile `scanner` в compose, монтирование SCAN_PATH:/scanned:ro, лимиты CPU/RAM в prod-override |
 | v3.6.2 (день 38.5+) | Scanner возвращён на хост (Docker-контейнер не может динамически монтировать папки из заданий): `python run_scanner.py scanner/config/scanner_config.json`, фикс сохранения `failed_files.error_type` (500 при отправке результатов) |
+| v3.7.0 (день 39) | Мониторинг: heartbeat-тред сканера (не "inactive" при длинных заданиях), прогресс заданий из heartbeat (`scan_tasks.progress`), метрики Manager (HTTP/tasks/findings/celery) и агентов, Prometheus + Grafana (provisioning) + Alertmanager + экспортеры (celery/postgres/redis), docs/monitoring.md, scripts/monitoring-status.sh |
 
 ## Требования
 

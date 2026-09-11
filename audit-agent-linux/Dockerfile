@@ -25,7 +25,7 @@ ENV PATH=/opt/dcapdeps/bin:$PATH
 ENV PYTHONPATH=/opt/dcapdeps/lib/python3.11/site-packages
 
 # Код агента (модули верхнего уровня + конфиг)
-COPY main.py collector.py buffer.py sender.py ./
+COPY main.py collector.py buffer.py sender.py metrics.py ./
 COPY config.json .
 
 RUN groupadd -r dcap && useradd -r -g dcap dcap \

@@ -14,6 +14,7 @@ from manager.src.api.permissions import router as permissions_router
 from manager.src.api.audit import router as audit_router
 from manager.src.api.webui import router as webui_router
 from manager.src.api.retention import router as retention_router
+from manager.src.metrics import metrics_endpoint, MetricsMiddleware
 
 from manager.src.config import get_config
 from manager.src.auth.manager import AuthManager
@@ -25,7 +26,7 @@ from manager.src.db import session
 app = FastAPI(
     title="DCAP System Manager",
     description="Data-Centric Audit and Protection System",
-    version="3.5.0",
+    version="3.7.0",
 )
 
 # CORS
@@ -36,6 +37,9 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Prometheus-метрики HTTP (День 39)
+app.add_middleware(MetricsMiddleware)
 
 # ============================================================
 # АУТЕНТИФИКАЦИЯ (День 30)
@@ -130,7 +134,12 @@ app.add_middleware(
 
 @app.get("/api/health")
 async def health_check():
-    return {"status": "healthy", "version": "3.5.0"}
+    return {"status": "healthy", "version": "3.7.0"}
+
+
+@app.get("/metrics")
+async def metrics():
+    return metrics_endpoint()
 
 
 @app.post("/api/folders/pick")

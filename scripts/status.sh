@@ -48,3 +48,40 @@ if docker compose exec -T redis redis-cli --no-auth-warning ping > /dev/null 2>&
 else
     echo "❌ Redis: unhealthy"
 fi
+
+echo ""
+echo "============================================"
+echo "  Monitoring (День 39)"
+echo "============================================"
+
+# Prometheus
+if curl -sf http://localhost:9090/-/healthy > /dev/null 2>&1; then
+    echo "✅ Prometheus: healthy"
+else
+    echo "❌ Prometheus: unhealthy"
+fi
+
+# Grafana
+if curl -sf http://localhost:3000/api/health > /dev/null 2>&1; then
+    echo "✅ Grafana: healthy"
+else
+    echo "❌ Grafana: unhealthy"
+fi
+
+# Alertmanager
+if curl -sf http://localhost:9093/-/healthy > /dev/null 2>&1; then
+    echo "✅ Alertmanager: healthy"
+else
+    echo "❌ Alertmanager: unhealthy"
+fi
+
+# Экспортеры
+for svc in postgres_exporter:9187 redis_exporter:9121 celery_exporter:9808; do
+    name="${svc%%:*}"
+    port="${svc##*:}"
+    if curl -sf "http://localhost:${port}/metrics" > /dev/null 2>&1; then
+        echo "✅ ${name}: healthy"
+    else
+        echo "❌ ${name}: unhealthy"
+    fi
+done

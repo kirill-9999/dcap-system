@@ -13,6 +13,7 @@ import logging
 import signal
 import socket
 import warnings
+import threading
 from pathlib import Path
 from datetime import datetime
 from typing import Optional, Dict, Any, List
@@ -43,8 +44,45 @@ from scanner.core.base import FileContext, ClassificationResult, ClassificationF
 from scanner.connectors.filesystem import FileSystemConnector
 from scanner.handlers.finding_collector import FindingCollector
 from scanner.src.config_loader import AppConfig
+from scanner.src.heartbeat import HeartbeatThread
+from scanner.src import metrics as scanner_metrics
 
 logger = logging.getLogger("dcap-scanner")
+
+
+class ProgressPoller(threading.Thread):
+    """Периодически читает state.json оркестратора и обновляет прогресс в heartbeat.
+
+    Позволяет показывать LIVE-прогресс (files_scanned / total) во время долгого
+    сканирования, даже если основной цикл занят process_source.
+    """
+
+    def __init__(self, state_file: str, total: int, heartbeat: HeartbeatThread,
+                 interval: int = 15):
+        super().__init__(daemon=True, name="ProgressPoller")
+        self.state_file = state_file
+        self.total = total or 0
+        self.heartbeat = heartbeat
+        self.interval = interval
+        self._stop = threading.Event()
+
+    def _count_processed(self) -> int:
+        if not self.state_file or not os.path.exists(self.state_file):
+            return 0
+        with open(self.state_file, "r", encoding="utf-8") as f:
+            return sum(1 for _ in f)
+
+    def run(self):
+        while not self._stop.wait(self.interval):
+            try:
+                processed = self._count_processed()
+                if processed:
+                    self.heartbeat.set_progress(processed, self.total)
+            except Exception as e:
+                logger.debug("ProgressPoller read error: %s", e)
+
+    def stop(self):
+        self._stop.set()
 
 
 class ManagerClient:
@@ -253,6 +291,7 @@ class ManagedScanner:
         
         self.client = None
         self.classifiers = []
+        self.heartbeat_thread: Optional[HeartbeatThread] = None
         self._load_classifiers()
     
     def _load_classifiers(self):
@@ -447,6 +486,29 @@ class ManagedScanner:
         logger.info(f"[Catalog] Collected {len(result)} folders with findings")
         return result
     
+    def _update_metrics(self, stats: Dict[str, Any]):
+        """Инкремент Prometheus-метрик после завершения задания (День 39)."""
+        sid = str(self.scanner_id)
+        try:
+            files = int(stats.get("files_scanned", 0) or 0)
+            if files:
+                scanner_metrics.files_scanned.labels(scanner_id=sid).inc(files)
+
+            total_findings = int(stats.get("total_findings", 0) or 0)
+            if total_findings:
+                scanner_metrics.findings.labels(scanner_id=sid, type="total").inc(total_findings)
+
+            category_stats = stats.get("category_stats") or {}
+            for cat, count in category_stats.items():
+                if count:
+                    scanner_metrics.findings.labels(scanner_id=sid, type=str(cat)).inc(int(count))
+
+            failed = int(stats.get("files_failed", 0) or 0)
+            if failed:
+                scanner_metrics.scan_errors.labels(scanner_id=sid, error_type="files_failed").inc(failed)
+        except Exception as e:
+            logger.debug("Metrics update error: %s", e)
+
     def _execute_task(self, task: Dict[str, Any]) -> Dict[str, Any]:
         task_id = task["id"]
         resource_path = task["path"]
@@ -461,6 +523,7 @@ class ManagedScanner:
         
         orchestrator = None
         connector = None
+        progress_poller = None
         
         try:
             orchestrator_config = self._get_orchestrator_config()
@@ -489,6 +552,18 @@ class ManagedScanner:
                     "stats": {"files_scanned": 0, "files_failed": 1, "total_findings": 0}
                 }
             
+            # Прогресс + метрики перед сканированием (День 39)
+            if self.heartbeat_thread is not None:
+                self.heartbeat_thread.set_task(task_id)
+                self.heartbeat_thread.set_progress(0, len(test_files))
+                progress_poller = ProgressPoller(
+                    orchestrator_config["state_file"],
+                    len(test_files),
+                    self.heartbeat_thread,
+                )
+                progress_poller.start()
+            scanner_metrics.set_current_task(self.scanner_id, task_id)
+            
             logger.info(f"[Scanner] Starting scan of {resource_path}")
             
             if hasattr(orchestrator, 'process_source'):
@@ -510,6 +585,8 @@ class ManagedScanner:
             
             stats["started_at"] = task.get("assigned_at", datetime.utcnow().isoformat())
             stats["completed_at"] = datetime.utcnow().isoformat()
+            
+            self._update_metrics(stats)
             
             logger.info(f"[Scanner] Task {task_id} completed:")
             logger.info(f"  - Files scanned: {stats.get('files_scanned', 0)}")
@@ -545,6 +622,8 @@ class ManagedScanner:
             if findings:
                 catalog_entries = self._collect_catalog_entries(resource_path, findings)
             
+            self._update_metrics(results.get("stats", {}))
+            
             return {
                 "findings": findings,
                 "catalog_entries": catalog_entries,
@@ -563,6 +642,15 @@ class ManagedScanner:
                 }
             }
         finally:
+            if progress_poller is not None:
+                progress_poller.stop()
+            if self.heartbeat_thread is not None:
+                self.heartbeat_thread.set_task(None)
+                self.heartbeat_thread.set_progress(0)
+            try:
+                scanner_metrics.clear_current_task(self.scanner_id)
+            except Exception:
+                pass
             if orchestrator:
                 try:
                     if hasattr(orchestrator, 'stop'):
@@ -683,6 +771,15 @@ class ManagedScanner:
         
         self.client.heartbeat(status="idle")
         
+        # Метрики на :9101 (fail-open) + выделенный поток heartbeat (День 39)
+        scanner_metrics.start_metrics_server(self.scanner_id, port=9101)
+        self.heartbeat_thread = HeartbeatThread(
+            manager_url=self.manager_url,
+            scanner_id=self.scanner_id,
+            interval=30,
+        )
+        self.heartbeat_thread.start()
+        
         while not self._should_exit:
             try:
                 heartbeat_ok = False
@@ -732,6 +829,8 @@ class ManagedScanner:
                 time.sleep(5)
         
         self.client.heartbeat(status="offline")
+        if self.heartbeat_thread is not None:
+            self.heartbeat_thread.stop()
         logger.info("👋 Сканер остановлен")
     
     def stop(self):

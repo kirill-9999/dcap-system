@@ -1,0 +1,45 @@
+# DCAP System — Prometheus конфигурация (День 39)
+# Докеризованный Prometheus собирает метрики из docker-compose стека.
+#
+# ВАЖНО про сканер (v3.6.2): сканер НЕ в Docker — он запускается на хосте
+# через run_scanner.py и отдаёт метрики на :9101 хоста. В docker-compose
+# стеке доступ к хосту-сканеру идёт через host.docker.internal.
+# На Linux-хостах может понадобиться extra_hosts: - "host.docker.internal:host-gateway"
+# в сервисе prometheus (см. docs/monitoring.md Troubleshooting).
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+rule_files:
+  - /etc/prometheus/alerts.yml
+
+scrape_configs:
+  - job_name: 'manager'
+    static_configs:
+      - targets: ['manager:8000']
+    metrics_path: '/metrics'
+
+  - job_name: 'scanner'
+    static_configs:
+      - targets: ['host.docker.internal:9101']
+    # ВАЖНО: сканер на хосте (v3.6.2) — host.docker.internal
+
+  - job_name: 'linux-agent'
+    static_configs:
+      - targets: ['audit_agent_linux:9102']
+
+  - job_name: 's3-agent'
+    static_configs:
+      - targets: ['s3_agent:9103']
+
+  - job_name: 'celery'
+    static_configs:
+      - targets: ['celery_exporter:9808']
+
+  - job_name: 'postgres'
+    static_configs:
+      - targets: ['postgres_exporter:9187']
+
+  - job_name: 'redis'
+    static_configs:
+      - targets: ['redis_exporter:9121']

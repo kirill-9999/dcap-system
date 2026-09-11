@@ -198,6 +198,124 @@ services:
     networks:
       - dcap-network
 
+  # ===== LINUX AGENT (профиль agents) =====
+  audit_agent_linux:
+    build:
+      context: .
+      dockerfile: audit-agent-linux/Dockerfile
+    image: dcap/linux-agent:${VERSION:-3.5.0}
+    container_name: dcap-linux-agent
+    environment:
+      MANAGER_URL: http://manager:8000
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+    volumes:
+      - linux_agent_data:/app/audit-agent-linux/data
+      - linux_agent_logs:/app/audit-agent-linux/logs
+    depends_on:
+      manager:
+        condition: service_healthy
+    profiles:
+      - agents
+    <<: *default-restart
+    logging: *default-logging
+    networks:
+      - dcap-network
+
+  # ===== MONITORING (День 39) =====
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: dcap-prometheus
+    volumes:
+      - ./monitoring/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./monitoring/prometheus/alerts.yml:/etc/prometheus/alerts.yml:ro
+      - prometheus_data:/prometheus
+    ports:
+      - "${PROMETHEUS_PORT:-9090}:9090"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    depends_on:
+      - manager
+    networks:
+      - dcap-network
+    <<: *default-restart
+    logging: *default-logging
+
+  grafana:
+    image: grafana/grafana:latest
+    container_name: dcap-grafana
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_PASSWORD:-admin}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
+    ports:
+      - "${GRAFANA_PORT:-3000}:3000"
+    depends_on:
+      - prometheus
+    networks:
+      - dcap-network
+    <<: *default-restart
+    logging: *default-logging
+
+  alertmanager:
+    image: prom/alertmanager:latest
+    container_name: dcap-alertmanager
+    volumes:
+      - ./monitoring/alertmanager/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
+    ports:
+      - "${ALERTMANAGER_PORT:-9093}:9093"
+    networks:
+      - dcap-network
+    <<: *default-restart
+    logging: *default-logging
+
+  postgres_exporter:
+    image: prometheuscommunity/postgres-exporter:latest
+    container_name: dcap-postgres-exporter
+    environment:
+      DATA_SOURCE_NAME: "postgresql://${POSTGRES_USER:-dcap}:${POSTGRES_PASSWORD:-dcap123}@postgres:5432/${POSTGRES_DB:-dcap}?sslmode=disable"
+    ports:
+      - "${PG_EXPORTER_PORT:-9187}:9187"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - dcap-network
+    <<: *default-restart
+    logging: *default-logging
+
+  redis_exporter:
+    image: oliver006/redis_exporter:latest
+    container_name: dcap-redis-exporter
+    environment:
+      REDIS_ADDR: "redis://redis:6379"
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-redis123}
+    ports:
+      - "${REDIS_EXPORTER_PORT:-9121}:9121"
+    depends_on:
+      redis:
+        condition: service_healthy
+    networks:
+      - dcap-network
+    <<: *default-restart
+    logging: *default-logging
+
+  celery_exporter:
+    image: danihodovic/celery-exporter:latest
+    container_name: dcap-celery-exporter
+    environment:
+      CELERY_BROKER_URL: "redis://:${REDIS_PASSWORD:-redis123}@redis:6379/0"
+    ports:
+      - "${CELERY_EXPORTER_PORT:-9808}:9808"
+    depends_on:
+      redis:
+        condition: service_healthy
+    networks:
+      - dcap-network
+    <<: *default-restart
+    logging: *default-logging
+
 networks:
   dcap-network:
     driver: bridge
@@ -216,3 +334,11 @@ volumes:
     name: dcap-s3-agent-data
   s3_agent_logs:
     name: dcap-s3-agent-logs
+  linux_agent_data:
+    name: dcap-linux-agent-data
+  linux_agent_logs:
+    name: dcap-linux-agent-logs
+  prometheus_data:
+    name: dcap-prometheus-data
+  grafana_data:
+    name: dcap-grafana-data

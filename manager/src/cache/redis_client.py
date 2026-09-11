@@ -132,6 +132,17 @@ class RedisClient:
             logger.debug(f"Redis incr failed: {e}")
             return -1
 
+    # --- Очереди (День 39, метрики Celery) ---
+    def llen(self, queue: str) -> int:
+        """Размер очереди Celery (LLEN). Возвращает -1 при недоступности Redis."""
+        if not self.available:
+            return -1
+        try:
+            return int(self._client.llen(queue)) if hasattr(self._client, "llen") else -1
+        except Exception as e:  # noqa: BLE001
+            logger.debug(f"Redis llen failed: {e}")
+            return -1
+
 
 _redis_client: Optional[RedisClient] = None
 

@@ -23,6 +23,13 @@ from typing import Dict, List
 from collector import InotifyCollector
 from buffer import BufferManager
 from sender import Sender
+from metrics import (
+    start_metrics_server,
+    events_collected,
+    events_sent,
+    send_errors,
+    set_buffer_size,
+)
 
 # Обязательные параметры конфига (без значений по умолчанию)
 REQUIRED_CONFIG_KEYS = [
@@ -181,6 +188,7 @@ class AuditAgent:
 
         def on_event(event):
             self.buffer.add(event)
+            events_collected.inc()
             self.log.debug(f"Событие: {event['event_type']} {event['file_path']}")
 
         collector = InotifyCollector(watch_paths=self.config["watch_paths"], callback=on_event)
@@ -189,6 +197,13 @@ class AuditAgent:
         collector_thread.start()
 
         self.log.info(f"Мониторинг: {self.config['watch_paths']}")
+
+        # Prometheus-метрики на :9102 (День 39)
+        try:
+            metrics_port = int(self.config.get("metrics", {}).get("port", 9102))
+        except Exception:
+            metrics_port = 9102
+        start_metrics_server(metrics_port)
 
         last_heartbeat = datetime.now() - timedelta(seconds=self.config["heartbeat_interval"])
         heartbeat_interval = self.config["heartbeat_interval"]
@@ -205,11 +220,14 @@ class AuditAgent:
                     events = [e["event"] for e in unsent]
                     if self.sender.send_events(events):
                         self.buffer.mark_sent([e["id"] for e in unsent])
+                        events_sent.inc(len(unsent))
                         self.log.info(f"Отправлено {len(unsent)} событий")
                     else:
+                        send_errors.inc(len(unsent))
                         self.log.warning("Не удалось отправить события")
 
                 self.buffer.clear_sent()
+                set_buffer_size(self.buffer.count_unsent())
 
                 # Сбор прав (периодически)
                 now = datetime.now()

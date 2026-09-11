@@ -6,6 +6,8 @@
 # Основные
 requests>=2.31.0
 python-dotenv>=1.0.0
+# Prometheus-метрики (День 39): экспортер на :9101
+prometheus-client>=0.20.0
 
 # Классификаторы
 presidio-analyzer>=2.2.0

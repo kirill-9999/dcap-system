@@ -10,6 +10,11 @@ import logging
 
 from ..db import models, session
 from .resources import get_default_config, deep_merge
+from ..metrics import (
+    track_task_submitted,
+    track_task_completed,
+    track_findings,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -28,10 +33,16 @@ class RegisterRequest(BaseModel):
     ip_address: Optional[str] = None
     scan_interval: Optional[int] = 10
 
+class HeartbeatProgress(BaseModel):
+    files_scanned: int = 0
+    total: Optional[int] = None
+
 class HeartbeatRequest(BaseModel):
     scanner_id: int
     status: Optional[str] = "idle"
     current_task_id: Optional[int] = None
+    task_id: Optional[int] = None
+    progress: Optional[HeartbeatProgress] = None
 
 class ScannerFinding(BaseModel):
     file_path: str
@@ -76,16 +87,32 @@ STALE_THRESHOLD_MINUTES = 2
 
 
 def _mark_stale_scanners(db: Session):
-    """Пометить сканеры как inactive, если heartbeat старше порога."""
+    """Пометить сканеры как inactive, если heartbeat старше порога.
+
+    Исключение (День 39): сканеры с активным заданием (status='assigned')
+    не помечаются inactive — heartbeat-поток поддерживает их активными
+    во время долгого сканирования.
+    """
     threshold = datetime.utcnow() - timedelta(minutes=STALE_THRESHOLD_MINUTES)
     stale = db.query(models.Scanner).filter(
         models.Scanner.status.in_(["active", "ACTIVE"]),
         models.Scanner.last_heartbeat < threshold
     ).all()
+    if not stale:
+        return
+
+    active_task_ids = {
+        t.scanner_id for t in db.query(models.ScanTask).filter(
+            models.ScanTask.scanner_id.in_([s.id for s in stale]),
+            models.ScanTask.status == "assigned"
+        ).all()
+    }
+
     for s in stale:
+        if s.id in active_task_ids:
+            continue
         s.status = "inactive"
-    if stale:
-        db.commit()
+    db.commit()
 
 
 # ============================================================
@@ -177,7 +204,7 @@ async def heartbeat(
     request: Request,
     db: Session = Depends(session.get_db)
 ):
-    """Обновление heartbeat сканера"""
+    """Обновление heartbeat сканера (День 39: + task_id и progress)."""
     try:
         data = await request.json()
     except:
@@ -193,6 +220,27 @@ async def heartbeat(
     
     scanner.last_heartbeat = datetime.utcnow()
     scanner.status = "active"
+    
+    # Обновление прогресса задания
+    task_id = data.get("task_id") or data.get("current_task_id")
+    if task_id:
+        task = db.query(models.ScanTask).filter(
+            models.ScanTask.id == int(task_id)
+        ).first()
+        if task and task.status == "assigned":
+            progress_data = data.get("progress") or {}
+            files_scanned = progress_data.get("files_scanned", 0)
+            total = progress_data.get("total")
+            percent = None
+            if total:
+                percent = round((files_scanned / total) * 100, 1)
+            task.progress = {
+                "files_scanned": files_scanned,
+                "total": total,
+                "percent": percent,
+            }
+            task.started_at = task.started_at or datetime.utcnow()
+    
     db.commit()
     
     return {"status": "ok"}
@@ -259,6 +307,8 @@ def get_pending_task(
     task.scanner_id = scanner_id
     task.assigned_at = datetime.utcnow()
     db.commit()
+    
+    track_task_submitted(status="assigned")
     
     logger.info(f"[Task] Task {task.id} assigned to scanner {scanner_id}")
     
@@ -373,6 +423,14 @@ async def submit_results(
     task.findings_count = len(payload.get("findings", []))
     task.files_scanned = stats.get("files_scanned", 0)
     task.files_failed = stats.get("files_failed", 0)
+    
+    # Prometheus-метрики (День 39)
+    track_task_submitted(status="completed")
+    if task.assigned_at:
+        track_task_completed(
+            (task.completed_at - task.assigned_at).total_seconds()
+        )
+    track_findings(stats.get("category_stats", {}))
     
     resource = db.query(models.Resource).filter(models.Resource.id == task.resource_id).first()
     if resource:

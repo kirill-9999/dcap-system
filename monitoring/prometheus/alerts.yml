@@ -1,0 +1,34 @@
+# DCAP System — правила алертов (День 39)
+groups:
+  - name: dcap
+    rules:
+      - alert: ScannerInactive
+        expr: dcap_scanner_heartbeat_age_seconds > 120
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Scanner {{ $labels.scanner_id }} inactive"
+
+      - alert: TaskFailed
+        expr: increase(dcap_tasks_total{status="failed"}[5m]) > 0
+        labels:
+          severity: critical
+        annotations:
+          summary: "Task failed on scanner {{ $labels.scanner_id }}"
+
+      - alert: HighErrorRate
+        expr: rate(dcap_http_requests_total{status=~"5.."}[5m]) > 0.05
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "High 5xx error rate"
+
+      - alert: CeleryQueueBacklog
+        expr: dcap_celery_queue_size > 100
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Celery queue {{ $labels.queue }} backlog"
