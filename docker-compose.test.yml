@@ -1,0 +1,59 @@
+version: '3.8'
+
+# Изолированный стек для тестов (не трогает prod-данные).
+# Использует dcap_test БД, tmpfs (без persistence), отдельные порты и сеть.
+# Запуск: scripts/test-up.sh (или docker compose -f docker-compose.test.yml up -d --build).
+# Компоненты MANAGER/WEBUI — те же образы, что и production (manager/Dockerfile, webui/Dockerfile).
+
+services:
+  postgres_test:
+    image: postgres:15-alpine
+    environment:
+      POSTGRES_DB: dcap_test
+      POSTGRES_USER: dcap_test
+      POSTGRES_PASSWORD: dcap_test
+    ports: ["15432:5432"]
+    tmpfs: /var/lib/postgresql/data  # быстро, без persistence
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U dcap_test"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  redis_test:
+    image: redis:7-alpine
+    ports: ["16379:6379"]
+    tmpfs: /data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  manager_test:
+    build:
+      context: .
+      dockerfile: manager/Dockerfile
+    environment:
+      DATABASE_URL: postgresql://dcap_test:dcap_test@postgres_test:5432/dcap_test
+      REDIS_URL: redis://redis_test:6379/0
+      AUTH_MODE: local
+      MTLS_ENABLED: "false"
+    ports: ["18000:8000"]
+    depends_on:
+      postgres_test: { condition: service_healthy }
+      redis_test: { condition: service_healthy }
+
+  webui_test:
+    build:
+      context: ./webui
+      dockerfile: Dockerfile
+    environment:
+      MANAGER_URL: http://manager_test:8000
+    ports: ["18001:8001"]
+    depends_on:
+      - manager_test
+
+networks:
+  default:
+    name: dcap-test-network

@@ -36,7 +36,8 @@ def list_tasks(
             "completed_at": t.completed_at.isoformat() if t.completed_at else None,
             "findings_count": t.findings_count,
             "files_scanned": t.files_scanned,
-            "files_failed": t.files_failed
+            "files_failed": t.files_failed,
+            "progress": t.progress
         }
         for t in tasks
     ]
@@ -61,7 +62,8 @@ def get_task(
         "completed_at": task.completed_at.isoformat() if task.completed_at else None,
         "findings_count": task.findings_count,
         "files_scanned": task.files_scanned,
-        "files_failed": task.files_failed
+        "files_failed": task.files_failed,
+        "progress": task.progress
     }
 
 @router.delete("/{task_id}")

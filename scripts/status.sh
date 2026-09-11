@@ -85,3 +85,39 @@ for svc in postgres_exporter:9187 redis_exporter:9121 celery_exporter:9808; do
         echo "❌ ${name}: unhealthy"
     fi
 done
+
+echo ""
+echo "============================================"
+echo "  Testing (День 40-41)"
+echo "============================================"
+
+if [ -f "$PROJECT_ROOT/requirements-dev.txt" ]; then
+    echo "✅ requirements-dev.txt: присутствует"
+else
+    echo "❌ requirements-dev.txt: отсутствует"
+fi
+
+if [ -d "$PROJECT_ROOT/tests" ]; then
+    echo "✅ tests/: присутствует"
+else
+    echo "❌ tests/: отсутствует"
+fi
+
+if [ -f "$PROJECT_ROOT/docker-compose.test.yml" ]; then
+    echo "✅ docker-compose.test.yml: присутствует"
+else
+    echo "❌ docker-compose.test.yml: отсутствует"
+fi
+
+if command -v pytest > /dev/null 2>&1; then
+    echo "✅ pytest: $(pytest --version)"
+else
+    echo "❌ pytest: не установлен (pip install -r requirements-dev.txt)"
+fi
+
+# Статус тестового стека (:18000)
+if curl -sf http://localhost:18000/api/health > /dev/null 2>&1; then
+    echo "✅ Test Manager (:18000): healthy"
+else
+    echo "ℹ️ Test Manager (:18000): не запущен (scripts/test-up.sh)"
+fi

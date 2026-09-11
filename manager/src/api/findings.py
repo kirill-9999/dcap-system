@@ -13,13 +13,16 @@ def list_findings(
     limit: int = Query(100, ge=1, le=1000),
     resource_id: Optional[int] = None,
     category: Optional[str] = None,
-    min_confidence: Optional[int] = None
+    min_confidence: Optional[int] = None,
+    task_id: Optional[int] = None
 ):
     """Получить список находок"""
     query = db.query(models.Finding)
     
     if resource_id:
         query = query.filter(models.Finding.resource_id == resource_id)
+    if task_id:
+        query = query.filter(models.Finding.task_id == task_id)
     if category:
         query = query.filter(models.Finding.category == category)
     if min_confidence:

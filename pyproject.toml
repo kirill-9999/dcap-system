@@ -15,3 +15,21 @@ python_version = "3.10"
 warn_return_any = true
 warn_unused_configs = true
 ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+asyncio_mode = "auto"
+timeout = 300
+markers = [
+    "e2e: End-to-end тесты (полный цикл)",
+    "chaos: Chaos-тесты (отказоустойчивость)",
+    "load: Нагрузочные тесты",
+    "slow: Медленные тесты (>30 сек)",
+    "requires_manager: Требует запущенный Manager",
+    "requires_docker: Требует Docker",
+    "requires_scanner: Требует запущенный Scanner",
+]
+addopts = "-v --strict-markers --tb=short"

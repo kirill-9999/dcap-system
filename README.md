@@ -80,6 +80,24 @@ cp .env.example .env    # настроить пароли и ключи
 - **Скрипты**: `scripts/deploy.sh`, `stop.sh`, `logs.sh`, `status.sh`, `healthcheck.sh`.
 - **Документация**: `docs/deployment.md`.
 
+## Тестирование (День 40-41): E2E + Chaos + Load
+
+Тесты построены на **pytest** (изолированный тестовый стек `docker-compose.test.yml`,
+Manager :18000, WebUI :18001, БД `dcap_test`, tmpfs). Полная инструкция —
+**`docs/testing.md`**.
+
+```bash
+pip install -r requirements-dev.txt
+./scripts/test-up.sh        # поднять изолированный тестовый стек
+pytest tests/               # все тесты
+./scripts/run-tests.sh e2e  # только E2E (или chaos / load / quick / all)
+./scripts/test-down.sh      # остановить стек
+```
+
+- **E2E** — `tests/e2e/`: полный цикл (задание → сканирование → находки), auth, heartbeat сканера, агенты, WebUI-прокси, retention
+- **Chaos** — `tests/chaos/`: падение Manager / Redis (fail-open) / PostgreSQL / Scanner, обрыв сети
+- **Load** — `tests/load/`: 1000 заданий, 10 000 событий, конкурентные сканеры (базовые; глубокие — в v3.1.0)
+
 ## Мониторинг (День 39): Prometheus + Grafana + Alertmanager
 
 Стек мониторинга поднимается вместе с docker-compose:

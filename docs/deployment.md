@@ -172,6 +172,21 @@ Scaner отдаёт метрики на :9101 **с хоста** (он не в Do
 
 Полная документация мониторинга — [docs/monitoring.md](monitoring.md).
 
+## Тестирование (День 40-41)
+
+Изолированный тестовый стек (`docker-compose.test.yml`, БД `dcap_test`, tmpfs,
+Manager :18000, WebUI :18001) и набор pytest-тестов — E2E / Chaos / Load.
+
+```bash
+pip install -r requirements-dev.txt
+./scripts/test-up.sh       # поднять тестовый стек
+pytest tests/              # все тесты
+./scripts/run-tests.sh e2e # E2E (также: chaos, load, quick, all)
+./scripts/test-down.sh     # остановить стек
+```
+
+Полная документация тестирования — [docs/testing.md](testing.md).
+
 ## Остановка
 
 ```bash
