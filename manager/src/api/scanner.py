@@ -343,9 +343,13 @@ async def submit_results(
     if task.status != "assigned":
         raise HTTPException(400, f"Task status is {task.status}, expected 'assigned'")
     
-    # Сохраняем findings
-    from manager.src.core.encryption import get_encryption, mask
+    # === Сохраняем findings (день 40.2: новый формат + дедупликация по fingerprint) ===
+    from manager.src.core.encryption import get_encryption, mask, mask_line
     _enc = None
+    saved_findings = 0
+    deduped_findings = 0
+    skipped_false_positives = 0
+
     for finding_data in payload.get("findings", []):
         file_path = finding_data.get("file_path", finding_data.get("filepath", ""))
         line_number = finding_data.get("line_number", finding_data.get("line", 0))
@@ -359,12 +363,53 @@ async def submit_results(
         if _enc is None:
             _enc = get_encryption()
 
-        # Backward compat: старый формат находки = файл → строка (text_line).
-        # finding_type = pii/credentials/code (старая категория верхнего уровня),
-        # category = подкатегория детектора.
-        finding_type = category if category in ("pii", "credentials", "code") else "code"
-        detail_category = subcategory or (category if category not in ("pii", "credentials", "code") else "unknown")
-        fingerprint = _enc.fingerprint(file_path, int(line_number or 0), value, finding_type)
+        # New format (день 40.2): finding_type передаётся явно.
+        # Backward compat: старый формат категория = pii/credentials/code.
+        finding_type = finding_data.get("finding_type")
+        if finding_type not in ("pii", "credentials", "code"):
+            finding_type = category if category in ("pii", "credentials", "code") else "code"
+        detail_category = finding_data.get("category") or "unknown"
+        if detail_category in ("pii", "credentials", "code"):
+            detail_category = subcategory or "unknown"
+
+        # fingerprint: передан сканером или вычисляем (legacy/старый формат).
+        # В старом формате 4-й компонент = finding_type (совместимо с v3.9).
+        fingerprint = finding_data.get("fingerprint")
+        if not fingerprint:
+            fingerprint = _enc.fingerprint(
+                file_path, int(line_number or 0), value, finding_type
+            )
+
+        # === Дедупликация (день 40.2): не создаём повторно ===
+        existing = db.query(models.Finding).filter(
+            models.Finding.fingerprint == fingerprint
+        ).first()
+        if existing:
+            if existing.status == "false_positive":
+                # Находка отмечена человеком как ложная — пропускаем
+                skipped_false_positives += 1
+                continue
+            # new/confirmed/archived — не создаём повторно, обновляем last_seen_at
+            existing.last_seen_at = datetime.utcnow()
+            deduped_findings += 1
+            continue
+
+        # Шифрование/маскирование: сканер приложил готовые значения —
+        # используем их; иначе вычисляем сами (legacy/старый менеджер-клиент).
+        if finding_data.get("match_text_encrypted"):
+            match_masked = finding_data.get("match_text_masked") or mask(value, detail_category)
+            match_enc = finding_data["match_text_encrypted"]
+        else:
+            match_masked = mask(value, detail_category) if value else None
+            match_enc = _enc.encrypt(value) if value else None
+
+        line_text = finding_data.get("line_text", "")
+        line_text_masked = finding_data.get("line_text_masked")
+        if line_text_masked is None and finding_data.get("start_pos") is not None:
+            st, en = finding_data.get("start_pos"), finding_data.get("end_pos")
+            line_text_masked = mask_line(line_text, [(st, en, detail_category)])
+        elif line_text_masked is None and line_text:
+            line_text_masked = line_text
 
         finding = models.Finding(
             task_id=task_id,
@@ -372,19 +417,29 @@ async def submit_results(
             finding_type=finding_type,
             category=detail_category,
             severity=finding_data.get("severity", "medium"),
-            fragment_type="text_line",
+            fragment_type=finding_data.get("fragment_type", "text_line"),
             fragment_path=file_path,
             line_number=line_number or 0,
-            match_text_masked=mask(value, finding_type) if value else None,
-            match_text_encrypted=_enc.encrypt(value) if value else None,
-            context_before_masked=context or None,
+            match_text_masked=match_masked,
+            match_text_encrypted=match_enc,
+            line_text_masked=line_text_masked,
+            line_text_encrypted=finding_data.get("line_text_encrypted"),
+            context_before_masked=finding_data.get("context_before_masked") or context or None,
+            context_after_masked=finding_data.get("context_after_masked") or None,
+            bounding_box=finding_data.get("bounding_box") or (
+                {"x": 0, "y": 0, "width": 0, "height": 0} if finding_data.get("fragment_type") == "image_region" else None
+            ),
+            byte_offset=finding_data.get("byte_offset"),
+            byte_length=finding_data.get("byte_length"),
+            hex_preview=finding_data.get("hex_preview"),
             fingerprint=fingerprint,
-            encryption_key_id=_enc.key_id,
+            encryption_key_id=finding_data.get("encryption_key_id") or _enc.key_id,
             status="new",
             confidence=float(confidence) if confidence else None,
             detector=finding_data.get("detector") or "legacy",
         )
         db.add(finding)
+        saved_findings += 1
     
     # Сохраняем catalog_entries
     for entry in payload.get("catalog_entries", []):
@@ -440,7 +495,7 @@ async def submit_results(
     stats = payload.get("stats", {})
     task.status = "completed"
     task.completed_at = datetime.utcnow()
-    task.findings_count = len(payload.get("findings", []))
+    task.findings_count = saved_findings
     task.files_scanned = stats.get("files_scanned", 0)
     task.files_failed = stats.get("files_failed", 0)
     
@@ -460,13 +515,15 @@ async def submit_results(
     db.commit()
     
     logger.info(f"[Task] Task {task_id} completed by scanner {task.scanner_id}")
-    
+
     return {
         "status": "accepted",
         "task_id": task_id,
-        "findings_count": len(payload.get("findings", [])),
+        "findings_count": saved_findings,
         "catalog_entries_count": len(payload.get("catalog_entries", [])),
-        "failed_files_count": len(payload.get("failed_files", []))
+        "failed_files_count": len(payload.get("failed_files", [])),
+        "deduped": deduped_findings,
+        "skipped_false_positives": skipped_false_positives,
     }
 
 

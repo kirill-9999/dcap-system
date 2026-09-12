@@ -6,9 +6,9 @@ markdown
 > План и бэклог — в `ROADMAP.md`. Архитектура — в `ARCHITECTURE.md`.
 
 **Обновлено:** 12.09.2026
-**Текущая версия:** v3.9.0
+**Текущая версия:** v3.10.0
 **Целевая версия:** v3.0.0 (релиз)
-**Статус:** 🟡 День 40.1 — Findings Refactor (модель + шифрование + API) реализован и протестирован (unit 17 + e2e 5 new)
+**Статус:** 🟢 День 40.2 — Findings Refactor: сканер (построчно + FP + дедуп) реализован и протестирован (unit 34 + e2e 17/4 skip)
 
 ---
 
@@ -16,11 +16,11 @@ markdown
 
 | Параметр | Значение |
 |----------|----------|
-| Текущий день | 40.2 — Findings WebUI (обратная связь по ЭП) |
+| Текущий день | 40.3 — Findings Refactor: WebUI (находки, каталог, FP) |
 | Статус дня | 📋 Запланирован |
-| Последний принятый отчёт | `day_40.1_report.md` (v3.9.0, Findings Refactor ✅) |
-| Следующий шаг | ТЗ Дня 40.2 → WebUI находок под новую модель |
-| Открытые вопросы к архитектору | WebUI v3.8 читает f.value/file_path → частичная деградация до 40.2 |
+| Последний принятый отчёт | `day_40.2_report.md` (v3.10.0, Findings Refactor: сканер ✅) |
+| Следующий шаг | ТЗ Дня 40.3 → WebUI находок под новую модель |
+| Открытые вопросы к архитектору | WebUI v3.8 читает f.value/file_path → частичная деградация до 40.3 |
 
 ---
 
@@ -36,6 +36,7 @@ markdown
 | 39 | Мониторинг + Heartbeat-thread | v3.7.0 | `day_39_report.md` |
 | 40-41 | Тестирование (E2E + Chaos + Load) | v3.8.0 | `day_40-41_report.md` |
 | **40.1** | **Findings Refactor: модель + шифрование + API (Этап 1)** | **v3.9.0** | **`day_40.1_report.md`** |
+| **40.2** | **Findings Refactor: сканер (построчно + FP + дедуп, Этап 2)** | **v3.10.0** | **`day_40.2_report.md`** |
 | 42 | Публикация на GitHub | — | 📋 |
 | 43 | Релиз v3.0.0 | — | 📋 |
 
@@ -49,12 +50,15 @@ markdown
 | BACKLOG-043 | Прогресс сканера в WebUI (панель «Сканеры») | 📋 v3.0.0 | 🟡 |
 | BACKLOG-044 | Защита `/metrics` (JWT/basic_auth для Prometheus scrape) | 📋 production | 🟡 |
 | BACKLOG-045 | Параметризация портов экспортеров в compose | 📋 | 🟢 |
-| NEW-40.1 | WebUI v3.8 находок использует f.value/file_path — на новой модели экраны Findings/Dashboard частично деградируют (category pii → finding_type) | 📋 40.2 | 🟡 |
+| NEW-40.1 | WebUI v3.8 находок использует f.value/file_path — на новой модели экраны Findings/Dashboard частично деградируют (category pii → finding_type) | 📋 40.3 | 🟡 |
 
 *(Закрытые в v3.7.0: BACKLOG-021, 037, 038, 041, 042 — см. ROADMAP.md)*
 *(Закрытые в v3.8.0 при валидации: alembic 002 на fresh-PG, rate-limit/login-limit через env,
 гонка /api/tasks/create, tmpfs postgres_test → named volume)*
 *(Закрытые в v3.9.0: доступ к «сырым» знамениям в API — теперь только masked + reveal для Auditor)*
+*(Закрытые в v3.10.0: сканер переведён на новые находки (Finding + построчно), FP-фильтр до отправки,
+дедупликация в Manager — FP не пересоздаются, повторные находки обновляют last_seen_at;
+BACKLOG-053/054/055 — закрыты в коде, статус в ROADMAP обновит Архитектор)*
 
 ---
 
@@ -63,6 +67,8 @@ markdown
 - **Findings = строка/фрагмент** (не файл): `fragment_type`, `line_number`, `bounding_box`, `byte_*`, `hex_preview` (v3.9.0)
 - **Гибридное хранение** — masked + AES-256-GCM encrypted; reveal только Auditor с записью audit_logs (v3.9.0)
 - **HMAC-SHA256 fingerprint** для дедупликации/сторожевых FP; ключи — Docker Secrets / env (v3.9.0)
+- **Сканер шифрует/маскирует находки на хосте до отправки** (AES-256-GCM + маска по категории); без ключей — legacy-режим (открытый текст → шифрует Manager) (v3.10.0)
+- **Дедупликация в Manager** по fingerprint: FP не пересоздаются, повторные находки обновляют `last_seen_at`; batch FP-фильтр `check-fingerprints` до отправки (v3.10.0)
 - **Scanner — на хосте, не в Docker** (bind-mount невозможен)
 - **Heartbeat-thread** — выделенный daemon-поток (v3.7.0)
 - **spaCy-модели `sm`** (не `lg`)
@@ -75,9 +81,13 @@ markdown
 
 ## 📁 Последние использованные файлы
 
-- `prompts/reports/day_40.1_report.md` — принят (v3.9.0, Findings Refactor: unit 17 + e2e 5)
-- `prompts/archive/day_40.1_findings_model.md` — ТЗ архивировано
-- `manager/src/db/migrations/versions/003_findings_refactor.py` — миграция модели Finding
-- `manager/src/core/encryption.py` — AES-256-GCM + HMAC-fingerprint + маскирование
-- `manager/src/api/findings.py` — новый API (list/stats/FP/reveal/patch/bulk/delete/check-fingerprints)
-- `prompts/tz/day_40.2_*.md` — ожидается
+- `prompts/reports/day_40.2_report.md` — принят (v3.10.0, Findings Refactor: сканер: unit 34 + e2e 17/4 skip)
+- `prompts/archive/day_40.2_scanner_findings.md` — ТЗ архивировано
+- `scanner/src/finding.py` — модель Finding (dataclass, построчно)
+- `scanner/src/encryption.py` — AES-256-GCM + HMAC-fingerprint + маскирование на стороне сканера
+- `scanner/classifiers/pii_classifier.py`, `credentials_classifier.py`, `code_classifier.py` — `scan_line`
+- `scanner/connectors/filesystem.py` — `FilesystemConnector` (построчно + контекст)
+- `scanner/src/managed_scanner.py` — FP-фильтр, сериализация, построчный конвейер
+- `manager/src/api/scanner.py` — submit_results: новый формат + дедупликация
+- `tests/unit/test_scanner_findings.py`, `tests/e2e/test_scanner_findings.py` — тесты дня 40.2
+- `docs/deployment.md` — env сканера (FINDINGS_*)

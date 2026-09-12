@@ -8,6 +8,7 @@ PII Classifier на основе Presidio
 import re
 import time
 import threading
+import logging
 from pathlib import Path
 from typing import Dict, Any, List, Optional
 
@@ -21,6 +22,9 @@ from core.base import (
 )
 from utils.document_extractor import DocumentExtractor
 from classifiers.ocr_worker import start_ocr_worker, stop_ocr_worker
+from scanner.src.finding import Finding
+
+logger = logging.getLogger(__name__)
 
 
 class PiiClassifier(IClassifier):
@@ -64,6 +68,8 @@ class PiiClassifier(IClassifier):
         self._timeout = 60.0
         self.enabled = True
         self._analyzer = None
+        # Кастомные regex-паттерны для строчного сканирования (пустые по умолчанию)
+        self.custom_patterns: List = []
     
     @property
     def classifier_name(self) -> str:
@@ -292,7 +298,118 @@ class PiiClassifier(IClassifier):
             self._start_ocr_worker()
         
         self._initialized = True
-    
+
+    def scan_line(self, line: str, line_num: int) -> List[Finding]:
+        """
+        Сканирует одну строку, возвращает список Finding с позициями.
+        (День 40.2 — построчное сканирование.)
+        """
+        findings = []
+
+        # Быстрый негативный фильтр (не гоняем Presidio на пустых/мусорных строках)
+        if not self._quick_line_check(line):
+            return []
+
+        # 1. Presidio (если доступен)
+        if self._analyzer is not None:
+            try:
+                results = self._analyzer.analyze(text=line, language="ru")
+                min_confidence = self.config.get("min_confidence", 0.5)
+                for r in results:
+                    if r.score < min_confidence:
+                        continue
+                    match_text = line[r.start:r.end]
+                    if not match_text:
+                        continue
+                    findings.append(Finding(
+                        line_number=line_num,
+                        line_text=line,
+                        match_text=match_text,
+                        start_pos=r.start,
+                        end_pos=r.end,
+                        finding_type="pii",
+                        category=self._map_presidio_entity(r.entity_type),
+                        severity=self._severity(r.entity_type),
+                        confidence=float(r.score),
+                        detector="presidio",
+                    ))
+            except Exception as e:
+                logger.warning("Presidio failed on line %d: %s", line_num, e)
+        else:
+            logger.debug("Presidio analyzer not initialized, skip line %d", line_num)
+
+        # 2. Regex-паттерны (кастомные)
+        for pattern, category, severity in self.custom_patterns:
+            for m in pattern.finditer(line):
+                findings.append(Finding(
+                    line_number=line_num,
+                    line_text=line,
+                    match_text=m.group(),
+                    start_pos=m.start(),
+                    end_pos=m.end(),
+                    finding_type="pii",
+                    category=category,
+                    severity=severity,
+                    confidence=0.85,
+                    detector="regex",
+                ))
+
+        # Дедупликация внутри строки (по позиции)
+        return self._deduplicate(findings)
+
+    def _quick_line_check(self, line: str) -> bool:
+        """Быстрая проверка строки на наличие PII-признаков (до Presidio)."""
+        stripped = line.strip()
+        if len(stripped) < 5:
+            return False
+        patterns = [
+            r'\d{1,2}[./-]\d{1,2}[./-]\d{2,4}',
+            r'[A-Za-z][A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}',
+            r'\+?7\s*\d{3}\s*\d{3}\s*\d{2}\s*\d{2}',
+            r'8\s*\d{3}\s*\d{3}\s*\d{2}\s*\d{2}',
+            r'[А-Я][а-я]+\s+[А-Я][а-я]+',
+            r'[A-Z][a-z]+\s+[A-Z][a-z]+',
+            r'\b\d{4}\s+\d{6}\b',
+            r'\b\d{3}-\d{3}-\d{3}\s+\d{2}\b',
+            r'\b\d{6,12}\b',
+            r'\b\d{16}\b',
+        ]
+        for pattern in patterns:
+            if re.search(pattern, stripped):
+                return True
+        return False
+
+    def _map_presidio_entity(self, entity_type: str) -> str:
+        """PHONE_NUMBER → phone, EMAIL_ADDRESS → email, и т.д."""
+        mapping = {
+            "PHONE_NUMBER": "phone",
+            "EMAIL_ADDRESS": "email",
+            "PERSON": "person",
+            "CREDIT_CARD": "credit_card",
+            "PASSPORT": "passport",
+            "RU_PASSPORT": "passport",
+            "SNILS": "snils",
+            "RU_SNILS": "snils",
+            "INN": "inn",
+            "RU_INN": "inn",
+        }
+        return mapping.get(entity_type, entity_type.lower())
+
+    def _severity(self, entity_type: str) -> str:
+        high = {"CREDIT_CARD", "PASSPORT", "RU_PASSPORT", "SNILS", "RU_SNILS", "INN", "RU_INN"}
+        return "high" if entity_type in high else "medium"
+
+    def _deduplicate(self, findings: List[Finding]) -> List[Finding]:
+        """Убирает дубликаты (одинаковые позиции)."""
+        seen = set()
+        result = []
+        for f in findings:
+            key = (f.start_pos, f.end_pos, f.category)
+            if key not in seen:
+                seen.add(key)
+                result.append(f)
+        return result
+
     def _add_custom_recognizers(self):
         """Добавление кастомных распознавателей для РФ"""
         

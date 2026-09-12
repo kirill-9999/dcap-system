@@ -64,7 +64,8 @@ class ConnectorConfig:
     skip_dirs: list = field(default_factory=lambda: list(DEFAULT_SKIP_DIRS))
     buffer_size: int = 1024 * 1024
     max_text_chars: int = 200000
-    
+    context_lines: int = 2  # <-- ДОБАВЛЕНО (день 40.2)
+
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> 'ConnectorConfig':
         return cls(
@@ -73,7 +74,8 @@ class ConnectorConfig:
             recursive=data.get("recursive", True),
             skip_dirs=data.get("skip_dirs", list(DEFAULT_SKIP_DIRS)),
             buffer_size=data.get("buffer_size", 1024 * 1024),
-            max_text_chars=data.get("max_text_chars", 200000)
+            max_text_chars=data.get("max_text_chars", 200000),
+            context_lines=data.get("context_lines", 2)  # <-- ДОБАВЛЕНО
         )
 
 

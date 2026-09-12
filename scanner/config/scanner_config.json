@@ -47,7 +47,18 @@
         "follow_symlinks": false,
         "scan_hidden": true,
         "buffer_size": 1048576,
-        "max_text_chars": 200000
+        "max_text_chars": 200000,
+        "context_lines": 2,
+        "text_extensions": [
+            "txt", "csv", "log", "json", "yaml", "yml", "xml", "toml", "ini", "cfg", "conf",
+            "env", "envrc", "properties", "py", "js", "ts", "tsx", "jsx", "java", "c", "cpp",
+            "h", "hpp", "go", "rs", "sh", "bash", "zsh", "ps1", "cmd", "bat", "sql", "php",
+            "rb", "pl", "lua", "r", "swift", "kt", "md", "rst", "html", "css", "scss",
+            "dockerfile", "makefile", "tf", "hcl",
+            "pem", "key", "crt", "csr", "cert", "p12", "pfx", "jks",
+            "pdf", "doc", "docx", "xls", "xlsx", "png", "jpg", "jpeg",
+            "gif", "bmp", "tiff", "webp"
+        ]
     },
     "logging": {
         "level": "INFO",

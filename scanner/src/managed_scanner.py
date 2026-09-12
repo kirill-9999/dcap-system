@@ -41,11 +41,13 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from scanner.core.orchestrator import Orchestrator
 from scanner.core.base import FileContext, ClassificationResult, ClassificationFinding, DataCategory
-from scanner.connectors.filesystem import FileSystemConnector
+from scanner.connectors.filesystem import FileSystemConnector, FilesystemConnector
 from scanner.handlers.finding_collector import FindingCollector
 from scanner.src.config_loader import AppConfig
 from scanner.src.heartbeat import HeartbeatThread
 from scanner.src import metrics as scanner_metrics
+from scanner.src.encryption import get_encryption, mask, mask_line, mask_context
+from scanner.src.finding import Finding
 
 logger = logging.getLogger("dcap-scanner")
 
@@ -272,6 +274,34 @@ class ManagerClient:
             logger.error(f"[GetScannerInfo] Error: {e}")
             return None
 
+    def check_fingerprints(self, fingerprints: List[str]) -> Optional[Dict[str, Any]]:
+        """Batch-проверка fingerprint'ов перед отправкой (день 40.2).
+
+        Возвращает {"false_positives": [...], "confirmed": [...], "new": [...]}
+        или None при недоступности эндпоинта (в этом случае фильтр отключается).
+        """
+        if not fingerprints:
+            return {"false_positives": [], "confirmed": [], "new": []}
+
+        url = f"{self.base_url}/api/findings/check-fingerprints"
+        try:
+            response = self.session.post(
+                url,
+                json={"fingerprints": fingerprints},
+                timeout=self.timeout,
+            )
+            if response.status_code == 200:
+                return response.json()
+            logger.warning(
+                "[CheckFingerprints] Failed: %s %s",
+                response.status_code,
+                response.text[:200],
+            )
+            return None
+        except Exception as e:
+            logger.warning("[CheckFingerprints] Error: %s", e)
+            return None
+
 
 class ManagedScanner:
     def __init__(
@@ -292,6 +322,9 @@ class ManagedScanner:
         self.client = None
         self.classifiers = []
         self.heartbeat_thread: Optional[HeartbeatThread] = None
+        # Построчный конвейер (день 40.2)
+        self._connector: Optional[FilesystemConnector] = None
+        self._enc = None
         self._load_classifiers()
     
     def _load_classifiers(self):
@@ -393,7 +426,8 @@ class ManagedScanner:
                 "recursive": self.config.connector.recursive,
                 "skip_dirs": self.config.connector.skip_dirs,
                 "buffer_size": self.config.connector.buffer_size,
-                "max_text_chars": self.config.connector.max_text_chars
+                "max_text_chars": self.config.connector.max_text_chars,
+                "context_lines": self.config.connector.context_lines
             }
         return {
             "extensions": ["*"],
@@ -401,7 +435,8 @@ class ManagedScanner:
             "recursive": True,
             "skip_dirs": ["$Recycle.Bin", "System Volume Information", "tmp", "temp", "cache", "__pycache__", "node_modules", "venv", "logs", ".git"],
             "buffer_size": 1024 * 1024,
-            "max_text_chars": 200000
+            "max_text_chars": 200000,
+            "context_lines": 2
         }
     
     def _get_orchestrator_config(self) -> Dict[str, Any]:
@@ -486,6 +521,150 @@ class ManagedScanner:
         logger.info(f"[Catalog] Collected {len(result)} folders with findings")
         return result
     
+    def _init_line_pipeline(self) -> bool:
+        """Инициализация построчного конвейера (день 40.2).
+
+        Загружает шифрование (по ключам), строит FilesystemConnector.
+        Возвращает True, если есть классификаторы со scan_line.
+        """
+        line_capable = [
+            c for c in self.classifiers if hasattr(c, "scan_line")
+        ]
+        if not line_capable:
+            logger.warning("[LineScan] Нет классификаторов с scan_line — построчный конвейер недоступен")
+            return False
+
+        self._enc = get_encryption()
+
+        connector_cfg = self._get_connector_config()
+        self._connector = FilesystemConnector(connector_cfg)
+
+        logger.info(
+            "[LineScan] Построчный конвейер готов: %d классификаторов, keys=%s",
+            len(line_capable),
+            "enabled" if self._enc else "disabled (legacy)",
+        )
+        return True
+
+    def _legacy_fingerprint(self, match_text: str) -> str:
+        """Простой fingerprint для legacy-режима (md5 по значению)."""
+        import hashlib
+        return hashlib.md5((match_text or "").encode("utf-8")).hexdigest()
+
+    def _serialize_finding(self, finding: Finding, resource_path: str) -> Dict[str, Any]:
+        """Сериализация находки для Manager (новый формат, день 40.2).
+
+        При включённом шифровании открытый текст НЕ покидает хост:
+        передаются encrypted + masked версии value/line/context.
+        """
+        enc = self._enc
+        fpath = finding.fragment_path or resource_path
+        cat = finding.category or "unknown"
+        value = finding.match_text or ""
+        line_text = finding.line_text or ""
+        ctx_before = finding.context_before or ""
+        ctx_after = finding.context_after or ""
+        line_no = int(finding.line_number or 0)
+
+        d: Dict[str, Any] = {
+            "file_path": fpath,
+            "line_number": line_no,
+            "category": cat,
+            "subcategory": finding.category,
+            "finding_type": finding.finding_type,
+            "value": value if enc is None else "(encrypted)",
+            "confidence": finding.confidence or 1.0,
+            "severity": finding.severity or "medium",
+            "detector": finding.detector or "regex",
+            "context": line_text if enc is None else None,
+            "start_pos": finding.start_pos,
+            "end_pos": finding.end_pos,
+            "fragment_type": finding.fragment_type,
+            "bounding_box": finding.bounding_box,
+            "byte_offset": finding.byte_offset,
+            "byte_length": finding.byte_length,
+            "hex_preview": finding.hex_preview,
+        }
+
+        if enc is not None:
+            d["fingerprint"] = enc.fingerprint(fpath, line_no, value, finding.finding_type)
+            d["match_text_encrypted"] = enc.encrypt(value) if value else None
+            d["match_text_masked"] = mask(value, cat) if value else None
+            d["line_text_encrypted"] = enc.encrypt(line_text) if line_text else None
+            d["line_text_masked"] = mask_line(line_text, [(finding.start_pos, finding.end_pos, cat)]) if line_text else None
+            d["context_before_masked"] = mask_context(ctx_before, cat) if ctx_before else None
+            d["context_after_masked"] = mask_context(ctx_after, cat) if ctx_after else None
+            d["encryption_key_id"] = enc.key_id
+            d["legacy_fingerprint"] = self._legacy_fingerprint(value)
+        else:
+            d["fingerprint"] = None
+            d["match_text_masked"] = mask(value, cat) if value else None
+            d["line_text_masked"] = mask_line(line_text, [(finding.start_pos, finding.end_pos, cat)]) if line_text else None
+            d["context_before_masked"] = mask_context(ctx_before, cat) if ctx_before else None
+            d["context_after_masked"] = mask_context(ctx_after, cat) if ctx_after else None
+
+        return d
+
+    def _filter_false_positives(self, serialized: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """Batch-фильтр FP через check-fingerprints (день 40.2).
+
+        Находки с fingerprint, отмеченные как false_positive (или уже confirmed),
+        НЕ отправляются в Manager. Если эндпоинт недоступен (старый Manager) —
+        отправляем как раньше (backward compat).
+        """
+        if not serialized:
+            return serialized
+
+        fps = [d.get("fingerprint") for d in serialized if d.get("fingerprint")]
+        if not fps:
+            return serialized
+
+        try:
+            result = self.client.check_fingerprints(fps) if self.client else None
+        except Exception as e:
+            logger.warning("[FPFilter] check-fingerprints error: %s", e)
+            result = None
+
+        if not result:
+            return serialized
+
+        skip = set(result.get("false_positives", [])) | set(result.get("confirmed", []))
+
+        filtered = [d for d in serialized if d.get("fingerprint") not in skip]
+        if len(filtered) != len(serialized):
+            logger.info(
+                "[FPFilter] Отфильтровано %d находок (FP/confirmed)",
+                len(serialized) - len(filtered),
+            )
+        return filtered
+
+    def _scan_line_by_line(self, resource_path: str) -> Dict[str, Any]:
+        """Построчное сканирование каталога (день 40.2).
+
+        Возвращает {"findings": [...], "files_scanned": int, "error": str|None}.
+        """
+        line_capable = [c for c in self.classifiers if hasattr(c, "scan_line")]
+
+        # счётчик обработанных файлов для stats
+        scanned = [0]
+
+        def _progress(stage: int, current: int, total: int, file_path: str):
+            if stage == 1:
+                scanned[0] = current
+                if self.heartbeat_thread is not None:
+                    self.heartbeat_thread.set_progress(current, total)
+
+        findings = self._connector.scan_path(
+            resource_path,
+            line_capable,
+            progress_callback=_progress,
+        )
+        return {
+            "findings": findings,
+            "files_scanned": scanned[0],
+            "error": None,
+        }
+
     def _update_metrics(self, stats: Dict[str, Any]):
         """Инкремент Prometheus-метрик после завершения задания (День 39)."""
         sid = str(self.scanner_id)
@@ -509,6 +688,88 @@ class ManagedScanner:
         except Exception as e:
             logger.debug("Metrics update error: %s", e)
 
+    def _execute_task_linewise(self, task: Dict[str, Any], resource_path: str,
+                               scan_config: Dict[str, Any]) -> Dict[str, Any]:
+        """Построчное исполнение задания (день 40.2).
+
+        Использует FilesystemConnector + scan_line классификаторов,
+        шифрует/маскирует находки, фильтрует FP через check-fingerprints.
+        """
+        task_id = task["id"]
+
+        if self.heartbeat_thread is not None:
+            self.heartbeat_thread.set_task(task_id)
+            self.heartbeat_thread.set_progress(0, None)
+
+        logger.info(f"[Scanner] Построчное сканирование {resource_path} (task {task_id})")
+
+        scan_result = self._scan_line_by_line(resource_path)
+        findings_objects = scan_result["findings"]
+
+        # Сериализация в новый формат (шифрование/маскирование на хосте)
+        serialized = [
+            self._serialize_finding(f, resource_path)
+            for f in findings_objects
+        ]
+
+        # Batch FP-фильтр: FP/confirmed не отправляем
+        serialized = self._filter_false_positives(serialized)
+
+        failed_files: List[Dict[str, Any]] = []
+        if scan_result.get("error"):
+            failed_files.append({
+                "path": resource_path,
+                "error": scan_result["error"],
+                "error_type": "scan",
+            })
+
+        files_scanned = int(scan_result.get("files_scanned", 0) or 0)
+        files_with_findings = {
+            d.get("file_path", "") for d in serialized if d.get("file_path")
+        }
+        category_stats: Dict[str, int] = {}
+        for d in serialized:
+            ft = d.get("finding_type", "unknown")
+            category_stats[ft] = category_stats.get(ft, 0) + 1
+
+        stats: Dict[str, Any] = {
+            "files_scanned": files_scanned,
+            "files_failed": len(failed_files),
+            "files_with_findings": len(files_with_findings),
+            "total_findings": len(serialized),
+            "unique_findings": len(serialized),
+            "category_stats": category_stats,
+            "started_at": task.get("assigned_at", datetime.utcnow().isoformat()),
+            "completed_at": datetime.utcnow().isoformat(),
+            "encryption": "enabled" if self._enc else "legacy",
+        }
+
+        catalog_entries = self._collect_catalog_entries(resource_path, serialized)
+
+        self._update_metrics(stats)
+
+        logger.info(f"[Scanner] Task {task_id} completed (linewise):")
+        logger.info(f"  - Files scanned: {stats['files_scanned']}")
+        logger.info(f"  - Files with findings: {stats['files_with_findings']}")
+        logger.info(f"  - Total findings: {stats['total_findings']}")
+        logger.info(f"  - Folders with findings: {len(catalog_entries)}")
+        logger.info(f"  - Failed files: {stats['files_failed']}")
+
+        if serialized:
+            logger.info("[Scanner] Sample findings (first 5):")
+            for i, d in enumerate(serialized[:5]):
+                logger.info(
+                    f"  {i + 1}. [{d.get('finding_type')}/{d.get('category')}] "
+                    f"{d.get('file_path', '')}:{d.get('line_number', '')}"
+                )
+
+        return {
+            "findings": serialized,
+            "catalog_entries": catalog_entries,
+            "failed_files": failed_files,
+            "stats": stats,
+        }
+
     def _execute_task(self, task: Dict[str, Any]) -> Dict[str, Any]:
         task_id = task["id"]
         resource_path = task["path"]
@@ -526,6 +787,14 @@ class ManagedScanner:
         progress_poller = None
         
         try:
+            # ===== День 40.2: построчный конвейер — приоритетный путь =====
+            if self._connector is None:
+                self._init_line_pipeline()
+            if self._connector is not None:
+                scanner_metrics.set_current_task(self.scanner_id, task_id)
+                return self._execute_task_linewise(task, resource_path, scan_config)
+
+            # ===== Fallback: классический конвейер (Orchestrator) =====
             orchestrator_config = self._get_orchestrator_config()
             orchestrator = Orchestrator(
                 config=orchestrator_config,

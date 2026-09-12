@@ -16,6 +16,30 @@ from core.base import (
     IClassifier, DataCategory, FileContext,
     ProcessingContext, ClassificationResult, ClassificationFinding
 )
+from scanner.src.finding import Finding
+
+
+# ===========================================================================
+# КАТЕГОРИИ ПАТТЕРНОВ (день 40.2) — для построчного сканирования и Manager
+# ===========================================================================
+
+CATEGORY_MAP = {
+    "API_KEY": "api_key",
+    "AWS_ACCESS_KEY": "aws_key",
+    "AWS_SECRET_KEY": "aws_key",
+    "JWT_TOKEN": "jwt_token",
+    "PASSWORD": "password",
+    "DATABASE_URL": "database_url",
+    "SSH_PRIVATE_KEY": "ssh_key",
+    "GITHUB_TOKEN": "github_token",
+    "GITHUB_TOKEN_OLD": "github_token",
+    "SLACK_TOKEN": "slack_token",
+    "DISCORD_TOKEN": "discord_token",
+    "GENERIC_TOKEN": "token",
+    "GENERIC_SECRET": "token",
+    "BEARER_TOKEN": "token",
+    "BASIC_AUTH": "basic_auth",
+}
 
 
 # ===========================================================================
@@ -178,6 +202,113 @@ class CredentialsClassifier(IClassifier):
     def prefilter(self, content: str) -> bool:
         """Быстрая проверка: есть ли хоть один паттерн в контенте"""
         return bool(self.prefilter_regex.search(content))
+
+    # =====================================================================
+    # Построчное сканирование (день 40.2)
+    # =====================================================================
+
+    def scan_line(self, line: str, line_num: int) -> List[Finding]:
+        """
+        Сканирует одну строку, возвращает список Finding с позициями.
+        Применяет те же FP-фильтры и энтропийные проверки, что и classify().
+        """
+        findings: List[Finding] = []
+
+        # Префильтр: если ни один паттерн не встречается в строке — пропускаем
+        if not self.prefilter(line):
+            return findings
+
+        # Поиск по паттернам
+        for pattern_config in self._patterns:
+            # no_generic: пропускаем общие правила
+            if self._no_generic and pattern_config["name"] in ("GENERIC_TOKEN", "GENERIC_SECRET"):
+                continue
+            # confidence_threshold: пропускаем низкодоверенные правила
+            if pattern_config["confidence"] < self._confidence_threshold:
+                continue
+
+            pattern = re.compile(pattern_config["pattern"], re.IGNORECASE | re.MULTILINE)
+            for match in pattern.finditer(line):
+                value = match.group(0)
+
+                # Проверка энтропии если требуется
+                if pattern_config.get("check_entropy", False):
+                    entropy = self._calculate_entropy(value)
+                    if entropy < self._entropy_threshold:
+                        continue
+
+                # Берём захваченную группу если есть (позиции — по секрету)
+                matched_value = value
+                match_start, match_end = match.start(), match.end()
+                if match.groups() and match.group(1):
+                    matched_value = match.group(1)
+                    match_start, match_end = match.span(1)
+
+                # Применение FP-фильтров
+                if not self._apply_filters(matched_value, line):
+                    continue
+
+                findings.append(Finding(
+                    line_number=line_num,
+                    line_text=line,
+                    match_text=matched_value,
+                    start_pos=match_start,
+                    end_pos=match_end,
+                    finding_type="credentials",
+                    category=CATEGORY_MAP.get(pattern_config["name"], pattern_config["name"].lower()),
+                    severity="high" if pattern_config["confidence"] >= 0.9 else "medium",
+                    confidence=pattern_config["confidence"],
+                    detector="regex",
+                ))
+
+        # Высокоэнтропийные строки (компактные токены)
+        findings.extend(self._find_high_entropy_in_line(line, line_num))
+
+        # Дедупликация по позиции/категории (сохраняем максимальную уверенность)
+        unique: Dict = {}
+        for f in findings:
+            key = (f.start_pos, f.end_pos, f.category)
+            if key not in unique or f.confidence > unique[key].confidence:
+                unique[key] = f
+        return list(unique.values())
+
+    def _find_high_entropy_in_line(self, line: str, line_num: int) -> List[Finding]:
+        """Поиск компактных высокоэнтропийных токенов в одной строке."""
+        findings = []
+        stripped = line.strip()
+        # Не рассматриваем строки с пробелами (это текст, не токен) и короткие
+        if not stripped or len(stripped) < 20 or any(c.isspace() for c in stripped):
+            return findings
+
+        patterns = [
+            r'\b[A-Za-z0-9+/=]{20,}\b',
+            r'\b[A-Za-z0-9_\-]{32,}\b',
+            r'\b[0-9a-f]{32,}\b',
+            r'\b[0-9a-f]{40,}\b',
+            r'\b[0-9a-f]{64,}\b',
+        ]
+
+        for pattern in patterns:
+            for match in re.finditer(pattern, stripped):
+                value = match.group(0)
+                if value.isalpha() and len(set(value)) < 5:
+                    continue
+                entropy = self._calculate_entropy(value)
+                if entropy > self._entropy_threshold:
+                    confidence = min(0.6 + (entropy - 4) * 0.1, 0.85)
+                    findings.append(Finding(
+                        line_number=line_num,
+                        line_text=line,
+                        match_text=value,
+                        start_pos=match.start(),
+                        end_pos=match.end(),
+                        finding_type="credentials",
+                        category="high_entropy",
+                        severity="medium",
+                        confidence=confidence,
+                        detector="entropy",
+                    ))
+        return findings
     
     # =====================================================================
     # FP-фильтры
