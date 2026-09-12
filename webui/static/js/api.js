@@ -1,33 +1,51 @@
 const api = {
+    _headers() {
+        const headers = { 'Content-Type': 'application/json' };
+        if (typeof Auth !== 'undefined') Object.assign(headers, Auth.authHeaders());
+        return headers;
+    },
+
+    async request(method, endpoint, data) {
+        const opts = { method, headers: this._headers() };
+        if (data !== undefined) opts.body = JSON.stringify(data);
+        const r = await fetch(endpoint, opts);
+        if (r.status === 401) {
+            if (typeof Auth !== 'undefined') Auth.setToken(null);
+            if (window.location.pathname !== '/login') window.location.href = '/login';
+        }
+        if (!r.ok) {
+            const err = await r.json().catch(() => ({ detail: r.statusText || ('HTTP ' + r.status) }));
+            throw new Error(err.detail || ('HTTP ' + r.status));
+        }
+        return r.json();
+    },
+
     async get(endpoint, params = {}) {
         const url = new URL(endpoint, window.location.origin);
         Object.keys(params).forEach(k => {
             if (params[k] !== null && params[k] !== undefined && params[k] !== '')
                 url.searchParams.append(k, params[k]);
         });
-        const headers = (typeof Auth !== 'undefined') ? Auth.authHeaders() : {};
-        const r = await fetch(url.toString(), { headers });
-        if (!r.ok) throw new Error('HTTP ' + r.status);
-        return r.json();
+        return this.request('GET', url.toString());
     },
     async post(endpoint, data = {}) {
-        const headers = { 'Content-Type': 'application/json' };
-        if (typeof Auth !== 'undefined') Object.assign(headers, Auth.authHeaders());
-        const r = await fetch(endpoint, { method: 'POST', headers, body: JSON.stringify(data) });
-        if (!r.ok) throw new Error('HTTP ' + r.status);
-        return r.json();
+        return this.request('POST', endpoint, data);
     },
     async put(endpoint, data = {}) {
-        const headers = { 'Content-Type': 'application/json' };
-        if (typeof Auth !== 'undefined') Object.assign(headers, Auth.authHeaders());
-        const r = await fetch(endpoint, { method: 'PUT', headers, body: JSON.stringify(data) });
-        if (!r.ok) throw new Error('HTTP ' + r.status);
-        return r.json();
+        return this.request('PUT', endpoint, data);
+    },
+    async patch(endpoint, data = {}) {
+        return this.request('PATCH', endpoint, data);
     },
     async delete(endpoint) {
-        const headers = (typeof Auth !== 'undefined') ? Auth.authHeaders() : {};
-        const r = await fetch(endpoint, { method: 'DELETE', headers });
-        if (!r.ok) throw new Error('HTTP ' + r.status);
-        return r.json();
+        return this.request('DELETE', endpoint);
     }
 };
+
+function showSuccess(msg) { showToast(msg, 'success'); }
+function showError(msg) { showToast(msg, 'error'); }
+function escapeHtml(s) {
+    return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({
+        '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
+    }[c]));
+}

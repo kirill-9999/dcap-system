@@ -1,0 +1,41 @@
+/* Находки — карточки списка (День 40.3). */
+
+.finding-row {
+    transition: border-color .15s ease;
+}
+
+.finding-row:hover {
+    border-color: var(--color-primary, #3b82f6);
+    cursor: pointer;
+}
+
+.finding-id {
+    font-family: var(--font-mono, ui-monospace, SFMono-Regular, Consolas, monospace);
+    font-size: var(--font-size-xs, 12px);
+    color: var(--color-text-secondary, #6b7280);
+    margin-right: .5rem;
+}
+
+.finding-match {
+    font-family: var(--font-mono, ui-monospace, SFMono-Regular, Consolas, monospace);
+    font-size: 13px;
+    color: var(--color-text, #1f2937);
+    white-space: pre-wrap;
+    word-break: break-all;
+}
+
+.finding-context {
+    font-family: var(--font-mono, ui-monospace, SFMono-Regular, Consolas, monospace);
+    font-size: 12px;
+    margin: 0;
+    border-radius: 4px;
+    white-space: pre-wrap;
+}
+
+#pagination-wrap .page-link {
+    cursor: pointer;
+}
+
+@media (min-width: 992px) {
+    .finding-id { margin-right: 1rem; }
+}

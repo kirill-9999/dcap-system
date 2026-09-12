@@ -546,10 +546,17 @@ class ManagedScanner:
         )
         return True
 
-    def _legacy_fingerprint(self, match_text: str) -> str:
-        """Простой fingerprint для legacy-режима (md5 по значению)."""
+    def _legacy_fingerprint(self, file_path: str, line: int, match: str, finding_type: str) -> str:
+        """
+        Fingerprint БЕЗ HMAC (legacy-режим, когда ключей нет).
+
+        Важно: SHA-256 с полным контекстом (file_path + line + match + type) —
+        уменьшает коллизии; слабые 32-hex дайджесты не используются.
+        """
         import hashlib
-        return hashlib.md5((match_text or "").encode("utf-8")).hexdigest()
+
+        msg = f"{file_path}|{line}|{match}|{finding_type}".encode("utf-8")
+        return hashlib.sha256(msg).hexdigest()
 
     def _serialize_finding(self, finding: Finding, resource_path: str) -> Dict[str, Any]:
         """Сериализация находки для Manager (новый формат, день 40.2).
@@ -595,7 +602,7 @@ class ManagedScanner:
             d["context_before_masked"] = mask_context(ctx_before, cat) if ctx_before else None
             d["context_after_masked"] = mask_context(ctx_after, cat) if ctx_after else None
             d["encryption_key_id"] = enc.key_id
-            d["legacy_fingerprint"] = self._legacy_fingerprint(value)
+            d["legacy_fingerprint"] = self._legacy_fingerprint(fpath, line_no, value, finding.finding_type)
         else:
             d["fingerprint"] = None
             d["match_text_masked"] = mask(value, cat) if value else None

@@ -41,13 +41,21 @@
 </div>
 <div class="card mb-3">
     <div class="card-header">
+        <h3 class="card-title"><i class="fas fa-microscope"></i> Сканеры</h3>
+    </div>
+    <div class="card-body" id="scanner-panel">
+        <div class="text-center p-4 text-muted">Загрузка...</div>
+    </div>
+</div>
+<div class="card mb-3">
+    <div class="card-header">
         <h3 class="card-title"><i class="fas fa-exclamation-triangle"></i> Последние находки</h3>
         <a href="/findings" class="btn btn-sm btn-outline-primary">Все находки &rarr;</a>
     </div>
     <div class="card-body">
         <div class="table-wrapper">
-            <table class="table table-sm"><thead><tr><th>Время</th><th>Категория</th><th>Значение</th><th>Файл</th><th>Уверенность</th></tr></thead>
-            <tbody id="recentFindings"><tr><td colspan="5" class="text-center text-muted">Загрузка...</td></tr></tbody></table>
+            <table class="table table-sm"><thead><tr><th>Время</th><th>Тип</th><th>Значение</th><th>Файл:строка</th><th>Уверенность</th><th>Статус</th></tr></thead>
+            <tbody id="recentFindings"><tr><td colspan="6" class="text-center text-muted">Загрузка...</td></tr></tbody></table>
         </div>
     </div>
 </div>

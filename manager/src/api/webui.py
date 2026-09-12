@@ -111,15 +111,49 @@ def get_stats(db: Session = Depends(get_db)):
 # СКАНЕРЫ (WebUI-формат, мн.ч.)
 # ============================================================
 
-def _scanner_dict(s) -> dict:
+def _scanner_dict(s, db: Session = None) -> dict:
+    current_task = None
+    total_files_scanned = 0
+    total_findings = 0
+    if db is not None:
+        # Активное задание (BACKLOG-043): progress из heartbeat (День 39)
+        task = (
+            db.query(models.ScanTask)
+            .filter(
+                models.ScanTask.scanner_id == s.id,
+                models.ScanTask.status.in_(["assigned", "running"]),
+            )
+            .order_by(models.ScanTask.id.desc())
+            .first()
+        )
+        if task:
+            current_task = {
+                "id": task.id,
+                "resource_id": task.resource_id,
+                "progress": task.progress,
+            }
+        total_files_scanned = (
+            db.query(func.coalesce(func.sum(models.ScanTask.files_scanned), 0))
+            .filter(models.ScanTask.scanner_id == s.id)
+            .scalar()
+            or 0
+        )
+        total_findings = (
+            db.query(func.count(models.Finding.id))
+            .join(models.ScanTask, models.ScanTask.id == models.Finding.task_id)
+            .filter(models.ScanTask.scanner_id == s.id)
+            .scalar()
+            or 0
+        )
     return {
         "id": s.id,
         "name": s.name,
         "endpoint": None,
         "status": s.status,
         "last_heartbeat": s.last_heartbeat.isoformat() if s.last_heartbeat else None,
-        "total_files_scanned": 0,
-        "total_findings": 0,
+        "total_files_scanned": total_files_scanned,
+        "total_findings": total_findings,
+        "current_task": current_task,
         "created_at": s.registered_at.isoformat() if s.registered_at else None,
     }
 
@@ -138,7 +172,7 @@ def get_scanners(db: Session = Depends(get_db)):
         db.commit()
 
     scanners = db.query(models.Scanner).order_by(models.Scanner.id).all()
-    return [_scanner_dict(s) for s in scanners]
+    return [_scanner_dict(s, db) for s in scanners]
 
 
 @router.get("/api/scanners/{scanner_id}")
@@ -147,7 +181,7 @@ def get_scanner(scanner_id: int, db: Session = Depends(get_db)):
     scanner = db.query(models.Scanner).filter(models.Scanner.id == scanner_id).first()
     if not scanner:
         raise HTTPException(404, "Scanner not found")
-    return _scanner_dict(scanner)
+    return _scanner_dict(scanner, db)
 
 
 @router.delete("/api/scanners/{scanner_id}")

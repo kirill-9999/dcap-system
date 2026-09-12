@@ -54,6 +54,18 @@ async def page_findings(request: Request):
     return render(request, "findings.html", "Находки")
 
 
+@app.get("/findings/{finding_id}", response_class=HTMLResponse)
+async def finding_detail_page(request: Request, finding_id: int):
+    return templates.TemplateResponse(
+        request, "finding_detail.html", {"page": "Находки", "finding_id": finding_id}
+    )
+
+
+@app.get("/false-positives", response_class=HTMLResponse)
+async def page_false_positives(request: Request):
+    return render(request, "false_positives.html", "Ложные срабатывания")
+
+
 @app.get("/resources", response_class=HTMLResponse)
 async def page_resources(request: Request):
     return render(request, "resources.html", "Ресурсы")

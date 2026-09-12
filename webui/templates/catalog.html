@@ -1,51 +1,43 @@
 {% extends "base.html" %}
-{% block title %}DCAP — Каталог{% endblock %}
+{% block title %}Каталог — DCAP{% endblock %}
 {% block content %}
-<h2 class="mb-4"><i class="fas fa-folder-tree text-primary"></i> Каталог</h2>
-<div class="kpi-grid mb-4">
-    <div class="kpi-card"><div class="kpi-icon" style="color:var(--color-primary);background:var(--color-primary-bg)"><i class="fas fa-folder-open"></i></div><div><div class="kpi-value" id="cat-folders">—</div><div class="kpi-label">Папок</div></div></div>
-    <div class="kpi-card"><div class="kpi-icon" style="color:var(--color-danger);background:var(--color-danger-bg)"><i class="fas fa-exclamation-triangle"></i></div><div><div class="kpi-value" id="cat-findings">—</div><div class="kpi-label">Находок</div></div></div>
-    <div class="kpi-card"><div class="kpi-icon" style="color:var(--color-info);background:var(--color-info-bg)"><i class="fas fa-database"></i></div><div><div class="kpi-value" id="cat-pii">—</div><div class="kpi-label">PII</div></div></div>
-    <div class="kpi-card"><div class="kpi-icon" style="color:var(--color-warning);background:var(--color-warning-bg)"><i class="fas fa-key"></i></div><div><div class="kpi-value" id="cat-creds">—</div><div class="kpi-label">Credentials</div></div></div>
-</div>
-<div class="filter-card mb-3">
-    <div class="row g-3 align-items-end">
-        <div class="col-md-6"><label class="form-label">Поиск по пути</label><input type="text" class="form-control" id="catalog-search" placeholder="путь или часть пути..." onkeyup="loadCatalog()"></div>
-        <div class="col-md-3"><label class="form-label">Категория</label><select class="form-select" id="catalog-category" onchange="loadCatalog()"><option value="">Все</option><option value="pii">PII</option><option value="credentials">Credentials</option><option value="code">Code</option></select></div>
-        <div class="col-md-3"><button class="btn btn-outline-secondary" onclick="document.getElementById('catalog-search').value='';document.getElementById('catalog-category').value='';loadCatalog();"><i class="fas fa-undo"></i> Сброс</button></div>
+<div class="container-fluid">
+  <h2 class="mb-3"><i class="fas fa-folder-tree text-primary me-2"></i>Каталог</h2>
+
+  <div class="filter-card mb-3">
+    <div class="row g-2 align-items-end">
+      <div class="col-md-6">
+        <label class="form-label small">Поиск по пути</label>
+        <input type="text" class="form-control form-control-sm" id="catalog-search" placeholder="путь или часть пути..." onkeyup="CatalogPage.applyFilters()">
+      </div>
+      <div class="col-md-3">
+        <label class="form-label small">Категория</label>
+        <select class="form-select form-select-sm" id="catalog-category" onchange="CatalogPage.applyFilters()">
+          <option value="">Все</option>
+          <option value="pii">PII</option>
+          <option value="credentials">Credentials</option>
+          <option value="code">Code</option>
+        </select>
+      </div>
+      <div class="col-md-3">
+        <button class="btn btn-outline-secondary btn-sm w-100" onclick="CatalogPage.reset()">
+          <i class="fas fa-undo"></i> Сброс
+        </button>
+      </div>
     </div>
+  </div>
+
+  <div id="catalog-tree">
+    <div class="text-center py-5">
+      <div class="spinner-border" role="status"></div>
+      <p class="mt-2 text-muted">Загрузка...</p>
+    </div>
+  </div>
 </div>
-<div class="table-wrapper" id="catalog-table"><div class="text-center p-4 text-muted">Загрузка...</div></div>
+{% endblock %}
+{% block head %}
+<link rel="stylesheet" href="/static/css/findings.css">
 {% endblock %}
 {% block scripts %}
-<script>
-async function loadCatalog() {
-    try {
-        var search = document.getElementById('catalog-search')?.value?.trim() || '';
-        var category = document.getElementById('catalog-category')?.value || '';
-        var d = await api.get('/api/catalog', {limit: 500, search: search, category: category});
-        var stats = await api.get('/api/catalog/stats');
-        document.getElementById('cat-folders').textContent = stats.total_folders || 0;
-        var totalF = 0, pii = 0, creds = 0;
-        for (var cat in stats.classifier_stats || {}) {
-            var s = stats.classifier_stats[cat];
-            totalF += s.total_findings || 0;
-            if (cat === 'pii') pii = s.total_findings || 0;
-            if (cat === 'credentials') creds = s.total_findings || 0;
-        }
-        document.getElementById('cat-findings').textContent = totalF;
-        document.getElementById('cat-pii').textContent = pii;
-        document.getElementById('cat-creds').textContent = creds;
-        var container = document.getElementById('catalog-table');
-        if (!d.entries.length) { container.innerHTML = '<div class="text-center p-4 text-muted">Нет записей</div>'; return; }
-        var html = '<div class="table-responsive"><table class="table table-sm"><thead><tr><th>ID</th><th>Путь</th><th>Файлов</th><th>Находок</th><th>PII</th><th>Creds</th><th>Обновлено</th></tr></thead><tbody>';
-        for (var i = 0; i < d.entries.length; i++) {
-            var e = d.entries[i], cls = e.classifiers || {};
-            html += '<tr><td>#'+e.id+'</td><td><code>'+e.path+'</code></td><td>'+(e.file_count||0)+'</td><td><strong>'+(e.total_findings||0)+'</strong></td><td>'+(cls.pii?cls.pii.count:0)+'</td><td>'+(cls.credentials?cls.credentials.count:0)+'</td><td>'+(e.updated_at?new Date(e.updated_at).toLocaleString('ru-RU'):'-')+'</td></tr>';
-        }
-        container.innerHTML = html + '</tbody></table></div>';
-    } catch(e) { console.error(e); }
-}
-document.addEventListener('DOMContentLoaded', loadCatalog);
-</script>
+<script src="/static/js/catalog.js"></script>
 {% endblock %}

@@ -32,9 +32,61 @@ async function loadDashboard() {
         updateRecentFindings(Array.isArray(findings) ? findings.slice(0, 10) : []);
     } catch(e) { console.error('Dashboard findings error:', e); }
     try {
+        const scanners = await api.get('/api/scanners');
+        updateScannerPanel(Array.isArray(scanners) ? scanners : []);
+    } catch(e) { console.error('Dashboard scanners error:', e); }
+    try {
         const data = await api.get('/api/audit', {limit: 10});
         updateRecentEvents(data.events || []);
     } catch(e) { console.error('Dashboard events error:', e); }
+}
+
+function updateScannerPanel(scanners) {
+    const panel = document.getElementById('scanner-panel');
+    if (!panel) return;
+    if (!scanners.length) {
+        panel.innerHTML = '<div class="text-center text-muted">Сканеры не зарегистрированы</div>';
+        return;
+    }
+    let html = '';
+    const now = Date.now();
+    for (const s of scanners) {
+        const hb = s.last_heartbeat ? new Date(s.last_heartbeat).getTime() : 0;
+        const ageSec = hb ? Math.max(0, Math.round((now - hb) / 1000)) : null;
+        const active = s.status === 'active' || s.status === 'ACTIVE' || (ageSec !== null && ageSec < 120);
+        const icon = active ? '\ud83d\udfe2' : '\ud83d\udfe1';
+        const ageTxt = ageSec === null ? '\u2014' : (ageSec < 60 ? ageSec + ' \u0441\u0435\u043a \u043d\u0430\u0437\u0430\u0434' : Math.floor(ageSec / 60) + ' \u043c\u0438\u043d \u043d\u0430\u0437\u0430\u0434');
+
+        let taskHtml = '';
+        const t = s.current_task;
+        if (t && t.progress && t.progress.total) {
+            const files = t.progress.files_scanned || 0;
+            const total = t.progress.total;
+            const pct = t.progress.percent != null ? t.progress.percent : Math.round((files / total) * 100);
+            const bar = Math.max(0, Math.min(100, pct));
+            const blocks = Math.round(bar / 10);
+            taskHtml = `<div class="mt-2 small">
+                \u0417\u0430\u0434\u0430\u043d\u0438\u0435 #${t.id}: ${files}/${total} \u0444\u0430\u0439\u043b\u043e\u0432 (${bar}%)
+                <div class="progress mt-1" style="height:10px;">
+                    <div class="progress-bar" role="progressbar" style="width:${bar}%;" aria-valuenow="${bar}" aria-valuemin="0" aria-valuemax="100"></div>
+                </div>
+            </div>`;
+        } else if (t) {
+            taskHtml = `<div class="mt-2 small">\u0417\u0430\u0434\u0430\u043d\u0438\u0435 #${t.id} (\u043f\u0440\u043e\u0433\u0440\u0435\u0441\u0441 \u043f\u043e\u043a\u0430 \u043d\u0435\u0442)</div>`;
+        } else {
+            taskHtml = '<div class="mt-2 small text-muted">\u041d\u0435\u0442 \u0430\u043a\u0442\u0438\u0432\u043d\u044b\u0445 \u0437\u0430\u0434\u0430\u043d\u0438\u0439</div>';
+        }
+
+        html += `<div class="scanner-card mb-2 p-2 border rounded">
+            <div class="d-flex flex-wrap justify-content-between align-items-center">
+                <strong>${s.name}</strong>
+                <span>${icon} ${active ? 'active' : 'inactive'}</span>
+            </div>
+            ${taskHtml}
+            <div class="small text-muted">\u041f\u043e\u0441\u043b\u0435\u0434\u043d\u0438\u0439 heartbeat: ${ageTxt}</div>
+        </div>`;
+    }
+    panel.innerHTML = html;
 }
 
 function updateKPIs(s) {
@@ -130,14 +182,17 @@ function updateRecentEvents(events) {
 function updateRecentFindings(findings) {
     const tbody = document.getElementById('recentFindings');
     if (!tbody) return;
-    if (!findings.length) { tbody.innerHTML = '<tr><td colspan="5" class="text-center text-muted">\u041d\u0435\u0442 \u043d\u0430\u0445\u043e\u0434\u043e\u043a</td></tr>'; return; }
+    if (!findings.length) { tbody.innerHTML = '<tr><td colspan="6" class="text-center text-muted">\u041d\u0435\u0442 \u043d\u0430\u0445\u043e\u0434\u043e\u043a</td></tr>'; return; }
+    const statusBadge = {
+        new: 'badge-primary', confirmed: 'badge-success', false_positive: 'badge-danger', archived: 'badge-secondary',
+    };
     let html = '';
     for (const f of findings) {
-        const t = new Date(f.created_at).toLocaleString('ru-RU');
-        const bc = f.category === 'credentials' ? 'badge-warning' : 'badge-primary';
-        const val = (f.value || '').length > 40 ? f.value.substring(0, 40) + '\u2026' : (f.value || '\u2014');
-        const fp = (f.file_path || '').length > 40 ? '\u2026' + f.file_path.substring(f.file_path.length - 35) : (f.file_path || '\u2014');
-        html += '<tr><td>' + t + '</td><td><span class="badge ' + bc + '">' + (f.category||'') + '</span></td><td style="max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + val + '</td><td style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + fp + '</td><td>' + ((f.confidence||0)).toFixed(0) + '%</td></tr>';
+        const t = new Date(f.first_seen_at || f.created_at || Date.now()).toLocaleString('ru-RU');
+        const loc = (f.file_path || '') + (f.line_number ? ':' + f.line_number : '');
+        const val = (f.match_text || f.value || '').length > 40 ? (f.match_text || f.value || '').substring(0, 40) + '\u2026' : (f.match_text || f.value || '\u2014');
+        const fl = loc.length > 45 ? '\u2026' + loc.substring(loc.length - 40) : (loc || '\u2014');
+        html += '<tr><td>' + t + '</td><td><span class="badge ' + (f.finding_type === 'credentials' ? 'badge-warning' : 'badge-primary') + '">' + (f.finding_type||'') + '</span></td><td style="max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + val + '</td><td style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"><code>' + fl + '</code></td><td>' + ((f.confidence||0) * 100).toFixed(0) + '%</td><td><span class="badge ' + (statusBadge[f.status] || 'badge-primary') + '">' + (f.status||'') + '</span></td></tr>';
     }
     tbody.innerHTML = html;
 }

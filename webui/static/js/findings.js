@@ -1,0 +1,251 @@
+/**
+ * Находки: список, фильтры, пагинация, массовые операции (День 40.3).
+ */
+const FindingsPage = {
+  page: 0,
+  limit: 50,
+  selected: new Set(),
+  findings: [],
+  filters: {},
+
+  async init() {
+    this.limit = parseInt(new URLSearchParams(location.search).get('limit') || '50', 10);
+    this.bindEvents();
+    await this.load();
+  },
+
+  bindEvents() {
+    document.getElementById('apply-filters').addEventListener('click', () => {
+      this.page = 0;
+      this.load();
+    });
+
+    document.getElementById('filter-status').addEventListener('change', () => { this.page = 0; this.load(); });
+    document.getElementById('filter-type').addEventListener('change', () => { this.page = 0; this.load(); });
+    document.getElementById('filter-severity').addEventListener('change', () => { this.page = 0; this.load(); });
+
+    document.getElementById('bulk-confirm').addEventListener('click', () => this.bulkUpdate('confirmed'));
+    document.getElementById('bulk-fp').addEventListener('click', () => this.bulkUpdate('false_positive'));
+    document.getElementById('bulk-clear').addEventListener('click', () => {
+      this.selected.clear();
+      this.render();
+    });
+
+    document.getElementById('export-btn').addEventListener('click', () => this.exportJson());
+  },
+
+  collectFilters() {
+    return {
+      status: document.getElementById('filter-status').value,
+      finding_type: document.getElementById('filter-type').value,
+      category: document.getElementById('filter-category').value,
+      severity: document.getElementById('filter-severity').value,
+      task_id: document.getElementById('filter-task').value,
+    };
+  },
+
+  async load() {
+    const params = {
+      ...this.collectFilters(),
+      limit: this.limit,
+      offset: this.page * this.limit,
+      order_by: 'first_seen_at',
+      order: 'desc',
+    };
+
+    try {
+      const r = await api.get('/api/findings', params);
+      this.findings = Array.isArray(r) ? r : [];
+      this.render();
+    } catch (e) {
+      document.getElementById('findings-list').innerHTML =
+        `<div class="alert alert-danger">Не удалось загрузить находки: ${escapeHtml(e.message)}</div>`;
+    }
+  },
+
+  render() {
+    const list = document.getElementById('findings-list');
+    if (!this.findings || this.findings.length === 0) {
+      list.innerHTML = '<div class="alert alert-info">Находок не найдено</div>';
+      this.renderPagination(false);
+      this.updateBulkBar();
+      return;
+    }
+
+    list.innerHTML = this.findings.map(f => this.renderItem(f)).join('');
+    this.renderPagination(this.findings.length >= this.limit);
+    this.updateBulkBar();
+
+    list.querySelectorAll('[data-action]').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const action = btn.dataset.action;
+        const id = parseInt(btn.dataset.id, 10);
+        this.handleAction(action, id);
+      });
+    });
+
+    list.querySelectorAll('.finding-checkbox').forEach(cb => {
+      cb.addEventListener('change', (e) => {
+        const id = parseInt(cb.dataset.id, 10);
+        if (cb.checked) this.selected.add(id);
+        else this.selected.delete(id);
+        this.updateBulkBar();
+      });
+    });
+
+    list.querySelectorAll('.finding-row').forEach(row => {
+      row.addEventListener('click', (e) => {
+        if (e.target.type === 'checkbox' || e.target.dataset.action) return;
+        window.location.href = `/findings/${row.dataset.id}`;
+      });
+    });
+  },
+
+  renderPagination(hasMore) {
+    const wrap = document.getElementById('pagination-wrap');
+    const ul = document.getElementById('pagination');
+    if (!hasMore && this.page === 0) { wrap.style.display = 'none'; return; }
+    wrap.style.display = 'block';
+    ul.innerHTML = '';
+
+    const prev = document.createElement('li');
+    prev.className = 'page-item' + (this.page === 0 ? ' disabled' : '');
+    prev.innerHTML = `<a class="page-link" href="#">&laquo; Назад</a>`;
+    prev.addEventListener('click', (e) => { e.preventDefault(); if (this.page > 0) { this.page--; this.load(); } });
+    ul.appendChild(prev);
+
+    const num = document.createElement('li');
+    num.className = 'page-item active';
+    num.innerHTML = `<span class="page-link">${this.page + 1}</span>`;
+    ul.appendChild(num);
+
+    const next = document.createElement('li');
+    next.className = 'page-item' + (hasMore ? '' : ' disabled');
+    next.innerHTML = `<a class="page-link" href="#">Вперёд &raquo;</a>`;
+    next.addEventListener('click', (e) => { e.preventDefault(); if (hasMore) { this.page++; this.load(); } });
+    ul.appendChild(next);
+  },
+
+  renderItem(f) {
+    const statusBadge = {
+      new: '<span class="badge bg-primary">🆕 new</span>',
+      confirmed: '<span class="badge bg-success">✅ confirmed</span>',
+      false_positive: '<span class="badge bg-danger">❌ false_positive</span>',
+      archived: '<span class="badge bg-secondary">📦 archived</span>',
+    }[f.status] || escapeHtml(f.status);
+
+    const typeBadge = {
+      pii: '<span class="badge bg-info text-dark">PII</span>',
+      credentials: '<span class="badge bg-warning text-dark">Cred</span>',
+      code: '<span class="badge bg-secondary">Code</span>',
+    }[f.finding_type] || escapeHtml(f.finding_type);
+
+    const severityClass = {
+      critical: 'danger', high: 'warning', medium: 'info', low: 'secondary',
+    }[f.severity] || 'secondary';
+
+    const lineInfo = f.line_number
+      ? `${f.file_path || 'файл'}:${f.line_number}`
+      : (f.file_path || '—');
+
+    return `
+      <div class="card mb-2 finding-row" data-id="${f.id}">
+        <div class="card-body py-2">
+          <div class="d-flex align-items-start">
+            <input type="checkbox" class="form-check-input me-2 finding-checkbox"
+                   data-id="${f.id}" ${this.selected.has(f.id) ? 'checked' : ''}>
+            <div class="flex-grow-1">
+              <div class="d-flex flex-wrap justify-content-between align-items-center">
+                <div>
+                  <span class="finding-id">#${f.id}</span>
+                  <code class="text-muted small">${escapeHtml(lineInfo)}</code>
+                  <span class="ms-2">${typeBadge}</span>
+                  <span class="badge bg-${severityClass}">${escapeHtml(f.severity)}</span>
+                  <span class="badge bg-light text-dark">${escapeHtml(f.category)}</span>
+                </div>
+                <div>${statusBadge}</div>
+              </div>
+              <div class="mt-1">
+                <code class="finding-match">${escapeHtml(f.match_text || '(masked)')}</code>
+              </div>
+              ${f.context_before ? `
+                <details class="mt-1">
+                  <summary class="small text-muted">Контекст</summary>
+                  <pre class="small bg-light p-2 finding-context">${escapeHtml(f.context_before)}\n${escapeHtml(f.line_text || '')}\n${escapeHtml(f.context_after || '')}</pre>
+                </details>
+              ` : ''}
+              <div class="mt-2">
+                ${f.status === 'new' ? `
+                  <button class="btn btn-sm btn-success" data-action="confirm" data-id="${f.id}" title="Подтвердить">✅</button>
+                  <button class="btn btn-sm btn-danger" data-action="fp" data-id="${f.id}" title="Ложное">❌</button>
+                ` : ''}
+                ${f.can_reveal ? `
+                  <button class="btn btn-sm btn-outline-primary" data-action="reveal" data-id="${f.id}" title="Показать оригинал">👁️ Reveal</button>
+                ` : ''}
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    `;
+  },
+
+  async handleAction(action, id) {
+    try {
+      if (action === 'confirm') {
+        await api.patch(`/api/findings/${id}`, { status: 'confirmed' });
+        showSuccess('Подтверждено');
+      } else if (action === 'fp') {
+        await api.patch(`/api/findings/${id}`, { status: 'false_positive' });
+        showSuccess('Помечено как ложное');
+      } else if (action === 'reveal') {
+        const r = await api.post(`/api/findings/${id}/reveal`);
+        alert(`Оригинал:\n${r.match_text}\n\nСтрока:\n${r.line_text || '(нет)'}`);
+      }
+      await this.load();
+    } catch (e) {
+      showError(e.message);
+    }
+  },
+
+  async bulkUpdate(status) {
+    if (this.selected.size === 0) return;
+    if (!confirm(`Обновить ${this.selected.size} находок на статус "${status}"?`)) return;
+
+    try {
+      const r = await api.post('/api/findings/bulk', {
+        finding_ids: [...this.selected],
+        status,
+      });
+      showSuccess(`Обновлено: ${r.updated}, пропущено: ${r.skipped}`);
+      this.selected.clear();
+      await this.load();
+    } catch (e) {
+      showError(e.message);
+    }
+  },
+
+  async exportJson() {
+    try {
+      const d = await api.get('/api/findings', { ...this.collectFilters(), limit: 1000 });
+      const blob = new Blob([JSON.stringify(d, null, 2)], { type: 'application/json' });
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = `findings-${new Date().toISOString().slice(0, 10)}.json`;
+      a.click();
+      URL.revokeObjectURL(a.href);
+    } catch (e) {
+      showError('Экспорт: ' + e.message);
+    }
+  },
+
+  updateBulkBar() {
+    const bar = document.getElementById('bulk-actions');
+    const count = this.selected.size;
+    document.getElementById('selected-count').textContent = count;
+    bar.style.display = count > 0 ? 'block' : 'none';
+  },
+};
+
+document.addEventListener('DOMContentLoaded', () => FindingsPage.init());

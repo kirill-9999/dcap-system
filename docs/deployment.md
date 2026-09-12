@@ -236,6 +236,33 @@ env для сканера на хосте).
 текст, Manager шифрует сам. Работает с любым Manager, но открытый текст идёт
 по сети (менее безопасно; рекомендуется задать ключи).
 
+## WebUI: находки и каталог (День 40.3)
+
+WebUI переведён на строчную модель находок (v3.10+). Все данные — через прокси
+на Manager (`webui/api/routes.py`, catch-all `/api/*`), прямого доступа к БД нет.
+
+- **`/findings`** — список находок (`webui/templates/findings.html`,
+  `webui/static/js/findings.js`): фильтры по статусу/типу/категории/severity/задаче,
+  bulk-действия (подтвердить/ложное), пагинация prev/next, экспорт отфильтрованного
+  списка в JSON. Поля — новое представление (`finding_type`, `match_text` masked,
+  `file_path:line_number`, `first_seen_at`, `confidence`, `status`).
+- **`/findings/{id}`** (40.3.2) — детальная карточка
+  (`finding_detail.html`, `finding_detail.js`): фрагмент кода, контекст, reveal
+  (`POST /api/findings/{id}/reveal`, доступен auditor/admin, действие логируется),
+  кнопки «Подтвердить» и «Ложное срабатывание» с комментарием.
+- **`/catalog`** (40.3.3) — каталог находок по файлам (`catalog.js`): дерево
+  папка → файл → найденные строки, поиск и фильтр по типу, строится клиентски
+  из `GET /api/findings?limit=1000`.
+- **`/false-positives`** — журнал ложных срабатываний
+  (`false_positives.html`, `false_positives.js`): `GET /api/findings/false-positives`,
+  доступ auditor/admin.
+- **Прогресс сканера** на дашборде: карточка «Сканеры» показывает
+  `current_task.progress` (files_scanned/total/percent) из heartbeat
+  (`manager/src/api/webui.py` `_scanner_dict(s, db)`, JSON-колонка `scan_tasks.progress`).
+
+`webui/static/js/api.js` — общий HTTP-клиент: `request()`, `get`/`post`/`patch`/`delete`,
+разбор `{detail}` ошибок, авто-редирект на `/login` при 401, `showSuccess`/`showError`.
+
 ## Остановка
 
 ```bash
