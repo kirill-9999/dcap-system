@@ -77,6 +77,12 @@ services:
       REDIS_PASSWORD: ${REDIS_PASSWORD:-redis123}
       JWT_SECRET_KEY: ${JWT_SECRET_KEY:-change-me-in-production}
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      # Fallback для dev (если secrets не заданы)
+      FINDINGS_KEY_ID: ${FINDINGS_KEY_ID:-key-2026-09}
+    secrets:
+      - findings_encryption_key
+      - findings_hmac_key
+      - findings_key_id
     volumes:
       - ./manager/certs:/app/certs:ro
       - manager_data:/app/data
@@ -320,6 +326,14 @@ networks:
   dcap-network:
     driver: bridge
     name: dcap-network
+
+secrets:
+  findings_encryption_key:
+    file: ./secrets/findings_encryption_key
+  findings_hmac_key:
+    file: ./secrets/findings_hmac_key
+  findings_key_id:
+    file: ./secrets/findings_key_id
 
 volumes:
   postgres_data:

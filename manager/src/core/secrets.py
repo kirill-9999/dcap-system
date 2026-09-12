@@ -7,6 +7,13 @@ from typing import Any, Dict, Optional
 
 logger = logging.getLogger(__name__)
 
+# Ключи шифрования находок (День 40.1)
+FINDINGS_KEYS = [
+    "findings_encryption_key",
+    "findings_hmac_key",
+    "findings_key_id",
+]
+
 
 class SecretsManager:
     """Единая точка доступа к секретам.

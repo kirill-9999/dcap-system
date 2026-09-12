@@ -89,8 +89,8 @@ class Archiver:
         try:
             findings = (
                 self.db.query(models.Finding)
-                .filter(models.Finding.created_at < cutoff)
-                .order_by(models.Finding.created_at)
+                .filter(models.Finding.first_seen_at < cutoff)
+                .order_by(models.Finding.first_seen_at)
                 .all()
             )
             if not findings:
@@ -104,14 +104,14 @@ class Archiver:
                 return {
                     "task_id": f.task_id,
                     "resource_id": f.resource_id,
-                    "file_path": f.file_path,
+                    "file_path": f.fragment_path or "",
                     "line_number": f.line_number,
                     "category": f.category,
-                    "subcategory": f.subcategory,
-                    "value": f.value,
+                    "subcategory": None,
+                    "value": f.match_text_masked or f.line_text_masked,
                     "confidence": f.confidence,
-                    "context": f.context,
-                    "created_at": f.created_at,
+                    "context": f.context_before_masked,
+                    "created_at": f.first_seen_at,
                     "archived_at": datetime.utcnow(),
                 }
 

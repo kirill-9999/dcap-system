@@ -344,6 +344,8 @@ async def submit_results(
         raise HTTPException(400, f"Task status is {task.status}, expected 'assigned'")
     
     # Сохраняем findings
+    from manager.src.core.encryption import get_encryption, mask
+    _enc = None
     for finding_data in payload.get("findings", []):
         file_path = finding_data.get("file_path", finding_data.get("filepath", ""))
         line_number = finding_data.get("line_number", finding_data.get("line", 0))
@@ -352,17 +354,35 @@ async def submit_results(
         value = finding_data.get("value", finding_data.get("matched_text", ""))
         confidence = finding_data.get("confidence", 1.0)
         context = finding_data.get("context", "")
-        
+
+        # Ленивая инициализация шифрования
+        if _enc is None:
+            _enc = get_encryption()
+
+        # Backward compat: старый формат находки = файл → строка (text_line).
+        # finding_type = pii/credentials/code (старая категория верхнего уровня),
+        # category = подкатегория детектора.
+        finding_type = category if category in ("pii", "credentials", "code") else "code"
+        detail_category = subcategory or (category if category not in ("pii", "credentials", "code") else "unknown")
+        fingerprint = _enc.fingerprint(file_path, int(line_number or 0), value, finding_type)
+
         finding = models.Finding(
             task_id=task_id,
             resource_id=task.resource_id,
-            file_path=file_path,
+            finding_type=finding_type,
+            category=detail_category,
+            severity=finding_data.get("severity", "medium"),
+            fragment_type="text_line",
+            fragment_path=file_path,
             line_number=line_number or 0,
-            category=category,
-            subcategory=subcategory,
-            value=value,
-            confidence=int(confidence * 100) if confidence else 100,
-            context=context
+            match_text_masked=mask(value, finding_type) if value else None,
+            match_text_encrypted=_enc.encrypt(value) if value else None,
+            context_before_masked=context or None,
+            fingerprint=fingerprint,
+            encryption_key_id=_enc.key_id,
+            status="new",
+            confidence=float(confidence) if confidence else None,
+            detector=finding_data.get("detector") or "legacy",
         )
         db.add(finding)
     

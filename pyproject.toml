@@ -24,6 +24,7 @@ python_functions = ["test_*"]
 asyncio_mode = "auto"
 timeout = 300
 markers = [
+    "unit: Unit-тесты (без стека)",
     "e2e: End-to-end тесты (полный цикл)",
     "chaos: Chaos-тесты (отказоустойчивость)",
     "load: Нагрузочные тесты",

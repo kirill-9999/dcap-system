@@ -102,22 +102,77 @@ class ScanTask(Base):
 
 
 class Finding(Base):
+    """Находка = конкретное совпадение (строка/фрагмент), а не файл.
+
+    Хранение: гибрид — маскированное (по умолчанию) + зашифрованное (AES-256-GCM).
+    Расшифровка — только Auditor, с аудитом.
+    """
     __tablename__ = "findings"
 
     id = Column(Integer, primary_key=True)
-    task_id = Column(Integer, ForeignKey("scan_tasks.id"))
-    resource_id = Column(Integer, ForeignKey("resources.id"))
-    file_path = Column(String(500), nullable=False)
-    line_number = Column(Integer, default=0)
-    category = Column(String(50), nullable=False)
-    subcategory = Column(String(50), nullable=True)
-    value = Column(Text, nullable=False)
-    confidence = Column(Float, default=1.0)
-    context = Column(Text, nullable=True)
-    created_at = Column(DateTime, default=datetime.utcnow)
+
+    # Связи
+    resource_id = Column(Integer, ForeignKey("resources.id"), nullable=False, index=True)
+    task_id = Column(Integer, ForeignKey("scan_tasks.id"), nullable=True, index=True)
+
+    # Классификация
+    finding_type = Column(String(50), nullable=False, index=True)   # pii, credentials, code
+    category = Column(String(100), nullable=False, index=True)      # phone, email, api_key
+    severity = Column(String(20), default="medium")                 # low, medium, high, critical
+
+    # Где найдено
+    fragment_type = Column(String(20), nullable=False)
+    # text_line | text_context | image_region | byte_range
+
+    line_number = Column(Integer, nullable=True)
+    line_text_masked = Column(Text, nullable=True)
+    line_text_encrypted = Column(Text, nullable=True)
+    match_text_masked = Column(Text, nullable=True)
+    match_text_encrypted = Column(Text, nullable=True)
+    context_before_masked = Column(Text, nullable=True)
+    context_after_masked = Column(Text, nullable=True)
+
+    # Не-текстовые
+    fragment_path = Column(String(500), nullable=True)     # путь к вырезанному фрагменту
+    bounding_box = Column(JSON, nullable=True)             # {x, y, width, height}
+    byte_offset = Column(Integer, nullable=True)
+    byte_length = Column(Integer, nullable=True)
+    hex_preview = Column(Text, nullable=True)
+
+    # Дедупликация
+    fingerprint = Column(String(64), nullable=False, index=True)   # HMAC-SHA256
+    encryption_key_id = Column(String(50), nullable=False)
+
+    # Время
+    first_seen_at = Column(DateTime, default=datetime.utcnow)
+    last_seen_at = Column(DateTime, default=datetime.utcnow)
+
+    # Статус
+    status = Column(String(20), default="new", index=True)
+    # new | confirmed | false_positive | archived
+
+    reviewed_by = Column(Integer, ForeignKey("users.id"), nullable=True)
+    reviewed_at = Column(DateTime, nullable=True)
+    comment = Column(Text, nullable=True)
+
+    # Метаданные
+    confidence = Column(Float, nullable=True)
+    detector = Column(String(50), nullable=True)           # presidio, regex, entropy, ocr
+
+    # Связи (relationships)
+    resource = relationship("Resource", backref="findings")
+    task = relationship("ScanTask", backref="findings")
+    reviewer = relationship("User", foreign_keys=[reviewed_by])
+
+    # Индексы
+    __table_args__ = (
+        Index("ix_findings_resource_status", "resource_id", "status"),
+        Index("ix_findings_type_category", "finding_type", "category"),
+        Index("ix_findings_status_first_seen", "status", "first_seen_at"),
+    )
 
     def __repr__(self):
-        return f"<Finding(id={self.id}, category='{self.category}', file='{self.file_path}')>"
+        return f"<Finding(id={self.id}, type={self.finding_type}, category={self.category}, line={self.line_number})>"
 
 
 class CatalogEntry(Base):

@@ -187,6 +187,33 @@ pytest tests/              # все тесты
 
 Полная документация тестирования — [docs/testing.md](testing.md).
 
+## Ключи шифрования находок (День 40.1)
+
+С v3.9.0 находки хранятся в зашифрованном виде (AES-256-GCM) + HMAC-fingerprint.
+Перед **первым** запуском сгенерируйте ключи и передайте их в Manager:
+
+```bash
+python scripts/generate_findings_keys.py   # создаёт secrets/findings_*
+```
+
+Сгенерированные файлы (в `secrets/`, не коммитятся):
+- `findings_encryption_key` — base64-кодированные 32 байта (AES-256);
+- `findings_hmac_key` — base64-кодированные 32 байта (HMAC-SHA256 для fingerprint);
+- `findings_key_id` — идентификатор ключа (например, `key-2026-09`).
+
+Передача в Manager (приоритет):
+1. **Docker Secrets** — `/run/secrets/findings_*` (compose-mount, см. `docker-compose.yml`);
+2. **env** — `FINDINGS_ENCRYPTION_KEY`, `FINDINGS_HMAC_KEY`, `FINDINGS_KEY_ID`.
+
+Dev-режим без ключей работает, но ключи генерируются каждый запуск
+(ephemeral) — расшифровка после перезапуска невозможна. Для локальной разработки
+установите env-переменные или прогоните `generate_findings_keys.py` и добавьте
+`secrets/` в монтирование.
+
+Ротация ключей: сгенерируйте новые и обновите секреты — старые значения
+перешифровать нельзя (AES-GCM с одноразовым nonce), новые находки будут
+шифроваться новым ключом.
+
 ## Остановка
 
 ```bash

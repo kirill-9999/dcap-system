@@ -1,0 +1,120 @@
+"""Unit-тесты шифрования находок (День 40.1)."""
+import pytest
+
+pytestmark = pytest.mark.unit
+
+from manager.src.core.encryption import (
+    mask,
+    mask_line,
+    MASK_RULES,
+    get_encryption,
+    reset_encryption,
+)
+
+
+class TestMask:
+    def test_rules_defined(self):
+        assert "phone" in MASK_RULES
+        assert "email" in MASK_RULES
+        assert "password" in MASK_RULES
+        assert "api_key" in MASK_RULES
+
+    def test_phone_rus(self):
+        assert mask("+7-999-123-45-67", "phone") == "+7***123-45-67"
+
+    def test_phone_bare(self):
+        # без кода страны — по ТЗ форматируем родной regex
+        assert mask("+79991234567", "phone") == "+7***123-45-67"
+
+    def test_email(self):
+        result = mask("user@example.com", "email")
+        assert "user" not in result
+        assert "@example" in result
+
+    def test_password(self):
+        assert mask("P@ssw0rd", "password") == "***"
+
+    def test_api_key(self):
+        result = mask("sk-1234567890abcdef", "api_key")
+        assert result != "sk-1234567890abcdef"
+        assert result.startswith("sk-")
+        assert result.endswith("***")
+
+    def test_unknown_type_default_mask(self):
+        # Безопасный дефолт — полная маска
+        assert mask("secret-value", "unknown_type") == "***"
+
+    def test_empty_unchanged(self):
+        assert mask("", "phone") == ""
+        assert mask(None, "phone") is None
+
+
+class TestMaskLine:
+    def test_line_masks_found_values(self):
+        line = "password = P@ssw0rd, email = user@example.com"
+        # (start, end, category) — позиции значений в строке
+        pw_start = line.index("P@ssw0rd")
+        pw_end = pw_start + len("P@ssw0rd")
+        em_start = line.index("user@example.com")
+        em_end = em_start + len("user@example.com")
+        result = mask_line(line, [(pw_start, pw_end, "password"), (em_start, em_end, "email")])
+        assert "P@ssw0rd" not in result
+        assert result != line
+
+    def test_clean_line_unchanged(self):
+        line = "простая строка без секретов"
+        assert mask_line(line, []) == line
+
+
+class TestFindingEncryption:
+    def test_singleton(self):
+        reset_encryption()
+        a = get_encryption()
+        b = get_encryption()
+        assert a is b
+        reset_encryption()
+
+    def test_encrypt_roundtrip(self):
+        reset_encryption()
+        enc = get_encryption()
+        ct = enc.encrypt("super-secret-value")
+        assert ct != "super-secret-value"
+        assert enc.decrypt(ct) == "super-secret-value"
+        reset_encryption()
+
+    def test_encrypt_random_iv(self):
+        reset_encryption()
+        enc = get_encryption()
+        a = enc.encrypt("same value")
+        b = enc.encrypt("same value")
+        assert a != b
+        reset_encryption()
+
+    def test_decrypt_wrong_key_fails(self):
+        reset_encryption()
+        enc = get_encryption()
+        ct = enc.encrypt("secret")
+        reset_encryption()
+        enc2 = get_encryption()
+        with pytest.raises(Exception):
+            enc2.decrypt(ct)
+
+    def test_fingerprint_deterministic(self):
+        reset_encryption()
+        enc = get_encryption()
+        fp1 = enc.fingerprint("/path/file.txt", 10, "value", "pii")
+        fp2 = enc.fingerprint("/path/file.txt", 10, "value", "pii")
+        assert fp1 == fp2
+
+    def test_fingerprint_sensitive(self):
+        reset_encryption()
+        enc = get_encryption()
+        fp1 = enc.fingerprint("/path/file.txt", 10, "value", "pii")
+        fp2 = enc.fingerprint("/path/file.txt", 11, "value", "pii")
+        assert fp1 != fp2
+
+    def test_key_id_present(self):
+        reset_encryption()
+        enc = get_encryption()
+        assert enc.key_id
+        reset_encryption()

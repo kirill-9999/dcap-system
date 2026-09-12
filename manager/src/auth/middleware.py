@@ -62,6 +62,7 @@ class AuthMiddleware(BaseHTTPMiddleware):
             "/api/audit/agents/heartbeat",
             "/api/audit/events",
             "/api/audit/permissions",
+            "/api/findings/check-fingerprints",
         ]
 
     def _is_public(self, path: str) -> bool:
