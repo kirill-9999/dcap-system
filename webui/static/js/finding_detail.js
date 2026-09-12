@@ -64,15 +64,39 @@ const FindingDetail = {
       </div>
     `;
     document.getElementById('finding-detail').innerHTML = html;
+    if (document.getElementById('hex-dump')) this.loadHexFragment();
     this.bindEvents();
+  },
+
+  async loadHexFragment() {
+    const el = document.getElementById('hex-dump');
+    if (!el) return;
+    try {
+      const r = await fetch(`/api/findings/${window.FINDING_ID}/fragment?format=hex`,
+                            { headers: api._headers() });
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      el.textContent = await r.text();
+    } catch (e) {
+      el.textContent = 'Ошибка загрузки: ' + e.message;
+    }
   },
 
   renderFragment(f) {
     if (f.fragment_type === 'image_region') {
-      return `[🖼️ Изображение: ${f.file_path}]`;
+      return f.has_fragment || f.bounding_box
+        ? `<img src="/api/findings/${f.id}/fragment"
+                 class="img-fluid finding-image"
+                 alt="Фрагмент находки #${f.id}"
+                 data-bbox='${JSON.stringify(f.bounding_box || {})}'
+                 onerror="this.style.display='none'; this.insertAdjacentHTML('afterend','<div class=\'alert alert-warning\'>Фрагмент недоступен</div>')">`
+        : '<span class="text-muted">(изображение без вырезанного фрагмента)</span>';
     }
     if (f.fragment_type === 'byte_range') {
-      return f.hex_preview || '(hex)';
+      return f.hex_preview
+        ? `<pre class="finding-hex">${escapeHtml(f.hex_preview)}</pre>`
+        : (f.has_fragment || f.byte_offset !== null && f.byte_offset !== undefined
+            ? `<pre class="finding-hex" id="hex-dump">Загрузка…</pre>`
+            : '<span class="text-muted">(hex-фрагмент недоступен)</span>');
     }
     const lines = [];
     if (f.context_before) lines.push(`<span class="text-muted">${escapeHtml(f.context_before)}</span>`);

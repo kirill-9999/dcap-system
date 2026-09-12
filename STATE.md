@@ -3,9 +3,9 @@
 > План и бэклог — в `ROADMAP.md`. Архитектура — в `ARCHITECTURE.md`.
 
 **Обновлено:** 12.09.2026
-**Текущая версия:** v3.11.0
+**Текущая версия:** v3.12.0
 **Целевая версия:** v3.0.0 (релиз)
-**Статус:** 🟢 День 40.3 — Findings Refactor: WebUI реализован (v3.11.0)
+**Статус:** 🟢 День 40.4 — Findings Refactor: фрагменты + экспорт реализован (v3.12.0)
 
 ---
 
@@ -13,10 +13,10 @@
 
 | Параметр | Значение |
 |----------|----------|
-| Текущий день | 40.4 — Findings Refactor: фрагменты + экспорт (Этап 4) |
+| Текущий день | 42.1 — Админ-руководство: установка + конфигурация |
 | Статус дня | 📋 Запланирован |
-| Последний принятый отчёт | `day_40.3_report.md` (v3.11.0) |
-| Следующий шаг | Приёмка отчёта Дня 40.3 → ТЗ Дня 40.4 (фрагменты, экспорт) |
+| Последний принятый отчёт | `day_40.4_report.md` (v3.12.0) |
+| Следующий шаг | Приёмка отчёта Дня 40.4 → ТЗ Дня 42.1 (админ-руководство) |
 | Открытые вопросы к архитектору | — |
 
 ---
@@ -35,7 +35,7 @@
 | 40.1 | Findings Refactor: модель + шифрование + API (Этап 1) | v3.9.0 | `day_40.1_report.md` |
 | 40.2 | Findings Refactor: сканер (Этап 2) | v3.10.0 | `day_40.2_report.md` |
 | 40.3 | Findings Refactor: WebUI (Этап 3) | v3.11.0 | `day_40.3_report.md` |
-| 40.4 | Findings Refactor: фрагменты + экспорт (Этап 4) | — | 📋 |
+| 40.4 | Findings Refactor: фрагменты + экспорт (Этап 4) | v3.12.0 | `day_40.4_report.md` |
 | 42.1 | Админ-руководство: установка + конфигурация | — | 📋 |
 | 42.2 | Админ-руководство: аутентификация + безопасность | — | 📋 |
 | 42.3 | Админ-руководство: сканер + агенты | — | 📋 |
@@ -61,6 +61,7 @@
 *(Закрытые в v3.9.0: доступ к «сырым» значениям в API — только masked + reveal для Auditor; BACKLOG-050/051/052)*
 *(Закрытые в v3.10.0: сканер переведён на новую модель (Finding + построчно), FP-фильтр до отправки, дедупликация в Manager; BACKLOG-053/054/055)*
 *(Закрытые в v3.11.0: WebUI на строчной модели (BACKLOG-056/057), прогресс сканера (BACKLOG-043), MD5 → SHA-256 (BACKLOG-066), деградация WebUI v3.8 устранена (BACKLOG-061))*
+*(Закрытые в v3.12.0: фрагменты изображений (BACKLOG-058), hex-дамп бинарных (BACKLOG-059), экспорт с маскированием (BACKLOG-060), X-Total-Count в /api/findings (BACKLOG-067))*
 
 ---
 
@@ -68,8 +69,6 @@
 
 | ID | Задача | День | Статус |
 |----|--------|------|--------|
-| BACKLOG-058 | Фрагменты изображений | 40.4 | 📋 |
-| BACKLOG-060 | Экспорт с маскированием | 40.4 | 📋 |
 | BACKLOG-028 | Публикация на GitHub | 42 | 📋 |
 | — | Админ-руководство (4 под-дня) | 42.1-42.4 | 📋 |
 | — | Релиз v3.0.0 | 43 | 📋 |
@@ -87,6 +86,11 @@
 - **Batch FP-фильтр** `check-fingerprints` до отправки
 - **MD5 → SHA-256** (BACKLOG-066, крипто-фикс) — **закрыт в 40.3**
 - **WebUI на строчной модели** (40.3): `/findings` (фильтры, bulk, экспорт), `/findings/{id}` (reveal + FP), `/catalog` (дерево файл→строки), `/false-positives`; общий `webui/static/js/api.js`; панель «Сканеры» с прогрессом из heartbeat
+- **Фрагменты и экспорт** (40.4, v3.12.0):
+  - **`GET /api/findings/{id}/fragment`** — PNG (image_region, вырезанный или crop по `bounding_box` через Pillow) или hex-дамп (byte_range, `?format=hex`, окно ±64 байта); person → только Auditor+
+  - **`GET /api/findings/export`** — CSV/JSON с маскированием по умолчанию, `?reveal=true` (Auditor+) с аудитом `findings_exported`; CSV injection protection (`csv_utils.sanitize_csv_cell`), BOM для Excel
+  - **CSV/JSON BOM + Content-Disposition: attachment**, проброс через WebUI-прокси
+  - **X-Total-Count** в `GET /api/findings` (BACKLOG-067) → пагинация с номерами страниц в WebUI
 
 **Общие:**
 - **Scanner — на хосте, не в Docker** (bind-mount невозможен)
@@ -127,16 +131,15 @@
 
 ## 📁 Последние использованные файлы
 
-- `prompts/reports/day_40.3_report.md` — отчёт v3.11.0
-- `prompts/tz/day_40.3_webui_findings.md` — выполнено и заархивировано
-- `webui/templates/findings.html`, `finding_detail.html`, `catalog.html`, `false_positives.html` — страницы 40.3
-- `webui/static/js/findings.js`, `finding_detail.js`, `catalog.js`, `false_positives.js`, `api.js`, `dashboard.js` — логика 40.3
-- `webui/static/css/findings.css` — стили 40.3
-- `webui/main.py` — роуты `/findings/{id}`, `/false-positives`
-- `manager/src/api/webui.py` — `_scanner_dict(s, db)` + `current_task.progress`
-- `scanner/src/managed_scanner.py` — `_legacy_fingerprint` SHA-256 (BACKLOG-066)
-- `tests/unit/test_fingerprint.py`, `tests/e2e/test_webui_findings.py` — тесты 40.3
-- `docs/deployment.md` — раздел WebUI находок
+- `prompts/reports/day_40.4_report.md` — отчёт v3.12.0
+- `prompts/archive/day_40.4_fragments_export.md` — ТЗ дня 40.4 заархивировано
+- `manager/src/api/findings.py` — `/fragment` (PNG/hex), `/export`, X-Total-Count
+- `manager/src/core/image_fragment.py`, `hex_dump.py`, `csv_utils.py` — новые core-модули 40.4
+- `webui/static/js/finding_detail.js` — `<img>`/`<pre>`/hex для фрагментов; `findings.js` — кнопка «Экспорт» + пагинация по total; `api.js` — `getWithMeta`
+- `webui/templates/findings.html` — счётчик пагинации; `webui/static/css/findings.css` — стили изображений/hex
+- `tests/unit/test_hex_dump.py`, `test_csv_utils.py`; `tests/e2e/test_finding_fragments.py`, `test_findings_export.py` — тесты 40.4
+- `docs/deployment.md` — раздел фрагментов + экспорта
+- `CHANGELOG.md` — v3.12.0
 📌 Что изменилось в STATE.md
 #	Изменение
 1	Статус: «40.3 в работе» (было «40.2 реализован»)

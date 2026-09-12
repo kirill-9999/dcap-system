@@ -4,11 +4,16 @@ API находок: список, детали, reveal, bulk, stats, FP.
 Хранение: гибрид (masked + encrypted).
 Расшифровка — только Auditor, с аудитом.
 """
+import csv
+import io
+import json
 import logging
+import os
 from datetime import datetime
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi.responses import Response
 from sqlalchemy import func, desc
 from sqlalchemy.orm import Session
 
@@ -16,9 +21,12 @@ from manager.src.db.session import get_db
 from manager.src.db.models import Finding
 from manager.src.auth.models import User
 from manager.src.auth.dependencies import (
-    require_auth, require_auditor, require_admin
+    require_auth, require_auditor, require_admin, require_viewer
 )
 from manager.src.core.encryption import get_encryption
+from manager.src.core.image_fragment import crop_image
+from manager.src.core.hex_dump import format_hex_dump
+from manager.src.core.csv_utils import sanitize_csv_cell
 from manager.src.api.schemas_findings import (
     FindingResponse, FindingRevealResponse, FindingUpdateRequest,
     FindingBulkUpdateRequest, FindingBulkUpdateResponse,
@@ -28,6 +36,13 @@ from manager.src.api.schemas_findings import (
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/findings", tags=["findings"])
+
+
+def _json_default(o):
+    """Сериализация datetime и пр. для HTTP-ответов (День 40.4)."""
+    if isinstance(o, datetime):
+        return o.isoformat()
+    return str(o)
 
 
 # ========== ВСПОМОГАТЕЛЬНЫЕ ==========
@@ -126,8 +141,14 @@ def list_findings(
     col = getattr(Finding, order_by)
     q = q.order_by(desc(col) if order == "desc" else col)
 
+    total = q.count()
     findings = q.offset(offset).limit(limit).all()
-    return [_finding_to_response(f, user) for f in findings]
+    payload = [_finding_to_response(f, user) for f in findings]
+    return Response(
+        content=json.dumps(payload, ensure_ascii=False, default=_json_default),
+        media_type="application/json; charset=utf-8",
+        headers={"X-Total-Count": str(total)},
+    )
 
 
 @router.get("/stats", response_model=FindingStatsResponse)
@@ -231,6 +252,158 @@ def list_false_positives(
     ]
 
 
+# ========== EXPORT ==========
+
+@router.get("/export")
+async def export_findings(
+    format: str = Query("csv", pattern="^(csv|json)$"),
+    reveal: bool = Query(False),
+    status: Optional[str] = None,
+    finding_type: Optional[str] = None,
+    category: Optional[str] = None,
+    severity: Optional[str] = None,
+    task_id: Optional[int] = None,
+    resource_id: Optional[int] = None,
+    limit: int = Query(10000, le=100000),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_auditor),
+):
+    """
+    Экспорт находок.
+
+    - format=csv|json (по умолчанию csv)
+    - reveal=true → расшифровка (только Auditor+, с аудитом)
+    - По умолчанию — маскированное
+    """
+    if reveal and not _is_auditor(current_user):
+        raise HTTPException(403, "Reveal requires Auditor role")
+
+    # Импорт модели для legacy-filters (как в list_findings)
+    q = db.query(Finding)
+    if status:
+        q = q.filter(Finding.status == status)
+    if finding_type:
+        q = q.filter(Finding.finding_type == finding_type)
+    if category:
+        if category in ("pii", "credentials", "code"):
+            q = q.filter(Finding.finding_type == category)
+        else:
+            q = q.filter(Finding.category == category)
+    if severity:
+        q = q.filter(Finding.severity == severity)
+    if task_id:
+        q = q.filter(Finding.task_id == task_id)
+    if resource_id:
+        q = q.filter(Finding.resource_id == resource_id)
+
+    findings = q.order_by(desc(Finding.first_seen_at)).limit(limit).all()
+
+    # Аудит
+    _log_export(db, current_user, format, reveal, findings, {
+        "status": status, "finding_type": finding_type,
+        "category": category, "severity": severity,
+        "task_id": task_id, "resource_id": resource_id,
+    })
+
+    if format == "csv":
+        return _export_csv(findings, reveal)
+    return _export_json(findings, reveal)
+
+
+def _log_export(db, user, export_format, reveal, findings, filters):
+    """Пишет запись в audit_logs (findings_exported)."""
+    try:
+        from manager.src.db.models import AuditLog
+        log = AuditLog(
+            event_type="findings_exported",
+            event_source="api",
+            user=user.username,
+            file_path="/",
+            metadata_json={
+                "format": export_format,
+                "reveal": reveal,
+                "action": "findings_exported_revealed" if reveal else "findings_exported_masked",
+                "count": len(findings),
+                "filters": filters,
+            },
+        )
+        db.add(log)
+        db.commit()
+    except Exception as e:
+        logger.warning("Failed to log findings export: %s", e)
+        db.rollback()
+
+
+def _resolve_text(finding: Finding, field: str, reveal: bool) -> str:
+    """masked → reveal при необходимости."""
+    if reveal:
+        encrypted = getattr(finding, f"{field}_encrypted", None)
+        if encrypted:
+            return get_encryption().decrypt(encrypted)
+    return getattr(finding, f"{field}_masked", "") or ""
+
+
+def _export_csv(findings, reveal: bool) -> Response:
+    output = io.StringIO()
+    writer = csv.writer(output)
+    writer.writerow([
+        "id", "file_path", "line_number", "finding_type", "category",
+        "severity", "status", "match_text", "line_text",
+        "first_seen_at", "last_seen_at",
+    ])
+    for f in findings:
+        match = _resolve_text(f, "match_text", reveal)
+        line = _resolve_text(f, "line_text", reveal)
+        writer.writerow([
+            f.id,
+            sanitize_csv_cell(f.fragment_path or ""),
+            f.line_number or "",
+            f.finding_type, f.category, f.severity, f.status,
+            sanitize_csv_cell(match), sanitize_csv_cell(line),
+            f.first_seen_at.isoformat() if f.first_seen_at else "",
+            f.last_seen_at.isoformat() if f.last_seen_at else "",
+        ])
+    content = "\ufeff" + output.getvalue()  # BOM для Excel
+    filename = f"findings_{datetime.utcnow().strftime('%Y%m%d_%H%M%S')}.csv"
+    return Response(
+        content=content.encode("utf-8"),
+        media_type="text/csv; charset=utf-8",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+def _finding_to_export_dict(finding: Finding, reveal: bool) -> dict:
+    return {
+        "id": finding.id,
+        "resource_id": finding.resource_id,
+        "task_id": finding.task_id,
+        "file_path": finding.fragment_path,
+        "line_number": finding.line_number,
+        "finding_type": finding.finding_type,
+        "category": finding.category,
+        "severity": finding.severity,
+        "status": finding.status,
+        "fragment_type": finding.fragment_type,
+        "bounding_box": finding.bounding_box,
+        "byte_offset": finding.byte_offset,
+        "byte_length": finding.byte_length,
+        "match_text": _resolve_text(finding, "match_text", reveal),
+        "line_text": _resolve_text(finding, "line_text", reveal),
+        "first_seen_at": finding.first_seen_at.isoformat() if finding.first_seen_at else None,
+        "last_seen_at": finding.last_seen_at.isoformat() if finding.last_seen_at else None,
+    }
+
+
+def _export_json(findings, reveal: bool) -> Response:
+    data = [_finding_to_export_dict(f, reveal) for f in findings]
+    filename = f"findings_{datetime.utcnow().strftime('%Y%m%d_%H%M%S')}.json"
+    return Response(
+        content=json.dumps(data, ensure_ascii=False, indent=2).encode("utf-8"),
+        media_type="application/json; charset=utf-8",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
 @router.get("/{finding_id}", response_model=FindingResponse)
 def get_finding(
     finding_id: int,
@@ -242,6 +415,111 @@ def get_finding(
     if not finding:
         raise HTTPException(404, "Finding not found")
     return _finding_to_response(finding, user)
+
+
+# ========== FRAGMENT ==========
+
+def _is_auditor(user: User) -> bool:
+    """Права Auditor+ (расшифровка PII без маски)."""
+    return bool(user and (user.has_role("auditor") or user.has_role("admin")))
+
+
+@router.get("/{finding_id}/fragment")
+async def get_finding_fragment(
+    finding_id: int,
+    format: str = Query("png", pattern="^(png|hex)$"),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_viewer),
+):
+    """
+    Вернуть фрагмент находки.
+
+    - image_region → PNG (вырезанный или crop по bounding_box)
+    - byte_range   → hex-дамп (format=hex)
+    - text_line/text_context → 400 (текст отдаётся в /api/findings/{id})
+    """
+    finding = db.query(Finding).filter(Finding.id == finding_id).first()
+    if not finding:
+        raise HTTPException(404, "Finding not found")
+
+    # PII без маски (person) — только Auditor+
+    if finding.category == "person" and not _is_auditor(current_user):
+        raise HTTPException(403, "Reveal required for this fragment")
+
+    if finding.fragment_type == "image_region":
+        return _get_image_fragment(finding)
+
+    if finding.fragment_type == "byte_range":
+        return _get_hex_fragment(finding)
+
+    raise HTTPException(400, f"Fragment not available for type: {finding.fragment_type}")
+
+
+def _get_image_fragment(finding: Finding) -> Response:
+    """Отдать PNG-фрагмент (уже вырезанный или crop на лету)."""
+    path = finding.fragment_path if finding.fragment_path else None
+
+    if path and os.path.isfile(path):
+        # A: файл уже вырезанного фрагмента (нет box / это PNG) — отдать напрямую
+        if not finding.bounding_box or path.lower().endswith(".png"):
+            with open(path, "rb") as f:
+                data = f.read()
+            return Response(
+                content=data,
+                media_type="image/png",
+                headers={
+                    "Content-Disposition": f'inline; filename="finding_{finding.id}.png"',
+                    "X-Bounding-Box": json.dumps(finding.bounding_box or {}),
+                },
+            )
+        # B: исходник + bounding_box — вырезаем через Pillow
+        try:
+            data = crop_image(path, finding.bounding_box)
+        except Exception:
+            logger.exception("Crop failed for finding %s", finding.id)
+            raise HTTPException(404, "Fragment not available")
+        # Кэшировать рядом с исходником
+        cache_path = f"{os.path.splitext(path)[0]}_fragment_{finding.id}.png"
+        try:
+            os.makedirs(os.path.dirname(cache_path), exist_ok=True)
+            with open(cache_path, "wb") as f:
+                f.write(data)
+        except Exception:
+            logger.warning("Failed to cache fragment for finding %s", finding.id)
+        return Response(
+            content=data,
+            media_type="image/png",
+            headers={
+                "Content-Disposition": f'inline; filename="finding_{finding.id}.png"',
+                "X-Bounding-Box": json.dumps(finding.bounding_box or {}),
+            },
+        )
+
+    raise HTTPException(404, "Fragment not available")
+
+
+def _get_hex_fragment(finding: Finding, window: int = 64) -> Response:
+    """Hex-дамп вокруг byte_offset."""
+    if finding.hex_preview:
+        return Response(
+            content=finding.hex_preview,
+            media_type="text/plain; charset=utf-8",
+        )
+
+    if not finding.fragment_path or not os.path.isfile(finding.fragment_path):
+        raise HTTPException(404, "Fragment not available")
+
+    offset = finding.byte_offset or 0
+    length = finding.byte_length or 0
+    start = max(0, offset - window)
+    end = offset + length + window
+
+    with open(finding.fragment_path, "rb") as f:
+        f.seek(start)
+        data = f.read(end - start)
+
+    dump = format_hex_dump(data, base_offset=start)
+    return Response(content=dump, media_type="text/plain; charset=utf-8")
 
 
 # ========== REVEAL ==========

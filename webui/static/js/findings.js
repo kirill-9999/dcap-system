@@ -4,6 +4,7 @@
 const FindingsPage = {
   page: 0,
   limit: 50,
+  total: 0,
   selected: new Set(),
   findings: [],
   filters: {},
@@ -31,7 +32,7 @@ const FindingsPage = {
       this.render();
     });
 
-    document.getElementById('export-btn').addEventListener('click', () => this.exportJson());
+    document.getElementById('export-btn').addEventListener('click', () => this.showExportDialog());
   },
 
   collectFilters() {
@@ -54,8 +55,9 @@ const FindingsPage = {
     };
 
     try {
-      const r = await api.get('/api/findings', params);
-      this.findings = Array.isArray(r) ? r : [];
+      const r = await api.getWithMeta('/api/findings', params);
+      this.findings = Array.isArray(r.data) ? r.data : [];
+      this.total = r.total || 0;
       this.render();
     } catch (e) {
       document.getElementById('findings-list').innerHTML =
@@ -67,13 +69,13 @@ const FindingsPage = {
     const list = document.getElementById('findings-list');
     if (!this.findings || this.findings.length === 0) {
       list.innerHTML = '<div class="alert alert-info">Находок не найдено</div>';
-      this.renderPagination(false);
+      this.renderPagination(false, 0);
       this.updateBulkBar();
       return;
     }
 
     list.innerHTML = this.findings.map(f => this.renderItem(f)).join('');
-    this.renderPagination(this.findings.length >= this.limit);
+    this.renderPagination(this.findings.length >= this.limit, this.total);
     this.updateBulkBar();
 
     list.querySelectorAll('[data-action]').forEach(btn => {
@@ -102,29 +104,40 @@ const FindingsPage = {
     });
   },
 
-  renderPagination(hasMore) {
+  renderPagination(hasMore, total) {
     const wrap = document.getElementById('pagination-wrap');
     const ul = document.getElementById('pagination');
-    if (!hasMore && this.page === 0) { wrap.style.display = 'none'; return; }
+    const totalPages = Math.max(1, Math.ceil((total || 0) / this.limit));
+    if (this.page === 0 && !hasMore && totalPages <= 1) { wrap.style.display = 'none'; return; }
     wrap.style.display = 'block';
     ul.innerHTML = '';
 
-    const prev = document.createElement('li');
-    prev.className = 'page-item' + (this.page === 0 ? ' disabled' : '');
-    prev.innerHTML = `<a class="page-link" href="#">&laquo; Назад</a>`;
-    prev.addEventListener('click', (e) => { e.preventDefault(); if (this.page > 0) { this.page--; this.load(); } });
-    ul.appendChild(prev);
+    const mkItem = (label, pageIdx, active, disabled, onClick) => {
+      const li = document.createElement('li');
+      li.className = 'page-item' + (active ? ' active' : '') + (disabled ? ' disabled' : '');
+      if (active) li.innerHTML = `<span class="page-link">${label}</span>`;
+      else {
+        li.innerHTML = `<a class="page-link" href="#">${label}</a>`;
+        li.addEventListener('click', (e) => { e.preventDefault(); if (!disabled) onClick(pageIdx); });
+      }
+      ul.appendChild(li);
+    };
 
-    const num = document.createElement('li');
-    num.className = 'page-item active';
-    num.innerHTML = `<span class="page-link">${this.page + 1}</span>`;
-    ul.appendChild(num);
+    mkItem('« Назад', this.page - 1, false, this.page === 0, (p) => { this.page = p; this.load(); });
 
-    const next = document.createElement('li');
-    next.className = 'page-item' + (hasMore ? '' : ' disabled');
-    next.innerHTML = `<a class="page-link" href="#">Вперёд &raquo;</a>`;
-    next.addEventListener('click', (e) => { e.preventDefault(); if (hasMore) { this.page++; this.load(); } });
-    ul.appendChild(next);
+    // Окно из номеров страниц (максимум 7)
+    const win = 7;
+    let start = Math.max(0, this.page - Math.floor(win / 2));
+    let end = Math.min(totalPages - 1, start + win - 1);
+    start = Math.max(0, end - win + 1);
+    for (let p = start; p <= end; p++) {
+      mkItem(String(p + 1), p, p === this.page, false, (idx) => { this.page = idx; this.load(); });
+    }
+
+    mkItem('Вперёд »', this.page + 1, false, this.page >= totalPages - 1, (p) => { this.page = p; this.load(); });
+
+    const count = document.getElementById('pagination-count');
+    if (count) count.textContent = `Всего: ${total}`;
   },
 
   renderItem(f) {
@@ -226,18 +239,22 @@ const FindingsPage = {
     }
   },
 
-  async exportJson() {
-    try {
-      const d = await api.get('/api/findings', { ...this.collectFilters(), limit: 1000 });
-      const blob = new Blob([JSON.stringify(d, null, 2)], { type: 'application/json' });
-      const a = document.createElement('a');
-      a.href = URL.createObjectURL(blob);
-      a.download = `findings-${new Date().toISOString().slice(0, 10)}.json`;
-      a.click();
-      URL.revokeObjectURL(a.href);
-    } catch (e) {
-      showError('Экспорт: ' + e.message);
+  showExportDialog() {
+    const fmt = prompt('Формат экспорта (csv/json):', 'csv');
+    if (!fmt || !['csv', 'json'].includes(fmt)) return;
+
+    const reveal = confirm('Показать оригиналы (только Auditor+)?\n\nOK = reveal, Отмена = masked');
+
+    const params = new URLSearchParams({
+      ...this.collectFilters(),
+      format: fmt,
+      reveal: reveal ? 'true' : 'false',
+    });
+    // Убрать пустые
+    for (const [k, v] of [...params.entries()]) {
+      if (!v || v === 'false') params.delete(k);
     }
+    window.location.href = `/api/findings/export?${params}`;
   },
 
   updateBulkBar() {

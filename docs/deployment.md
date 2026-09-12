@@ -263,6 +263,28 @@ WebUI переведён на строчную модель находок (v3.1
 `webui/static/js/api.js` — общий HTTP-клиент: `request()`, `get`/`post`/`patch`/`delete`,
 разбор `{detail}` ошибок, авто-редирект на `/login` при 401, `showSuccess`/`showError`.
 
+### Фрагменты и экспорт находок (День 40.4)
+
+- `GET /api/findings/{id}/fragment` — фрагмент находки (Viewer+):
+  - `image_region` → PNG: готовый фрагмент из `fragment_path` или crop по
+    `bounding_box` через Pillow (`manager/src/core/image_fragment.py`), кэшируется;
+    заголовок `X-Bounding-Box`.
+  - `?format=hex` (`byte_range`) → текстовый hex-дамп вокруг `byte_offset` с окном
+    ±64 байта (`manager/src/core/hex_dump.py`); готовый `hex_preview` отдаётся как есть.
+  - `text_line`/`text_context` → `400` (текст отдаётся в `/api/findings/{id}`).
+  - `category=person` (PII без маски) → `403` для не-Auditor.
+- `GET /api/findings/export?format=csv|json` — экспорт находок (Auditor+):
+  - По умолчанию **маскированное**; `?reveal=true` — расшифровка (Auditor+),
+    действие логируется в `audit_logs` (`findings_exported`).
+  - Фильтры: `status`, `finding_type`, `category`, `severity`, `task_id`, `resource_id`.
+  - CSV: BOM для Excel, `Content-Disposition: attachment`, защита от CSV injection
+    (`manager/src/core/csv_utils.py` — префикс `'` для `=`, `+`, `-`, `@`, TAB, CR).
+- Прокси WebUI (`webui/api/routes.py`) пробрасывает бинарные ответы и
+  `Content-Disposition: attachment` как есть — кнопка «Экспорт» на странице находок
+  скачивает файл через браузер.
+- `GET /api/findings` возвращает заголовок `X-Total-Count` (всего найдено с фильтрами);
+  WebUI использует его для постраничной навигации с номерами страниц.
+
 ## Остановка
 
 ```bash
