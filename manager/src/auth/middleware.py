@@ -45,6 +45,7 @@ class AuthMiddleware(BaseHTTPMiddleware):
             "/api/health",
             "/api/root",
             "/api/folders/pick",
+            "/metrics",       # публичные Manager-метрики Prometheus (docs/monitoring.md:104-105)
             "/docs",
             "/redoc",
             "/openapi.json",
