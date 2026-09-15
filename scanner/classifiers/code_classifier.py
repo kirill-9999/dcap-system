@@ -58,6 +58,14 @@ class CodeClassifier(IClassifier):
         """
         return []
     
+    def file_prefilter(self, content: str) -> bool:
+        """Префильтр уровня файла (день 42).
+
+        Code-классификатор не детектирует секреты построчно (scan_line — no-op),
+        поэтому не должен блокировать пропуск файла.
+        """
+        return False
+    
     @property
     def classifier_name(self) -> str:
         return "code_classifier"

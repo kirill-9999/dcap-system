@@ -5,6 +5,7 @@ DCAP Agent - Коннектор к файловой системе
 """
 
 import os
+import logging
 from datetime import datetime
 from pathlib import Path
 from typing import Dict, Any, Iterator, Optional, List, Callable
@@ -13,6 +14,8 @@ from core.base import SourceType, FileContext
 from connectors.base import BaseConnector
 
 from scanner.src.finding import Finding
+
+logger = logging.getLogger("dcap-scanner")
 
 
 # Имена файлов-носителей учётных данных (сканируются даже без расширения
@@ -171,6 +174,8 @@ class FilesystemConnector:
         self._max_file_size_mb = int(config.get("max_file_size_mb", 50))
         self._max_text_chars = int(config.get("max_text_chars", 200000))
         self._buffer_size = int(config.get("buffer_size", 1024 * 1024))
+        # Параллельное сканирование файлов (день 42); 1 = последовательный режим
+        self._max_workers = int(config.get("max_parallel_files", 1) or 1)
 
     # =====================================================================
     # Обход каталога
@@ -221,10 +226,13 @@ class FilesystemConnector:
         path: str,
         classifiers: List[Any],
         progress_callback: Optional[Callable[[int, int, int, str], None]] = None,
+        stop_event: Optional[Any] = None,
     ) -> List[Finding]:
         """
         Сканирует папку (или файл). Возвращает список Finding.
         progress_callback(stage, current, total, file_path): stage 0=обход, 1=скан.
+        stop_event (день 42.5+): threading.Event — при установке сканирование
+        останавливается после текущих файлов (Ctrl+C, scanner.stop()).
         """
         findings: List[Finding] = []
         files = self._discover_files(path)
@@ -234,18 +242,59 @@ class FilesystemConnector:
             return findings
 
         total = len(files)
-        for i, file_path in enumerate(files, start=1):
-            if progress_callback:
-                progress_callback(1, i, total, file_path)
+        max_workers = self._max_workers
+
+        def _stopped() -> bool:
+            return stop_event is not None and stop_event.is_set()
+
+        def _scan_one(file_path: str) -> List[Finding]:
+            """Сканирование одного файла (общий код для seq/parallel)."""
             if not self._within_size(file_path):
-                continue
+                return []
             try:
-                file_findings = self.scan_file(file_path, classifiers)
-                findings.extend(file_findings)
+                return self.scan_file(file_path, classifiers)
             except Exception as e:
                 print(f"[FS] Ошибка сканирования {file_path}: {e}", flush=True)
                 import traceback
                 traceback.print_exc()
+                return []
+
+        if max_workers <= 1:
+            # Последовательный режим (как раньше, день 40.2)
+            for i, file_path in enumerate(files, start=1):
+                if _stopped():
+                    logger.info("[FS] Сканирование остановлено (stop_event) на %d/%d", i, total)
+                    break
+                if progress_callback:
+                    progress_callback(1, i, total, file_path)
+                findings.extend(_scan_one(file_path))
+            return findings
+
+        # Параллельный режим (день 42): ThreadPoolExecutor.
+        # Прогресс — монотонный счётчик; findings собираем в порядке завершения.
+        import threading
+        from concurrent.futures import ThreadPoolExecutor
+
+        lock = threading.Lock()
+        done_counter = [0]
+
+        def _work(file_path: str):
+            if _stopped():
+                return []
+            result = _scan_one(file_path)
+            with lock:
+                done_counter[0] += 1
+                current = done_counter[0]
+            if progress_callback:
+                progress_callback(1, current, total, file_path)
+            return result
+
+        with ThreadPoolExecutor(max_workers=max_workers) as ex:
+            for result in ex.map(_work, files):
+                findings.extend(result)
+                if _stopped():
+                    logger.info("[FS] Сканирование остановлено (stop_event)")
+                    break
 
         return findings
 
@@ -278,15 +327,50 @@ class FilesystemConnector:
         return []
 
     def _scan_text(self, text: str, classifiers: List[Any], file_path: str) -> List[Finding]:
-        """Делит текст на строки, прогоняет через scan_line классификаторов."""
+        """Сканирует текст классификаторами.
+
+        Классификаторы с файловым анализом (scan_text) отрабатывают один раз на
+        весь текст (день 42.5+); остальные — построчно через scan_line.
+        """
         if len(text) > self._max_text_chars:
             text = text[: self._max_text_chars]
 
+        # File-level prefilter (день 42): пропускаем файл целиком, если ни один
+        # классификатор не видит быстрых признаков во всём содержимом.
+        if not self._file_pass_prefilter(text, classifiers):
+            return []
+
         lines = text.splitlines()
         context_lines = self._context_lines
-        findings: List[Finding] = []
         line_end = len(lines)
+        findings: List[Finding] = []
 
+        # Файловый путь: классификаторы, у которых есть scan_text(text), вызываем
+        # один раз (PII — один вызов Presidio на весь файл, строки из offset).
+        for classifier in classifiers:
+            scan_text = getattr(classifier, "scan_text", None)
+            if scan_text is None:
+                continue
+            try:
+                file_findings = scan_text(text)
+            except Exception as e:
+                func = getattr(classifier, "classifier_name", type(classifier).__name__)
+                print(f"[FS] scan_text error {func} at {file_path}: {e}")
+                continue
+
+            for finding in file_findings:
+                ln = finding.line_number or 1
+                idx = max(0, min(ln - 1, line_end - 1)) if line_end else 0
+                if not finding.line_text:
+                    finding.line_text = lines[idx] if lines else ""
+                before_start = max(0, idx - context_lines)
+                after_end = min(line_end, idx + context_lines + 1)
+                finding.context_before = "\n".join(lines[before_start:idx]) if lines else ""
+                finding.context_after = "\n".join(lines[idx + 1:after_end]) if lines else ""
+                finding.fragment_path = file_path
+                findings.append(finding)
+
+        # Построчный путь: классификаторы без scan_text (Credentials, Code и т.п.)
         for idx in range(line_end):
             line = lines[idx]
             line_num = idx + 1
@@ -298,6 +382,8 @@ class FilesystemConnector:
             context_after = "\n".join(lines[idx + 1:after_end])
 
             for classifier in classifiers:
+                if hasattr(classifier, "scan_text"):
+                    continue
                 try:
                     line_findings = classifier.scan_line(line, line_num)
                 except Exception as e:
@@ -313,6 +399,25 @@ class FilesystemConnector:
                     findings.append(finding)
 
         return findings
+
+    @staticmethod
+    def _file_pass_prefilter(text: str, classifiers: List[Any]) -> bool:
+        """File-level prefilter (день 42).
+
+        True — файл сканировать (хотя бы один классификатор видит признаки),
+        False — пропустить файл целиком (ни один классификатор ничего не видит).
+        """
+        if not classifiers:
+            return False
+        for classifier in classifiers:
+            fp = getattr(classifier, "file_prefilter", None)
+            if fp is None:
+                # Классификатор без file_prefilter — не можем гарантировать
+                # «ничего не видно», поэтому сканируем файл.
+                return True
+            if fp(text):
+                return True
+        return False
 
     def _read_text(self, file_path: str) -> Optional[str]:
         """Буферизованное чтение текста (максимум self._max_text_chars символов)."""

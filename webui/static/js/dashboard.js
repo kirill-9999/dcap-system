@@ -65,8 +65,21 @@ function updateScannerPanel(scanners) {
             const pct = t.progress.percent != null ? t.progress.percent : Math.round((files / total) * 100);
             const bar = Math.max(0, Math.min(100, pct));
             const blocks = Math.round(bar / 10);
+            let speedTxt = '';
+            const speed = t.progress.speed_files_per_sec;
+            const eta = t.progress.eta_seconds;
+            if (speed != null) {
+                speedTxt = speed < 1
+                    ? ' \u00b7 ' + (speed * 60).toFixed(1) + ' \u0444/\u043c\u0438\u043d'
+                    : ' \u00b7 ' + speed.toFixed(1) + ' \u0444/\u0441';
+            }
+            if (eta != null && eta > 0) {
+                const h = Math.floor(eta / 3600);
+                const m = Math.floor((eta % 3600) / 60);
+                speedTxt += ' \u00b7 ETA ' + (h > 0 ? h + '\u0447 ' + m + '\u043c' : m + '\u043c');
+            }
             taskHtml = `<div class="mt-2 small">
-                \u0417\u0430\u0434\u0430\u043d\u0438\u0435 #${t.id}: ${files}/${total} \u0444\u0430\u0439\u043b\u043e\u0432 (${bar}%)
+                \u0417\u0430\u0434\u0430\u043d\u0438\u0435 #${t.id}: ${files}/${total} \u0444\u0430\u0439\u043b\u043e\u0432 (${bar}%)${speedTxt}
                 <div class="progress mt-1" style="height:10px;">
                     <div class="progress-bar" role="progressbar" style="width:${bar}%;" aria-valuenow="${bar}" aria-valuemin="0" aria-valuemax="100"></div>
                 </div>

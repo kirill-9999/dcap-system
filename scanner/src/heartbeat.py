@@ -32,18 +32,32 @@ class HeartbeatThread(threading.Thread):
         self._lock = threading.Lock()
         self._current_task_id: Optional[int] = None
         self._current_progress: Optional[Dict[str, Any]] = None
-        # {"files_scanned": int, "total": int|None}
+        # {"files_scanned": int, "total": int|None, "speed_files_per_sec": float|None, "eta_seconds": int|None}
 
     def set_task(self, task_id: Optional[int]):
         with self._lock:
             self._current_task_id = task_id
 
-    def set_progress(self, files_scanned: int, total: Optional[int] = None):
+    def set_progress(
+        self,
+        files_scanned: int,
+        total: Optional[int] = None,
+        speed_files_per_sec: Optional[float] = None,
+        eta_seconds: Optional[int] = None,
+    ):
         with self._lock:
             self._current_progress = {
                 "files_scanned": int(files_scanned),
                 "total": int(total) if total is not None else None,
             }
+            if speed_files_per_sec is not None:
+                self._current_progress["speed_files_per_sec"] = round(float(speed_files_per_sec), 3)
+            else:
+                self._current_progress.pop("speed_files_per_sec", None)
+            if eta_seconds is not None:
+                self._current_progress["eta_seconds"] = int(eta_seconds)
+            else:
+                self._current_progress.pop("eta_seconds", None)
 
     def _build_payload(self) -> Dict[str, Any]:
         with self._lock:

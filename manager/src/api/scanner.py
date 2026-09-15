@@ -239,6 +239,13 @@ async def heartbeat(
                 "total": total,
                 "percent": percent,
             }
+            # Скорость и ETA (День 40.x): транзитом из сканера
+            speed = progress_data.get("speed_files_per_sec")
+            if speed is not None:
+                task.progress["speed_files_per_sec"] = speed
+            eta = progress_data.get("eta_seconds")
+            if eta is not None:
+                task.progress["eta_seconds"] = eta
             task.started_at = task.started_at or datetime.utcnow()
     
     db.commit()

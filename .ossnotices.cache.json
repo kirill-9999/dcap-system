@@ -1,0 +1,54 @@
+{
+  "bomFormat": "CycloneDX",
+  "specVersion": "1.6",
+  "serialNumber": "urn:uuid:eeb53176-38f0-4bb7-a5e3-3b1c4f27a880",
+  "version": 1,
+  "metadata": {
+    "timestamp": "2026-09-12T10:27:03.240385+00:00",
+    "tools": [
+      {
+        "vendor": "oscarvalenzuelab",
+        "name": "purl2notices",
+        "version": "0.1.0"
+      }
+    ],
+    "properties": [
+      {
+        "name": "purl2notices:cache_version",
+        "value": "2.1"
+      }
+    ]
+  },
+  "components": [
+    {
+      "type": "library",
+      "bom-ref": "1cd49674-f7b9-4e5a-8cf1-b0530aee8e35",
+      "name": "_sources",
+      "licenses": [
+        {
+          "license": {
+            "id": "NOASSERTION"
+          }
+        }
+      ],
+      "properties": [
+        {
+          "name": "copyright",
+          "value": "Copyright 2023 Chart"
+        },
+        {
+          "name": "copyright",
+          "value": "Copyright 2023 Jukka Kurkela"
+        },
+        {
+          "name": "purl2notices:status",
+          "value": "no_license"
+        },
+        {
+          "name": "purl2notices:source_path",
+          "value": "."
+        }
+      ]
+    }
+  ]
+}

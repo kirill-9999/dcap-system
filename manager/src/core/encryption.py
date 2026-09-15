@@ -19,6 +19,20 @@ logger = logging.getLogger(__name__)
 
 # ========== КЛЮЧИ ==========
 
+def _maybe_b64decode(data: bytes) -> bytes:
+    """Декодирует base64-ключ (скрипт generate_findings_keys.py) или оставляет raw."""
+    stripped = data.strip()
+    if len(stripped) == 32:
+        return stripped
+    try:
+        decoded = base64.b64decode(stripped, validate=True)
+        if decoded:
+            return decoded
+    except Exception:
+        pass
+    return stripped
+
+
 def _read_secret(name: str, default: Optional[bytes] = None) -> bytes:
     """Читает секрет из Docker Secrets → env → default."""
     secret_path = f"/run/secrets/{name}"
@@ -110,7 +124,7 @@ class FindingEncryption:
     """
     AES-256-GCM для находок + HMAC-fingerprint.
 
-    Ключи — Docker Secrets:
+    Ключи — Docker Secrets (base64, генерируются scripts/generate_findings_keys.py):
       /run/secrets/findings_encryption_key (32 байта)
       /run/secrets/findings_hmac_key        (32 байта)
       /run/secrets/findings_key_id          (строка, напр. "key-2026-09")
@@ -132,6 +146,11 @@ class FindingEncryption:
         hmac_key = _read_secret("findings_hmac_key")
         key_id_bytes = _read_secret("findings_key_id", default=b"key-2026-09")
         key_id = key_id_bytes.decode() if isinstance(key_id_bytes, bytes) else key_id_bytes
+
+        # Secrets, сгенерированные scripts/generate_findings_keys.py, — base64.
+        # Поддерживаем оба формата (raw 32 байта и base64).
+        key = _maybe_b64decode(key)
+        hmac_key = _maybe_b64decode(hmac_key)
 
         return cls(key=key, hmac_key=hmac_key, key_id=key_id)
 

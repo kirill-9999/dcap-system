@@ -147,7 +147,7 @@ class CredentialsClassifier(IClassifier):
         self._no_generic = False
         self._require_mixed = False
         self._patterns = self._get_default_patterns()
-        self._compile_prefilter()
+        self._compile_all()
     
     @property
     def classifier_name(self) -> str:
@@ -172,7 +172,7 @@ class CredentialsClassifier(IClassifier):
         self._no_generic = config.get("no_generic", False)
         self._require_mixed = config.get("require_mixed", False)
         self._patterns = self._get_default_patterns()
-        self._compile_prefilter()
+        self._compile_all()
     
     def _get_default_patterns(self) -> List[Dict]:
         return [
@@ -193,6 +193,33 @@ class CredentialsClassifier(IClassifier):
             {"name": "BASIC_AUTH", "pattern": r'Authorization:\s*Basic\s+[A-Za-z0-9+/=]+', "confidence": 0.8, "check_entropy": False},
         ]
     
+    def _compile_all(self) -> None:
+        """Компиляция всех regex один раз (день 42 — оптимизация).
+
+        - prefilter_regex — единый prefilter по всем паттернам (для быстрой
+          проверки всего файла целиком через file_prefilter).
+        - compiled_patterns — скомпилированные regex всех паттернов (используются
+          в scan_line/classify без re.compile в горячем цикле).
+        - _entropy_patterns — скомпилированные токены для энтропийной проверки.
+        """
+        all_patterns = [p["pattern"] for p in self._patterns]
+        combined = '|'.join(f'({p})' for p in all_patterns)
+        self.prefilter_regex = re.compile(combined, re.IGNORECASE | re.MULTILINE)
+        self.compiled_patterns = []
+        for p in self._patterns:
+            item = dict(p)
+            item["compiled"] = re.compile(p["pattern"], re.IGNORECASE | re.MULTILINE)
+            self.compiled_patterns.append(item)
+        self._entropy_patterns = [
+            re.compile(p) for p in [
+                r'\b[A-Za-z0-9+/=]{20,}\b',
+                r'\b[A-Za-z0-9_\-]{32,}\b',
+                r'\b[0-9a-f]{32,}\b',
+                r'\b[0-9a-f]{40,}\b',
+                r'\b[0-9a-f]{64,}\b',
+            ]
+        ]
+    
     def _compile_prefilter(self) -> None:
         """Компиляция единого regex-префильтра по всем паттернам"""
         all_patterns = [p["pattern"] for p in self._patterns]
@@ -201,6 +228,14 @@ class CredentialsClassifier(IClassifier):
     
     def prefilter(self, content: str) -> bool:
         """Быстрая проверка: есть ли хоть один паттерн в контенте"""
+        return bool(self.prefilter_regex.search(content))
+
+    def file_prefilter(self, content: str) -> bool:
+        """Быстрая проверка уровня файла: есть ли хоть один паттерн во всём файле.
+
+        Используется FilesystemConnector для пропуска файла целиком, если ни один
+        классификатор не видит быстрых признаков (день 42 — оптимизация).
+        """
         return bool(self.prefilter_regex.search(content))
 
     # =====================================================================
@@ -218,8 +253,8 @@ class CredentialsClassifier(IClassifier):
         if not self.prefilter(line):
             return findings
 
-        # Поиск по паттернам
-        for pattern_config in self._patterns:
+        # Поиск по паттернам (precompiled, день 42)
+        for pattern_config in self.compiled_patterns:
             # no_generic: пропускаем общие правила
             if self._no_generic and pattern_config["name"] in ("GENERIC_TOKEN", "GENERIC_SECRET"):
                 continue
@@ -227,7 +262,7 @@ class CredentialsClassifier(IClassifier):
             if pattern_config["confidence"] < self._confidence_threshold:
                 continue
 
-            pattern = re.compile(pattern_config["pattern"], re.IGNORECASE | re.MULTILINE)
+            pattern = pattern_config["compiled"]
             for match in pattern.finditer(line):
                 value = match.group(0)
 
@@ -280,16 +315,10 @@ class CredentialsClassifier(IClassifier):
         if not stripped or len(stripped) < 20 or any(c.isspace() for c in stripped):
             return findings
 
-        patterns = [
-            r'\b[A-Za-z0-9+/=]{20,}\b',
-            r'\b[A-Za-z0-9_\-]{32,}\b',
-            r'\b[0-9a-f]{32,}\b',
-            r'\b[0-9a-f]{40,}\b',
-            r'\b[0-9a-f]{64,}\b',
-        ]
+        patterns = self._entropy_patterns
 
         for pattern in patterns:
-            for match in re.finditer(pattern, stripped):
+            for match in pattern.finditer(stripped):
                 value = match.group(0)
                 if value.isalpha() and len(set(value)) < 5:
                     continue
@@ -430,8 +459,8 @@ class CredentialsClassifier(IClassifier):
                 processing_time=time.perf_counter() - start_time
             )
         
-        # Поиск по паттернам
-        for pattern_config in self._patterns:
+        # Поиск по паттернам (precompiled, день 42)
+        for pattern_config in self.compiled_patterns:
             # no_generic: пропускаем общие правила
             if self._no_generic and pattern_config["name"] in ("GENERIC_TOKEN", "GENERIC_SECRET"):
                 continue
@@ -439,7 +468,7 @@ class CredentialsClassifier(IClassifier):
             if pattern_config["confidence"] < self._confidence_threshold:
                 continue
             
-            pattern = re.compile(pattern_config["pattern"], re.IGNORECASE | re.MULTILINE)
+            pattern = pattern_config["compiled"]
             for match in pattern.finditer(text):
                 value = match.group(0)
                 
