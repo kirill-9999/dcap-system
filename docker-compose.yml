@@ -336,7 +336,6 @@ services:
       - celery-exporter
       - "--broker-url"
       - "redis://:${REDIS_PASSWORD:-redis123}@redis:6379/0"
-    command: celery-exporter --broker-url "redis://:${REDIS_PASSWORD:-redis123}@redis:6379/0"
     ports:
       - "${CELERY_EXPORTER_PORT:-9808}:9808"
     depends_on:
