@@ -5,7 +5,8 @@
         "scanner_id": null,
         "scan_interval": 10,
         "state_dir": "scanner/state",
-        "log_level": "INFO"
+        "log_level": "INFO",
+        "progress_report_interval": 5
     },
     "performance": {
         "max_file_size_mb": 500,
@@ -22,7 +23,8 @@
         "pii_classifier": {
             "enabled": true,
             "min_confidence": 0.3,
-            "ocr_enabled": true
+            "ocr_enabled": true,
+            "analyzer_pool_size": 4
         },
         "credentials_classifier": {
             "enabled": true,
@@ -49,6 +51,7 @@
         "buffer_size": 1048576,
         "max_text_chars": 200000,
         "context_lines": 2,
+        "max_parallel_files": 8,
         "text_extensions": [
             "txt", "csv", "log", "json", "yaml", "yml", "xml", "toml", "ini", "cfg", "conf",
             "env", "envrc", "properties", "py", "js", "ts", "tsx", "jsx", "java", "c", "cpp",

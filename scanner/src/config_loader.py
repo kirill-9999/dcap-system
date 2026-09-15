@@ -22,7 +22,8 @@ class ScannerConfig:
     scan_interval: int = 10
     log_level: str = "INFO"
     state_dir: str = "scanner_state"  # <-- ДОБАВЛЕНО
-    
+    progress_report_interval: float = 5.0
+
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> 'ScannerConfig':
         return cls(
@@ -31,7 +32,8 @@ class ScannerConfig:
             scanner_id=data.get("scanner_id"),
             scan_interval=data.get("scan_interval", 10),
             log_level=data.get("log_level", "INFO"),
-            state_dir=data.get("state_dir", "scanner_state")  # <-- ДОБАВЛЕНО
+            state_dir=data.get("state_dir", "scanner_state"),  # <-- ДОБАВЛЕНО
+            progress_report_interval=data.get("progress_report_interval", 5.0),
         )
 
 
@@ -65,6 +67,7 @@ class ConnectorConfig:
     buffer_size: int = 1024 * 1024
     max_text_chars: int = 200000
     context_lines: int = 2  # <-- ДОБАВЛЕНО (день 40.2)
+    max_parallel_files: int = 1  # <-- ДОБАВЛЕНО (день 42, параллельный скан)
 
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> 'ConnectorConfig':
@@ -75,7 +78,8 @@ class ConnectorConfig:
             skip_dirs=data.get("skip_dirs", list(DEFAULT_SKIP_DIRS)),
             buffer_size=data.get("buffer_size", 1024 * 1024),
             max_text_chars=data.get("max_text_chars", 200000),
-            context_lines=data.get("context_lines", 2)  # <-- ДОБАВЛЕНО
+            context_lines=data.get("context_lines", 2),  # <-- ДОБАВЛЕНО
+            max_parallel_files=data.get("max_parallel_files", 1),  # <-- ДОБАВЛЕНО
         )
 
 
@@ -90,6 +94,7 @@ class PiiConfig:
     ocr_timeout: int = 60
     max_file_size_mb: int = 100
     quick_filter_enabled: bool = True
+    analyzer_pool_size: int = 0  # 0 = авто (по числу воркеров коннектора)
     
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> 'PiiConfig':
@@ -101,7 +106,8 @@ class PiiConfig:
             ocr_psm=data.get("ocr_psm", 6),
             ocr_timeout=data.get("ocr_timeout", 60),
             max_file_size_mb=data.get("max_file_size_mb", 100),
-            quick_filter_enabled=data.get("quick_filter_enabled", True)
+            quick_filter_enabled=data.get("quick_filter_enabled", True),
+            analyzer_pool_size=data.get("analyzer_pool_size", 0),  # <-- ДОБАВЛЕНО (день 40.2+)
         )
 
 
@@ -154,10 +160,13 @@ class ClassifiersConfig:
     
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> 'ClassifiersConfig':
+        # Поддержка обоих вариантов имён секций: "pii" и "pii_classifier" (день 42)
         return cls(
-            pii=PiiConfig.from_dict(data.get("pii", {})),
-            credentials=CredentialsConfig.from_dict(data.get("credentials", {})),
-            code=CodeConfig.from_dict(data.get("code", {}))
+            pii=PiiConfig.from_dict(data.get("pii", data.get("pii_classifier", {}))),
+            credentials=CredentialsConfig.from_dict(
+                data.get("credentials", data.get("credentials_classifier", {}))
+            ),
+            code=CodeConfig.from_dict(data.get("code", data.get("code_classifier", {})))
         )
 
 
@@ -291,7 +300,8 @@ class AppConfig:
                 "scanner_id": self.scanner.scanner_id,
                 "scan_interval": self.scanner.scan_interval,
                 "log_level": self.scanner.log_level,
-                "state_dir": self.scanner.state_dir  # <-- ДОБАВЛЕНО
+                "state_dir": self.scanner.state_dir,  # <-- ДОБАВЛЕНО
+                "progress_report_interval": self.scanner.progress_report_interval
             },
             "connector": {
                 "extensions": self.connector.extensions,
@@ -299,7 +309,9 @@ class AppConfig:
                 "recursive": self.connector.recursive,
                 "skip_dirs": self.connector.skip_dirs,
                 "buffer_size": self.connector.buffer_size,
-                "max_text_chars": self.connector.max_text_chars
+                "max_text_chars": self.connector.max_text_chars,
+                "context_lines": self.connector.context_lines,
+                "max_parallel_files": self.connector.max_parallel_files
             },
             "classifiers": {
                 "pii": {
@@ -310,7 +322,8 @@ class AppConfig:
                     "ocr_psm": self.classifiers.pii.ocr_psm,
                     "ocr_timeout": self.classifiers.pii.ocr_timeout,
                     "max_file_size_mb": self.classifiers.pii.max_file_size_mb,
-                    "quick_filter_enabled": self.classifiers.pii.quick_filter_enabled
+                    "quick_filter_enabled": self.classifiers.pii.quick_filter_enabled,
+                    "analyzer_pool_size": self.classifiers.pii.analyzer_pool_size
                 },
                 "credentials": {
                     "enabled": self.classifiers.credentials.enabled,

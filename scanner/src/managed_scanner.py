@@ -8,7 +8,10 @@ import os
 import sys
 import json
 import time
+import math
 import uuid
+
+math_isfinite = math.isfinite
 import logging
 import signal
 import socket
@@ -283,21 +286,32 @@ class ManagerClient:
         if not fingerprints:
             return {"false_positives": [], "confirmed": [], "new": []}
 
+        # Чанками по 5000 — эндпоинт Manager принимает не более 10000 за запрос (день 40.2+)
+        FP_CHUNK = 5000
+        merged: Dict[str, Any] = {"false_positives": [], "confirmed": [], "new": []}
         url = f"{self.base_url}/api/findings/check-fingerprints"
         try:
-            response = self.session.post(
-                url,
-                json={"fingerprints": fingerprints},
-                timeout=self.timeout,
-            )
-            if response.status_code == 200:
-                return response.json()
-            logger.warning(
-                "[CheckFingerprints] Failed: %s %s",
-                response.status_code,
-                response.text[:200],
-            )
-            return None
+            for i in range(0, len(fingerprints), FP_CHUNK):
+                chunk = fingerprints[i:i + FP_CHUNK]
+                response = self.session.post(
+                    url,
+                    json={"fingerprints": chunk},
+                    timeout=self.timeout,
+                )
+                if response.status_code == 200:
+                    data = response.json()
+                    merged["false_positives"].extend(data.get("false_positives", []))
+                    merged["confirmed"].extend(data.get("confirmed", []))
+                    merged["new"].extend(data.get("new", []))
+                else:
+                    logger.warning(
+                        "[CheckFingerprints] Failed (chunk %d): %s %s",
+                        i // FP_CHUNK + 1,
+                        response.status_code,
+                        response.text[:200],
+                    )
+                    return None
+            return merged
         except Exception as e:
             logger.warning("[CheckFingerprints] Error: %s", e)
             return None
@@ -318,6 +332,9 @@ class ManagedScanner:
         self.interval = interval
         self.config = config
         self._should_exit = False
+        # Событие остановки (день 42.5+): устанавливается из stop()/Ctrl+C,
+        # проверяется параллельным scan_path для немедленной остановки.
+        self._stop_event = threading.Event()
         
         self.client = None
         self.classifiers = []
@@ -353,8 +370,13 @@ class ManagedScanner:
                         "ocr_psm": pii_config.ocr_psm,
                         "ocr_timeout": pii_config.ocr_timeout,
                         "max_file_size_mb": pii_config.max_file_size_mb,
-                        "quick_filter_enabled": pii_config.quick_filter_enabled
+                        "quick_filter_enabled": pii_config.quick_filter_enabled,
+                        "analyzer_pool_size": pii_config.analyzer_pool_size,  # 0 = авто
                     }
+                    if self.config and self.config.connector and pii_config.analyzer_pool_size <= 0:
+                        pii_config_dict["max_parallel_files"] = (
+                            getattr(self.config.connector, "max_parallel_files", None) or 4
+                        )
                 pii.configure(pii_config_dict)
                 self.classifiers.append(pii)
                 logger.info(f"✅ PII Classifier loaded (OCR enabled: {pii_config_dict.get('ocr_enabled', True)})")
@@ -427,7 +449,8 @@ class ManagedScanner:
                 "skip_dirs": self.config.connector.skip_dirs,
                 "buffer_size": self.config.connector.buffer_size,
                 "max_text_chars": self.config.connector.max_text_chars,
-                "context_lines": self.config.connector.context_lines
+                "context_lines": self.config.connector.context_lines,
+                "max_parallel_files": getattr(self.config.connector, "max_parallel_files", 1) or 1
             }
         return {
             "extensions": ["*"],
@@ -436,7 +459,8 @@ class ManagedScanner:
             "skip_dirs": ["$Recycle.Bin", "System Volume Information", "tmp", "temp", "cache", "__pycache__", "node_modules", "venv", "logs", ".git"],
             "buffer_size": 1024 * 1024,
             "max_text_chars": 200000,
-            "context_lines": 2
+            "context_lines": 2,
+            "max_parallel_files": 1
         }
     
     def _get_orchestrator_config(self) -> Dict[str, Any]:
@@ -654,23 +678,98 @@ class ManagedScanner:
 
         # счётчик обработанных файлов для stats
         scanned = [0]
+        # тайминги для консольного прогресса (День 40.x: скорость + ETA)
+        start_time = [time.time()]
+        last_report = [0.0]
+        report_interval = self._progress_report_interval()
+
+        def _fmt_eta(seconds: Optional[float]) -> str:
+            if seconds is None or not math_isfinite(seconds) or seconds <= 0:
+                return "—"
+            s = int(seconds)
+            h, rem = divmod(s, 3600)
+            m, _ = divmod(rem, 60)
+            if h:
+                return f"{h}ч {m}м"
+            return f"{m}м"
+
+        def _fmt_speed(speed: float) -> str:
+            if not math_isfinite(speed) or speed < 0:
+                return "—"
+            if speed < 1:
+                return f"{speed * 60:.1f} ф/мин"
+            return f"{speed:.1f} ф/с"
+
+        def _report(current: int, total: int):
+            elapsed = time.time() - start_time[0]
+            speed = current / elapsed if elapsed > 0 else 0.0
+            rate = speed if speed > 0 else 0.0
+            eta = (total - current) / rate if rate > 0 else None
+            if self.heartbeat_thread is not None:
+                try:
+                    self.heartbeat_thread.set_progress(current, total, speed, int(eta) if eta else None)
+                except Exception:
+                    pass
+            if total:
+                pct = (current / total) * 100 if total else 0.0
+                logger.info(
+                    "[ScanProgress] %s%d/%d (%.1f%%) | скорость %s | ETA %s",
+                    " ",
+                    current,
+                    total,
+                    pct,
+                    _fmt_speed(speed),
+                    _fmt_eta(eta),
+                )
+            else:
+                logger.info(
+                    "[ScanProgress] %d файлов | скорость %s | прошло %.0fс",
+                    current,
+                    _fmt_speed(speed),
+                    elapsed,
+                )
 
         def _progress(stage: int, current: int, total: int, file_path: str):
             if stage == 1:
                 scanned[0] = current
-                if self.heartbeat_thread is not None:
-                    self.heartbeat_thread.set_progress(current, total)
+                now = time.time()
+                if now - last_report[0] >= report_interval:
+                    last_report[0] = now
+                    _report(current, total)
+                elif self.heartbeat_thread is not None:
+                    # между консольными отчётами всё равно обновляем heartbeat в фоне
+                    try:
+                        elapsed = time.time() - start_time[0]
+                        speed = current / elapsed if elapsed > 0 else 0.0
+                        eta = (total - current) / speed if speed > 0 else None
+                        self.heartbeat_thread.set_progress(current, total, speed, int(eta) if eta else None)
+                    except Exception:
+                        pass
 
         findings = self._connector.scan_path(
             resource_path,
             line_capable,
             progress_callback=_progress,
+            stop_event=self._stop_event,
         )
+        # финальный отчёт с общей скоростью
+        _report(scanned[0], scanned[0])
         return {
             "findings": findings,
             "files_scanned": scanned[0],
             "error": None,
         }
+
+    def _progress_report_interval(self) -> float:
+        """Интервал консольного отчёта о прогрессе (по умолчанию 5 сек)."""
+        try:
+            if self.config and self.config.scanner:
+                v = getattr(self.config.scanner, "progress_report_interval", None)
+                if v is not None and v > 0:
+                    return float(v)
+        except Exception:
+            pass
+        return 5.0
 
     def _update_metrics(self, stats: Dict[str, Any]):
         """Инкремент Prometheus-метрик после завершения задания (День 39)."""
@@ -712,6 +811,31 @@ class ManagedScanner:
 
         scan_result = self._scan_line_by_line(resource_path)
         findings_objects = scan_result["findings"]
+
+        # Мгновенная остановка: если stop_event выставлен после скана —
+        # НЕ сериализуем/шифруем находки и НЕ шлём FP-фильтр (день 40.2+).
+        if self._should_exit or self._stop_event.is_set():
+            logger.warning(
+                f"[Scanner] Task {task_id} прервана при остановке — "
+                f"post-processing пропущен ({len(findings_objects)} находок не сериализованы)"
+            )
+            return {
+                "findings": [],
+                "catalog_entries": [],
+                "failed_files": [],
+                "stats": {
+                    "files_scanned": int(scan_result.get("files_scanned", 0) or 0),
+                    "files_failed": 0,
+                    "files_with_findings": 0,
+                    "total_findings": 0,
+                    "unique_findings": 0,
+                    "category_stats": {},
+                    "started_at": task.get("assigned_at", datetime.utcnow().isoformat()),
+                    "completed_at": datetime.utcnow().isoformat(),
+                    "encryption": "enabled" if self._enc else "legacy",
+                    "aborted": True,
+                },
+            }
 
         # Сериализация в новый формат (шифрование/маскирование на хосте)
         serialized = [
@@ -1080,6 +1204,10 @@ class ManagedScanner:
                     
                     result = self._execute_task(task)
                     
+                    if self._should_exit or self._stop_event.is_set():
+                        logger.warning("⏹️ Задача прервана пользователем — результаты не отправлены")
+                        break
+                    
                     success = self.client.submit_results(
                         task_id=task["id"],
                         findings=result.get("findings", []),
@@ -1107,10 +1235,20 @@ class ManagedScanner:
         self.client.heartbeat(status="offline")
         if self.heartbeat_thread is not None:
             self.heartbeat_thread.stop()
+        # Корректное завершение классификаторов (OCRWorker и др. процессы) —
+        # иначе после остановки сканера остаются осиротевшие дочерние процессы.
+        for clf in self.classifiers:
+            shutdown = getattr(clf, "shutdown", None)
+            if callable(shutdown):
+                try:
+                    shutdown()
+                except Exception as e:
+                    logger.debug("Classifier shutdown error %s: %s", getattr(clf, "classifier_name", clf), e)
         logger.info("👋 Сканер остановлен")
     
     def stop(self):
         self._should_exit = True
+        self._stop_event.set()
 
 
 def main():

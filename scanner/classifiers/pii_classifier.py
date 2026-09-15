@@ -7,10 +7,11 @@ PII Classifier на основе Presidio
 
 import re
 import time
+import bisect
 import threading
 import logging
 from pathlib import Path
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any, List, Optional, Tuple
 
 from presidio_analyzer import AnalyzerEngine
 from presidio_analyzer import PatternRecognizer, Pattern
@@ -68,8 +69,55 @@ class PiiClassifier(IClassifier):
         self._timeout = 60.0
         self.enabled = True
         self._analyzer = None
+        # Пул AnalyzerEngine (день 40.2+): по движку на рабочий поток,
+        # чтобы Presidio-анализ файлов шёл параллельно, а не через один лок.
+        self._analyzers: List[AnalyzerEngine] = []
+        self._analyzer_next = 0
+        self._thread_analyzers = threading.local()
         # Кастомные regex-паттерны для строчного сканирования (пустые по умолчанию)
         self.custom_patterns: List = []
+        # Quick-паттерны компилируем один раз (день 42 — оптимизация)
+        self._quick_line_patterns: List = [
+            re.compile(p) for p in [
+                r'\d{1,2}[./-]\d{1,2}[./-]\d{2,4}',
+                r'[A-Za-z][A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}',
+                r'\+?7\s*\d{3}\s*\d{3}\s*\d{2}\s*\d{2}',
+                r'8\s*\d{3}\s*\d{3}\s*\d{2}\s*\d{2}',
+                r'[А-Я][а-я]+\s+[А-Я][а-я]+',
+                r'[A-Z][a-z]+\s+[A-Z][a-z]+',
+                r'\b\d{4}\s+\d{6}\b',
+                r'\b\d{3}-\d{3}-\d{3}\s+\d{2}\b',
+                r'\b\d{6,12}\b',
+                r'\b\d{16}\b',
+            ]
+        ]
+        self._quick_file_regex = re.compile(
+            '|'.join(f'({p.pattern})' for p in self._quick_line_patterns)
+        )
+        # Presidio AnalyzerEngine не потокобезопасен — сериализуем analyze().
+        # В день 40.2 заменён пулом движков (_get_analyzer), лок оставлен
+        # как fallback для единичного движка (self._analyzers пуст).
+        self._analyzer_lock = threading.Lock()
+
+    def _get_analyzer(self) -> Tuple[Optional[AnalyzerEngine], Optional[threading.Lock]]:
+        """Возвращает (движок Presidio, лок) для текущего потока.
+
+        При пуле движков (self._analyzers) каждый поток получает свой движок
+        по thread-local (round-robin при первом обращении) вместе с его локом —
+        анализ файлов в воркерах идёт параллельно, двига мения на общий лок нет.
+        Если же два потока делят один движок (пул меньше числа воркеров),
+        лок движка гарантирует безопасность analyze().
+        Если пул не создан (legacy) — возвращает (self._analyzer, self._analyzer_lock).
+        """
+        if self._analyzers:
+            entry = getattr(self._thread_analyzers, "entry", None)
+            if entry is None:
+                with self._analyzer_lock:
+                    entry = self._analyzers[self._analyzer_next % len(self._analyzers)]
+                    self._analyzer_next += 1
+                self._thread_analyzers.entry = entry
+            return entry[0], entry[1]
+        return self._analyzer, self._analyzer_lock
     
     @property
     def classifier_name(self) -> str:
@@ -267,19 +315,34 @@ class PiiClassifier(IClassifier):
         
         # Инициализация Presidio с локальными моделями
         try:
-            # Создаём NLP движок с локальными моделями
-            nlp_engine = self._get_nlp_engine()
-            
-            # Создаём анализатор с указанием языков
-            self._analyzer = AnalyzerEngine(
-                nlp_engine=nlp_engine,
-                supported_languages=["ru", "en"]
-            )
-            
-            # Добавляем кастомные распознаватели для РФ
-            self._add_custom_recognizers()
-            
-            print("[PII] ✅ Presidio инициализирован с локальными моделями")
+            # Пул движков (день 40.2+): размер — число параллельных воркеров
+            # коннектора (или analyzer_pool_size), но не более 4 по умолчанию,
+            # чтобы ограничить расход RAM на модели spaCy.
+            pool_size = int(config.get(
+                "analyzer_pool_size",
+                max(1, min(config.get("max_parallel_files", 2), 4)),
+            ) or 1)
+            pool_size = max(1, min(pool_size, 8))
+
+            self._analyzers = []
+            for _ in range(pool_size):
+                # Создаём NLP движок с локальными моделями
+                nlp_engine = self._get_nlp_engine()
+                # Создаём анализатор с указанием языков
+                analyzer = AnalyzerEngine(
+                    nlp_engine=nlp_engine,
+                    supported_languages=["ru", "en"]
+                )
+                # Добавляем кастомные распознаватели для РФ
+                self._add_custom_recognizers(analyzer)
+                # (движок, лок) — движок может использоваться несколькими
+                # потоками при пуле меньше числа воркеров, лок страхует.
+                self._analyzers.append((analyzer, threading.Lock()))
+
+            # совместимость: единичный движок используется как self._analyzer
+            self._analyzer = self._analyzers[0][0]
+
+            print(f"[PII] ✅ Presidio инициализирован с локальными моделями (пул: {pool_size})")
             
         except Exception as e:
             print(f"[PII] ❌ Ошибка инициализации Presidio: {e}")
@@ -310,10 +373,12 @@ class PiiClassifier(IClassifier):
         if not self._quick_line_check(line):
             return []
 
-        # 1. Presidio (если доступен)
-        if self._analyzer is not None:
+        # 1. Presidio (если доступен) — движок из пула, с локом движка
+        analyzer, analyzer_lock = self._get_analyzer()
+        if analyzer is not None:
             try:
-                results = self._analyzer.analyze(text=line, language="ru")
+                with analyzer_lock:
+                    results = analyzer.analyze(text=line, language="ru")
                 min_confidence = self.config.get("min_confidence", 0.5)
                 for r in results:
                     if r.score < min_confidence:
@@ -357,27 +422,120 @@ class PiiClassifier(IClassifier):
         # Дедупликация внутри строки (по позиции)
         return self._deduplicate(findings)
 
+    def scan_text(self, text: str) -> List[Finding]:
+        """Файловый PII-анализ (день 42.5+): один вызов Presidio на весь текст.
+
+        Номера строк находок вычисляются из offset'ов через предвычисленные
+        начала строк (bisect) — построчный вызов analyze() не нужен.
+        """
+        findings: List[Finding] = []
+
+        # Быстрый негативный фильтр уровня файла (объединённый regex)
+        if not text or len(text.strip()) < 5:
+            return findings
+        if not self._quick_file_regex.search(text):
+            return findings
+
+        starts = self._line_starts(text)
+
+        def _line_index(offset: int) -> int:
+            i = bisect.bisect_right(starts, offset) - 1
+            return i if 0 <= i < len(starts) else 0
+
+        def _line_text(idx: int) -> str:
+            s = starts[idx]
+            e = starts[idx + 1] if idx + 1 < len(starts) else len(text)
+            if e and text[e - 1] == '\n':
+                e -= 1
+            return text[s:e]
+
+        # 1. Presidio — один вызов на весь текст (движок из пула текущего потока)
+        analyzer, analyzer_lock = self._get_analyzer()
+        if analyzer is not None:
+            try:
+                with analyzer_lock:
+                    results = analyzer.analyze(text=text, language="ru")
+                min_confidence = self.config.get("min_confidence", 0.5)
+                for r in results:
+                    if r.score < min_confidence:
+                        continue
+                    match_text = text[r.start:r.end]
+                    if not match_text:
+                        continue
+                    idx = _line_index(r.start)
+                    findings.append(Finding(
+                        line_number=idx + 1,
+                        line_text=_line_text(idx),
+                        match_text=match_text,
+                        start_pos=max(0, r.start - starts[idx]),
+                        end_pos=max(0, r.end - starts[idx]),
+                        finding_type="pii",
+                        category=self._map_presidio_entity(r.entity_type),
+                        severity=self._severity(r.entity_type),
+                        confidence=float(r.score),
+                        detector="presidio",
+                    ))
+            except Exception as e:
+                logger.warning("Presidio failed on file-level scan: %s", e)
+        else:
+            logger.debug("Presidio analyzer not initialized, skip file-level scan")
+
+        # 2. Regex-паттерны (кастомные) — по всему тексту, строки из offset
+        for pattern, category, severity in self.custom_patterns:
+            for m in pattern.finditer(text):
+                idx = _line_index(m.start())
+                findings.append(Finding(
+                    line_number=idx + 1,
+                    line_text=_line_text(idx),
+                    match_text=m.group(),
+                    start_pos=max(0, m.start() - starts[idx]),
+                    end_pos=max(0, m.end() - starts[idx]),
+                    finding_type="pii",
+                    category=category,
+                    severity=severity,
+                    confidence=0.85,
+                    detector="regex",
+                ))
+
+        # Дедупликация: ключ по номеру строки и позициям (относительно строки)
+        seen = set()
+        result = []
+        for f in findings:
+            key = (f.line_number, f.start_pos, f.end_pos, f.category)
+            if key not in seen:
+                seen.add(key)
+                result.append(f)
+        return result
+
+    @staticmethod
+    def _line_starts(text: str) -> List[int]:
+        """Offset'ы начала каждой строки (0 — первая строка)."""
+        starts = [0]
+        for i, ch in enumerate(text):
+            if ch == '\n':
+                starts.append(i + 1)
+        return starts
+
     def _quick_line_check(self, line: str) -> bool:
         """Быстрая проверка строки на наличие PII-признаков (до Presidio)."""
         stripped = line.strip()
         if len(stripped) < 5:
             return False
-        patterns = [
-            r'\d{1,2}[./-]\d{1,2}[./-]\d{2,4}',
-            r'[A-Za-z][A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}',
-            r'\+?7\s*\d{3}\s*\d{3}\s*\d{2}\s*\d{2}',
-            r'8\s*\d{3}\s*\d{3}\s*\d{2}\s*\d{2}',
-            r'[А-Я][а-я]+\s+[А-Я][а-я]+',
-            r'[A-Z][a-z]+\s+[A-Z][a-z]+',
-            r'\b\d{4}\s+\d{6}\b',
-            r'\b\d{3}-\d{3}-\d{3}\s+\d{2}\b',
-            r'\b\d{6,12}\b',
-            r'\b\d{16}\b',
-        ]
-        for pattern in patterns:
-            if re.search(pattern, stripped):
+        for pattern in self._quick_line_patterns:
+            if pattern.search(stripped):
                 return True
         return False
+
+    def file_prefilter(self, content: str) -> bool:
+        """Быстрая проверка уровня файла: есть ли хоть один PII-признак во всём файле.
+
+        Используется FilesystemConnector для пропуска файла целиком (день 42).
+        Объединённый regex ищется по всему содержимому — безопасный суперсет
+        построчной проверки _quick_line_check (может пропустить меньше, но не больше).
+        """
+        if len(content) < 5:
+            return False
+        return bool(self._quick_file_regex.search(content))
 
     def _map_presidio_entity(self, entity_type: str) -> str:
         """PHONE_NUMBER → phone, EMAIL_ADDRESS → email, и т.д."""
@@ -410,8 +568,9 @@ class PiiClassifier(IClassifier):
                 result.append(f)
         return result
 
-    def _add_custom_recognizers(self):
+    def _add_custom_recognizers(self, analyzer: Optional[AnalyzerEngine] = None):
         """Добавление кастомных распознавателей для РФ"""
+        analyzer = analyzer or self._analyzer
         
         # 1. Телефоны РФ
         phone_patterns = [
@@ -433,7 +592,7 @@ class PiiClassifier(IClassifier):
             patterns=phone_patterns,
             supported_language="ru"
         )
-        self._analyzer.registry.add_recognizer(phone_recognizer)
+        analyzer.registry.add_recognizer(phone_recognizer)
         
         # 2. Паспорт
         passport_patterns = [
@@ -449,7 +608,7 @@ class PiiClassifier(IClassifier):
             patterns=passport_patterns,
             supported_language="ru"
         )
-        self._analyzer.registry.add_recognizer(passport_recognizer)
+        analyzer.registry.add_recognizer(passport_recognizer)
         
         # 3. СНИЛС
         snils_patterns = [
@@ -465,7 +624,7 @@ class PiiClassifier(IClassifier):
             patterns=snils_patterns,
             supported_language="ru"
         )
-        self._analyzer.registry.add_recognizer(snils_recognizer)
+        analyzer.registry.add_recognizer(snils_recognizer)
         
         # 4. ИНН
         inn_patterns = [
@@ -481,7 +640,7 @@ class PiiClassifier(IClassifier):
             patterns=inn_patterns,
             supported_language="ru"
         )
-        self._analyzer.registry.add_recognizer(inn_recognizer)
+        analyzer.registry.add_recognizer(inn_recognizer)
         
         # 5. Email
         email_patterns = [
@@ -497,7 +656,7 @@ class PiiClassifier(IClassifier):
             patterns=email_patterns,
             supported_language="ru"
         )
-        self._analyzer.registry.add_recognizer(email_recognizer)
+        analyzer.registry.add_recognizer(email_recognizer)
         
         print("[PII]   Добавлены кастомные распознаватели: PhoneRU, PassportRU, SnilsRU, InnRU, EmailRU")
     
