@@ -2,9 +2,10 @@
 
 **Дата:** 17.09.2026
 **Версия:** v3.13.3
-**Ветка:** `fix/block_1_issues`
+**Ветка:** `feature/day_40.4_fragments_export`
+**Коммит:** `80c3728` — «fix: Блок 1 (v3.13.3) — BUG-034/035/027/022, Deploy/Config, WebUI»
 **Предыдущая версия:** v3.13.2
-**ТЗ:** `prompts/tz/TZ_BLOCK_1_FIX.md` — фикс Блока 1: `fix/block_1_issues` (≈3 рабочих дня).
+**ТЗ:** `prompts/tz/TZ_BLOCK_1_FIX.md` — фикс Блока 1 (≈3 рабочих дня), заархивировано в `prompts/archive/day_43_block1_fix.md`.
 
 ---
 
@@ -425,31 +426,44 @@ Invoke-RestMethod -Method Post http://localhost:8000/api/tasks/1/cancel
 
 ## 7. Команда для коммита
 
+Коммит фактически создан в рабочем дереве (см. секцию 1):
+
 ```powershell
+# уже выполнен
 git add -A
-git commit -m "fix: Блок 1 (v3.13.3) — BUG-034/035/027, W-42/54/60/66/67/70/43/55/57/62/72/73
+git commit -m "fix: Блок 1 (v3.13.3) — BUG-034/035/027/022, Deploy/Config, WebUI"
+
+# результат: 80c3728 на ветке feature/day_40.4_fragments_export (42 файла, +1624/-343)
+```
+
+Сообщение коммита (полный текст):
+```text
+fix: Блок 1 (v3.13.3) — BUG-034/035/027/022, Deploy/Config, WebUI
 
 Manager:
-- BUG-034.1: stale assigned-задачи сканера -> failed + completed_at
-- BUG-034.2: POST /api/scanner/tasks/{id}/cancel (отмена задачи)
+- BUG-034.1: _mark_stale_scanners — stale assigned-задачи -> failed + completed_at
+- BUG-034.2: POST /api/scanner/tasks/{id}/cancel (ручная отмена задачи)
 - BUG-035: приём findings батчами (?batch=N&total=M), аккумуляция
   findings_count, финализация только в последнем батче, flush по 500
-- BUG-027.1-4: heartbeat busy->running, total/percent/paid files_scanned
-- W-66/W-67: FP-эндпоинт отдаёт file_path + reviewed_by_username
+- BUG-027.1-4: heartbeat busy->running, progress total/percent/files_scanned
+- фикс NameError files_total_from_stats; релакс статус-чека submitted
+- W-66/W-67: false-positives отдаёт file_path + reviewed_by_username
 - W-55: encryption_key_id в детали находки
 - W-60: catalog/tree — is_folder, рекурсивная агрегация по детям
-- фикс NameError files_total_from_stats
 
-Scanner:
-- BUG-035: submit_results шлёт findings батчами по 500 (?batch=N&total=M)
+Scanner (BUG-035): submit_results шлёт findings батчами по 500
 
 WebUI:
 - W-42: Dashboard kpiFindings = /api/findings/count
-- W-43: версия из VERSION env /config, footer из /api/health
+- W-43: версия из VERSION env/config, footer из /api/health
+- W-57/W-55: блоки «Эффективное», «Шифрование» в детали
 - W-70: кнопка «Восстановить» на FP-странице
-- W-55/W-57: блоки «Шифрование»/«Последнее сканирование» в детали
 
-Отчёт: prompts/reports/day_43_block1_fix_report.md"
+Docker (пересборка контейнеров):
+- celery_beat healthcheck: findstr (Windows) -> python-socket PING (Linux)
+- VERSION env во все сервисы -> /api/health отдаёт 3.13.2
+
+Docs: отчёт day_43_block1_fix_report.md, STATE.md v3.13.3
 ```
 
 ---
