@@ -69,7 +69,7 @@ services:
     build:
       context: .
       dockerfile: manager/Dockerfile
-    image: dcap/manager:${VERSION:-3.13.2}
+    image: dcap/manager:${VERSION:-3.13.3}
     container_name: dcap-manager
     environment:
       DATABASE_URL: postgresql://${POSTGRES_USER:-dcap}:${POSTGRES_PASSWORD:-dcap123}@postgres:5432/${POSTGRES_DB:-dcap}
@@ -77,7 +77,7 @@ services:
       REDIS_PASSWORD: ${REDIS_PASSWORD:-redis123}
       JWT_SECRET_KEY: ${JWT_SECRET_KEY:-change-me-in-production}
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
-      VERSION: ${VERSION:-3.13.2}
+      VERSION: ${VERSION:-3.13.3}
       # Fallback для dev (если secrets не заданы)
       FINDINGS_KEY_ID: ${FINDINGS_KEY_ID:-key-2026-09}
     secrets:
@@ -105,14 +105,14 @@ services:
     build:
       context: .
       dockerfile: manager/Dockerfile
-    image: dcap/manager:${VERSION:-3.13.2}
+    image: dcap/manager:${VERSION:-3.13.3}
     environment:
       DATABASE_URL: postgresql://${POSTGRES_USER:-dcap}:${POSTGRES_PASSWORD:-dcap123}@postgres:5432/${POSTGRES_DB:-dcap}
       REDIS_URL: redis://:${REDIS_PASSWORD:-redis123}@redis:6379/0
       REDIS_PASSWORD: ${REDIS_PASSWORD:-redis123}
       JWT_SECRET_KEY: ${JWT_SECRET_KEY:-change-me-in-production}
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
-      VERSION: ${VERSION:-3.13.2}
+      VERSION: ${VERSION:-3.13.3}
     command: celery -A manager.src.workers.celery_app:app worker -Q audit_events,scanner_tasks,retention,reports -c 4 --loglevel=info
     healthcheck: # celery-worker: не HTTP-сервер, поэтому НЕ наследуем HEALTHCHECK manager/Dockerfile (curl :8000/api/health)
       test: ["CMD-SHELL", "celery -A manager.src.workers.celery_app:app inspect ping --timeout=10 || exit 1"]
@@ -135,13 +135,13 @@ services:
     build:
       context: .
       dockerfile: manager/Dockerfile
-    image: dcap/manager:${VERSION:-3.13.2}
+    image: dcap/manager:${VERSION:-3.13.3}
     container_name: dcap-celery-beat
     environment:
       REDIS_URL: redis://:${REDIS_PASSWORD:-redis123}@redis:6379/0
       REDIS_PASSWORD: ${REDIS_PASSWORD:-redis123}
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
-      VERSION: ${VERSION:-3.13.2}
+      VERSION: ${VERSION:-3.13.3}
     command: celery -A manager.src.workers.celery_app:app beat --loglevel=info
     healthcheck:
       # celery beat — планировщик, а не HTTP-сервер: проверяем брокер (redis) через python socket.
@@ -180,12 +180,12 @@ services:
     build:
       context: ./webui
       dockerfile: Dockerfile
-    image: dcap/webui:${VERSION:-3.13.2}
+    image: dcap/webui:${VERSION:-3.13.3}
     container_name: dcap-webui
     environment:
       MANAGER_URL: http://manager:8000
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
-      VERSION: ${VERSION:-3.13.2}
+      VERSION: ${VERSION:-3.13.3}
     ports:
       - "${WEBUI_PORT:-8001}:8001"
     depends_on:
@@ -201,7 +201,7 @@ services:
     build:
       context: .
       dockerfile: audit-agent-s3/Dockerfile
-    image: dcap/s3-agent:${VERSION:-3.13.2}
+    image: dcap/s3-agent:${VERSION:-3.13.3}
     container_name: dcap-s3-agent
     environment:
       S3_ENDPOINT: ${S3_ENDPOINT:-https://s3.amazonaws.com}
@@ -210,7 +210,7 @@ services:
       S3_SECRET_KEY: ${S3_SECRET_KEY}
       MANAGER_URL: http://manager:8000
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
-      VERSION: ${VERSION:-3.13.2}
+      VERSION: ${VERSION:-3.13.3}
     volumes:
       - s3_agent_data:/app/audit-agent-s3/data
       - s3_agent_logs:/app/audit-agent-s3/logs
@@ -229,12 +229,12 @@ services:
     build:
       context: .
       dockerfile: audit-agent-linux/Dockerfile
-    image: dcap/linux-agent:${VERSION:-3.13.2}
+    image: dcap/linux-agent:${VERSION:-3.13.3}
     container_name: dcap-linux-agent
     environment:
       MANAGER_URL: http://manager:8000
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
-      VERSION: ${VERSION:-3.13.2}
+      VERSION: ${VERSION:-3.13.3}
     volumes:
       - linux_agent_data:/app/audit-agent-linux/data
       - linux_agent_logs:/app/audit-agent-linux/logs
