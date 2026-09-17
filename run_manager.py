@@ -24,7 +24,20 @@ def load_config():
     return data, server.get("host", "127.0.0.1"), server.get("port", 8000)
 
 
+def _setup_utf8():
+    """UTF-8 обёртка для корректного вывода кириллицы (Windows console)."""
+    try:
+        sys.stdout.reconfigure(encoding="utf-8")
+    except (AttributeError, ValueError):
+        pass
+    try:
+        sys.stderr.reconfigure(encoding="utf-8")
+    except (AttributeError, ValueError):
+        pass
+
+
 if __name__ == "__main__":
+    _setup_utf8()
     data, host, port = load_config()
 
     security = data.get("security", {})

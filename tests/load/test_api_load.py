@@ -44,7 +44,7 @@ def test_create_1000_tasks(api_client, manager_url, test_files_dir):
 
     avg = sum(latencies) / len(latencies)
     p95 = sorted(latencies)[int(len(latencies) * 0.95)]
-    print(f"\n📊 {N} tasks in {duration:.1f}s | created={len(created)} | "
+    print(f"\n[X] {N} tasks in {duration:.1f}s | created={len(created)} | "
           f"avg={avg * 1000:.1f}ms | p95={p95 * 1000:.1f}ms")
 
 

@@ -11,9 +11,9 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
 from webui.api.routes import router
-from webui.config import WEBUI_HOST, WEBUI_PORT, DEBUG
+from webui.config import WEBUI_HOST, WEBUI_PORT, DEBUG, VERSION
 
-app = FastAPI(title="DCAP WebUI", version="3.0.0")
+app = FastAPI(title="DCAP WebUI", version=VERSION)
 
 app.add_middleware(
     CORSMiddleware,
@@ -108,7 +108,7 @@ async def page_login(request: Request):
 
 @app.get("/health")
 async def health():
-    return {"status": "ok", "version": "3.5.0"}
+    return {"status": "ok", "version": VERSION}
 
 
 if __name__ == "__main__":

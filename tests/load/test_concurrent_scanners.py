@@ -34,4 +34,4 @@ def test_concurrent_task_creation(api_client, manager_url, test_files_dir):
 
     assert len(errors) == 0, f"Errors: {errors[:5]}"
     assert len(created) >= N * 0.95, f"Only {len(created)}/{N} created"
-    print(f"\n📊 {N} tasks in {duration:.1f}s | created={len(created)}")
+    print(f"\n[X] {N} tasks in {duration:.1f}s | created={len(created)}")

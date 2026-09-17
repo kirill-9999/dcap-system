@@ -62,7 +62,7 @@ class ProgressDisplay:
         
         print()
         print("=" * 70)
-        print(f"🔄 НАЧАЛО ОБРАБОТКИ ФАЙЛОВ")
+        print(f"[X] НАЧАЛО ОБРАБОТКИ ФАЙЛОВ")
         print("=" * 70)
         print(f"   Всего файлов в источнике: {self.total_all:,}")
         print(f"   Уже обработано ранее: {self.already_processed:,}")
@@ -165,7 +165,7 @@ class ProgressDisplay:
         
         print()
         print("=" * 70)
-        print("✅ СКАНИРОВАНИЕ ЗАВЕРШЕНО")
+        print("[OK] СКАНИРОВАНИЕ ЗАВЕРШЕНО")
         print("=" * 70)
         print(f"   Обработано в этом запуске: {self.processed_in_this_run:,}")
         print(f"   Всего обработано: {self.processed_total:,} из {self.total_all:,}")
@@ -311,7 +311,7 @@ class Orchestrator:
             return
         
         print("\n" + "=" * 70)
-        print("⚠️ ФАЙЛЫ, НЕ ОБРАБОТАННЫЕ ИЗ-ЗА ОШИБОК")
+        print("[WARN] ФАЙЛЫ, НЕ ОБРАБОТАННЫЕ ИЗ-ЗА ОШИБОК")
         print("=" * 70)
         print(f"   Всего неудачных файлов: {len(self.failed_files)}")
         print("=" * 70)
@@ -321,11 +321,11 @@ class Orchestrator:
             error_type = f.get("error_type", "unknown")
             error_types[error_type] = error_types.get(error_type, 0) + 1
         
-        print("\n📊 Статистика по типам ошибок:")
+        print("\n[X] Статистика по типам ошибок:")
         for error_type, count in sorted(error_types.items(), key=lambda x: x[1], reverse=True):
             print(f"   - {error_type}: {count}")
         
-        print("\n📋 Детали (первые 10 ошибок):")
+        print("\n[X] Детали (первые 10 ошибок):")
         for i, f in enumerate(self.failed_files[:10], 1):
             path = f.get("path", "unknown")
             error = f.get("error", "unknown")[:200]
@@ -357,9 +357,9 @@ class Orchestrator:
             with open(failed_file, 'w', encoding='utf-8') as f:
                 for record in self.failed_files:
                     f.write(json.dumps(record, ensure_ascii=False, default=str) + '\n')
-            print(f"\n💾 Детали ошибок сохранены в: {failed_file}")
+            print(f"\n[X] Детали ошибок сохранены в: {failed_file}")
         except Exception as e:
-            print(f"\n⚠️ Не удалось сохранить отчёт об ошибках: {e}")
+            print(f"\n[WARN] Не удалось сохранить отчёт об ошибках: {e}")
     
     def configure(self, connector: ISourceConnector, configure_connector: bool = False) -> None:
         self.connector = connector
@@ -403,7 +403,7 @@ class Orchestrator:
             self.last_cache_cleanup = self.processed_count
             return
         
-        print(f"\n[CACHE] 🧹 ОЧИСТКА КЭШЕЙ ОСНОВНОГО ПРОЦЕССА")
+        print(f"\n[CACHE] [X] ОЧИСТКА КЭШЕЙ ОСНОВНОГО ПРОЦЕССА")
         print(f"[CACHE] Память до: RSS={before_rss:.0f} MB, VMS={before_vms:.0f} MB")
         
         # Очистка кэшей классификаторов
@@ -444,7 +444,7 @@ class Orchestrator:
         else:
             # Если очистка не помогла, увеличиваем счетчик, чтобы не проверять слишком часто
             self.last_cache_cleanup = self.processed_count
-            print(f"[CACHE] ⚠️ Очистка не освободила память, следующий раз проверим через 50 файлов")
+            print(f"[CACHE] [WARN] Очистка не освободила память, следующий раз проверим через 50 файлов")
     
     def _adaptive_reload_models(self, reason: str):
         """Адаптивная перезагрузка моделей с записью эффективности"""
@@ -457,7 +457,7 @@ class Orchestrator:
         self.models_reload_count += 1
         
         print(f"\n{'='*70}")
-        print(f"[RELOAD_MODELS] 🔄 АДАПТИВНАЯ ПЕРЕЗАГРУЗКА МОДЕЛЕЙ (#{self.models_reload_count})")
+        print(f"[RELOAD_MODELS] [X] АДАПТИВНАЯ ПЕРЕЗАГРУЗКА МОДЕЛЕЙ (#{self.models_reload_count})")
         print(f"[RELOAD_MODELS] Причина: {reason}")
         print(f"[RELOAD_MODELS] Память до: RSS={before_rss:.0f} MB, VMS={before_vms:.0f} MB")
         print(f"[RELOAD_MODELS] System Commit: {before_commit:.1f}%")
@@ -469,9 +469,9 @@ class Orchestrator:
             if hasattr(classifier, 'reload_models'):
                 try:
                     classifier.reload_models()
-                    print(f"[RELOAD_MODELS] ✅ {classifier.classifier_name} перезагружен")
+                    print(f"[RELOAD_MODELS] [OK] {classifier.classifier_name} перезагружен")
                 except Exception as e:
-                    print(f"[RELOAD_MODELS] ❌ Ошибка перезагрузки {classifier.classifier_name}: {e}")
+                    print(f"[RELOAD_MODELS] [ERROR] Ошибка перезагрузки {classifier.classifier_name}: {e}")
         
         for _ in range(5):
             gc.collect()
@@ -504,7 +504,7 @@ class Orchestrator:
     def _emergency_restart(self):
         """Аварийный перезапуск процесса при риске OOM"""
         print("\n" + "!" * 70)
-        print("⚠️ АВАРИЙНЫЙ ПЕРЕЗАПУСК ПРОЦЕССА")
+        print("[WARN] АВАРИЙНЫЙ ПЕРЕЗАПУСК ПРОЦЕССА")
         print("!" * 70)
         
         self._save_state(force=True)
@@ -512,7 +512,7 @@ class Orchestrator:
         self.state_manager.save()
         self._stop_all_workers()
         
-        print("\n💾 Состояние сохранено. Выход для перезапуска...")
+        print("\n[X] Состояние сохранено. Выход для перезапуска...")
         sys.exit(99)
     
     def _check_and_cleanup(self):
@@ -631,19 +631,19 @@ class Orchestrator:
         
         print()
         print("=" * 70)
-        print(f"🚀 НАЧАЛО СКАНИРОВАНИЯ: {source_display}")
-        print(f"📁 Всего файлов в источнике: {total_all_files:,}")
-        print(f"📁 Новых файлов для обработки: {total_new_files:,}")
-        print(f"📁 Уже обработано ранее: {self.processed_count:,}")
-        print(f"💾 Начальная память: RSS={start_mem.get('process_rss_mb', 0):.0f} MB, VMS={start_mem.get('process_vms_mb', 0):.0f} MB")
-        print(f"💾 System Commit: {start_mem.get('system_commit_percent', 0):.1f}%")
+        print(f"[X] НАЧАЛО СКАНИРОВАНИЯ: {source_display}")
+        print(f"[X] Всего файлов в источнике: {total_all_files:,}")
+        print(f"[X] Новых файлов для обработки: {total_new_files:,}")
+        print(f"[X] Уже обработано ранее: {self.processed_count:,}")
+        print(f"[X] Начальная память: RSS={start_mem.get('process_rss_mb', 0):.0f} MB, VMS={start_mem.get('process_vms_mb', 0):.0f} MB")
+        print(f"[X] System Commit: {start_mem.get('system_commit_percent', 0):.1f}%")
         print("=" * 70)
         print()
         
         try:
             for i, fc in enumerate(files_to_process):
                 if self.stop_requested:
-                    print("\n⏹️ Прерывание обработки по запросу...")
+                    print("\n[STOP] Прерывание обработки по запросу...")
                     break
                 
                 try:
@@ -707,7 +707,7 @@ class Orchestrator:
                 self._save_state()
         
         except Exception as e:
-            print(f"\n❌ Ошибка при сканировании: {e}")
+            print(f"\n[ERROR] Ошибка при сканировании: {e}")
             import traceback
             traceback.print_exc()
         

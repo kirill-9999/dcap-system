@@ -31,12 +31,12 @@ def main():
     )
     (secrets_dir / "findings_key_id").write_text(key_id)
 
-    print(f"✅ Keys generated in {secrets_dir}/")
+    print(f"[OK] Keys generated in {secrets_dir}/")
     print(f"   - findings_encryption_key ({len(encryption_key)} bytes)")
     print(f"   - findings_hmac_key ({len(hmac_key)} bytes)")
     print(f"   - findings_key_id = {key_id}")
     print()
-    print("⚠️  НЕ КОММИТИТЬ В GIT! Добавьте secrets/ в .gitignore")
+    print("[WARN]  НЕ КОММИТИТЬ В GIT! Добавьте secrets/ в .gitignore")
 
 
 if __name__ == "__main__":

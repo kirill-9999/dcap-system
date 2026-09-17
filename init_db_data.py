@@ -17,25 +17,25 @@ def init_database():
     
     # Проверяем существование БД
     if DB_PATH.exists():
-        print(f"⚠️ База данных уже существует: {DB_PATH}")
+        print(f"[WARN] База данных уже существует: {DB_PATH}")
         response = input("Удалить существующую БД и создать новую? (y/N): ")
         if response.lower() != 'y':
-            print("❌ Отменено")
+            print("[ERROR] Отменено")
             return False
         DB_PATH.unlink()
-        print(f"🗑️ Старая БД удалена")
+        print(f"[X] Старая БД удалена")
     
     # Создаем директорию если её нет
     DB_PATH.parent.mkdir(parents=True, exist_ok=True)
     
-    print(f"📁 Создание БД: {DB_PATH}")
+    print(f"[X] Создание БД: {DB_PATH}")
     
     conn = sqlite3.connect(str(DB_PATH))
     cursor = conn.cursor()
     
     try:
         # ===== СОЗДАНИЕ ТАБЛИЦ =====
-        print("\n📋 Создание таблиц...")
+        print("\n[X] Создание таблиц...")
         
         # Таблица resources
         cursor.execute("""
@@ -50,7 +50,7 @@ def init_database():
                 updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
             )
         """)
-        print("  ✅ resources")
+        print("  [OK] resources")
         
         # Таблица scanners
         cursor.execute("""
@@ -65,7 +65,7 @@ def init_database():
                 scan_interval INTEGER DEFAULT 10
             )
         """)
-        print("  ✅ scanners")
+        print("  [OK] scanners")
         
         # Таблица scan_tasks
         cursor.execute("""
@@ -87,7 +87,7 @@ def init_database():
                 FOREIGN KEY (scanner_id) REFERENCES scanners(id)
             )
         """)
-        print("  ✅ scan_tasks")
+        print("  [OK] scan_tasks")
         
         # Таблица findings
         cursor.execute("""
@@ -105,7 +105,7 @@ def init_database():
                 FOREIGN KEY (task_id) REFERENCES scan_tasks(id)
             )
         """)
-        print("  ✅ findings")
+        print("  [OK] findings")
         
         # Таблица catalog_entries
         cursor.execute("""
@@ -117,7 +117,7 @@ def init_database():
                 updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
             )
         """)
-        print("  ✅ catalog_entries")
+        print("  [OK] catalog_entries")
         
         # Таблица failed_files
         cursor.execute("""
@@ -131,7 +131,7 @@ def init_database():
                 FOREIGN KEY (task_id) REFERENCES scan_tasks(id)
             )
         """)
-        print("  ✅ failed_files")
+        print("  [OK] failed_files")
         
         # Таблица schedules
         cursor.execute("""
@@ -149,10 +149,10 @@ def init_database():
                 FOREIGN KEY (resource_id) REFERENCES resources(id)
             )
         """)
-        print("  ✅ schedules")
+        print("  [OK] schedules")
         
         # ===== ЗАПОЛНЕНИЕ НАЧАЛЬНЫМИ ДАННЫМИ =====
-        print("\n📝 Заполнение начальными данными...")
+        print("\n[X] Заполнение начальными данными...")
         
         # 1. Создаем сканер
         cursor.execute("""
@@ -165,7 +165,7 @@ def init_database():
             datetime.utcnow().isoformat()
         ))
         scanner_id = cursor.lastrowid
-        print(f"  ✅ Сканер создан: ID={scanner_id}, name=scanner-1")
+        print(f"  [OK] Сканер создан: ID={scanner_id}, name=scanner-1")
         
         # 2. Создаем тестовый ресурс
         cursor.execute("""
@@ -180,7 +180,7 @@ def init_database():
             datetime.utcnow().isoformat()
         ))
         resource_id = cursor.lastrowid
-        print(f"  ✅ Ресурс создан: ID={resource_id}, path=D:/Projects/dcap-system/test_files")
+        print(f"  [OK] Ресурс создан: ID={resource_id}, path=D:/Projects/dcap-system/test_files")
         
         # 3. Создаем тестовое задание
         cursor.execute("""
@@ -201,7 +201,7 @@ def init_database():
             0
         ))
         task_id = cursor.lastrowid
-        print(f"  ✅ Тестовое задание создано: ID={task_id}, status=pending")
+        print(f"  [OK] Тестовое задание создано: ID={task_id}, status=pending")
         
         # 4. Создаем тестовые находки (для демонстрации)
         test_findings = [
@@ -267,7 +267,7 @@ def init_database():
                 finding["context"],
                 datetime.utcnow().isoformat()
             ))
-        print(f"  ✅ Тестовые находки созданы: {len(test_findings)} шт.")
+        print(f"  [OK] Тестовые находки созданы: {len(test_findings)} шт.")
         
         # 5. Создаем записи в каталоге
         catalog_entries = [
@@ -286,15 +286,15 @@ def init_database():
                 datetime.utcnow().isoformat(),
                 datetime.utcnow().isoformat()
             ))
-        print(f"  ✅ Каталог создан: {len(catalog_entries)} записей")
+        print(f"  [OK] Каталог создан: {len(catalog_entries)} записей")
         
         conn.commit()
         
         print("\n" + "=" * 60)
-        print("✅ БАЗА ДАННЫХ УСПЕШНО ИНИЦИАЛИЗИРОВАНА!")
+        print("[OK] БАЗА ДАННЫХ УСПЕШНО ИНИЦИАЛИЗИРОВАНА!")
         print("=" * 60)
-        print(f"📁 Путь: {DB_PATH}")
-        print(f"📊 Данные:")
+        print(f"[X] Путь: {DB_PATH}")
+        print(f"[X] Данные:")
         print(f"   - Сканеров: 1")
         print(f"   - Ресурсов: 1")
         print(f"   - Заданий: 1 (pending)")
@@ -305,7 +305,7 @@ def init_database():
         return True
         
     except Exception as e:
-        print(f"❌ Ошибка: {e}")
+        print(f"[ERROR] Ошибка: {e}")
         conn.rollback()
         return False
     finally:
@@ -314,10 +314,10 @@ def init_database():
 def check_database():
     """Проверка содержимого БД"""
     if not DB_PATH.exists():
-        print(f"❌ БД не найдена: {DB_PATH}")
+        print(f"[ERROR] БД не найдена: {DB_PATH}")
         return
     
-    print("\n📊 Проверка содержимого БД:")
+    print("\n[X] Проверка содержимого БД:")
     print("=" * 60)
     
     conn = sqlite3.connect(str(DB_PATH))
@@ -327,28 +327,28 @@ def check_database():
         # Сканеры
         cursor.execute("SELECT id, name, status, scan_interval FROM scanners")
         scanners = cursor.fetchall()
-        print(f"\n🔍 Сканеры ({len(scanners)}):")
+        print(f"\n[X] Сканеры ({len(scanners)}):")
         for s in scanners:
             print(f"   ID={s[0]}, name={s[1]}, status={s[2]}, interval={s[3]}с")
         
         # Ресурсы
         cursor.execute("SELECT id, path, status, enabled FROM resources")
         resources = cursor.fetchall()
-        print(f"\n📁 Ресурсы ({len(resources)}):")
+        print(f"\n[X] Ресурсы ({len(resources)}):")
         for r in resources:
             print(f"   ID={r[0]}, path={r[1]}, status={r[2]}, enabled={r[3]}")
         
         # Задания
         cursor.execute("SELECT id, resource_id, status, created_at FROM scan_tasks")
         tasks = cursor.fetchall()
-        print(f"\n📋 Задания ({len(tasks)}):")
+        print(f"\n[X] Задания ({len(tasks)}):")
         for t in tasks:
             print(f"   ID={t[0]}, resource_id={t[1]}, status={t[2]}, created={t[3][:19]}")
         
         # Находки
         cursor.execute("SELECT COUNT(*) FROM findings")
         findings_count = cursor.fetchone()[0]
-        print(f"\n🔎 Находки: {findings_count}")
+        print(f"\n[X] Находки: {findings_count}")
         
         if findings_count > 0:
             cursor.execute("SELECT id, category, value, confidence FROM findings LIMIT 3")
@@ -359,21 +359,21 @@ def check_database():
         # Каталог
         cursor.execute("SELECT COUNT(*) FROM catalog_entries")
         catalog_count = cursor.fetchone()[0]
-        print(f"\n📂 Каталог: {catalog_count} записей")
+        print(f"\n[X] Каталог: {catalog_count} записей")
         
     except Exception as e:
-        print(f"❌ Ошибка проверки: {e}")
+        print(f"[ERROR] Ошибка проверки: {e}")
     finally:
         conn.close()
 
 if __name__ == "__main__":
     print("=" * 60)
-    print("🔧 ИНИЦИАЛИЗАЦИЯ БАЗЫ ДАННЫХ DCAP")
+    print("[X] ИНИЦИАЛИЗАЦИЯ БАЗЫ ДАННЫХ DCAP")
     print("=" * 60)
     
     if init_database():
         check_database()
-        print("\n✅ Готово! Теперь можно запускать Manager.")
+        print("\n[OK] Готово! Теперь можно запускать Manager.")
         print("   D:\\dev\\anaconda3\\python.exe -m manager.src.main")
     else:
-        print("\n❌ Инициализация не удалась")
+        print("\n[ERROR] Инициализация не удалась")

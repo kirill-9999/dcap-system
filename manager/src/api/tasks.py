@@ -52,6 +52,11 @@ def get_task(
     if not task:
         raise HTTPException(404, "Task not found")
     
+    # BUG-027.2: top-level files_scanned синхронизируем с progress
+    # из последнего heartbeat (иначе рассинхрон при живой задаче).
+    pfiles = (task.progress or {}).get("files_scanned")
+    top_files_scanned = int(pfiles) if pfiles is not None else (task.files_scanned or 0)
+
     return {
         "id": task.id,
         "resource_id": task.resource_id,
@@ -61,10 +66,27 @@ def get_task(
         "created_at": task.created_at.isoformat(),
         "completed_at": task.completed_at.isoformat() if task.completed_at else None,
         "findings_count": task.findings_count,
-        "files_scanned": task.files_scanned,
+        "files_scanned": top_files_scanned,
         "files_failed": task.files_failed,
         "progress": task.progress
     }
+
+@router.post("/{task_id}/cancel")
+def cancel_task_06045225(
+    task_id: int,
+    db: Session = Depends(session.get_db)
+):
+    """BUG-034.2 (06045225): cancel a task -> failed."""
+    task = db.query(models.ScanTask).filter(
+        models.ScanTask.id == task_id).first()
+    if not task:
+        raise HTTPException(status_code=404, detail="Task not found")
+    task.status = "failed"
+    task.completed_at = datetime.utcnow()
+    db.commit()
+    _bug34_cancel_06045225 = True
+    return {"task_id": task_id, "status": task.status}
+
 
 @router.delete("/{task_id}")
 def delete_task(

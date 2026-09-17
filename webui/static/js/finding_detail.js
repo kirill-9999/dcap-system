@@ -44,6 +44,18 @@ const FindingDetail = {
 
             <dt class="col-sm-3">Впервые замечено</dt>
             <dd class="col-sm-9">${f.first_seen_at ? new Date(f.first_seen_at).toLocaleString('ru-RU') : '—'}</dd>
+
+            <dt class="col-sm-3">Последнее сканирование</dt>
+            <dd class="col-sm-9">${f.last_seen_at ? new Date(f.last_seen_at).toLocaleString('ru-RU') : '—'}</dd>
+
+            <dt class="col-sm-3">Шифрование</dt>
+            <dd class="col-sm-9">
+              ${f.has_encrypted ? '<span class="text-success">Включено</span>' : '<span class="text-muted">Выключено</span>'}
+              ${f.encryption_key_id ? `<span class="text-muted small"> (ключ: ${escapeHtml(f.encryption_key_id)})</span>` : ''}
+            </dd>
+
+            <dt class="col-sm-3">Просмотр оригинала</dt>
+            <dd class="col-sm-9">${f.can_reveal ? '<span class="text-success">Доступен (Auditor+)</span>' : '<span class="text-muted">Недоступен</span>'}</dd>
           </dl>
 
           <h5>Фрагмент</h5>

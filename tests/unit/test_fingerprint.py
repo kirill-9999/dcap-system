@@ -1,5 +1,5 @@
 # tests/unit/test_fingerprint.py — Проверка, что fingerprint — SHA-256, не MD5
-# (День 40.3, 🔴 BACKLOG-066: MD5 криптографически сломан — недопустим для security-продукта).
+# (День 40.3, [X] BACKLOG-066: MD5 криптографически сломан — недопустим для security-продукта).
 import hashlib
 import hmac
 import inspect

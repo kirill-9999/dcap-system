@@ -17,7 +17,7 @@ from connectors.permissions import (
 
 def test_collector_availability():
     """Тест 1: Проверка доступности коллектора"""
-    print("\n🧪 Тест 1: Проверка доступности...")
+    print("\n[X] Тест 1: Проверка доступности...")
     
     collector = LocalPermissionCollector()
     available = collector.is_available()
@@ -31,7 +31,7 @@ def test_collector_availability():
 
 def test_collect_permissions():
     """Тест 2: Сбор прав доступа"""
-    print("\n🧪 Тест 2: Сбор прав доступа...")
+    print("\n[X] Тест 2: Сбор прав доступа...")
     
     try:
         collector = LocalPermissionCollector()
@@ -51,13 +51,13 @@ def test_collect_permissions():
         
         return True
     except Exception as e:
-        print(f"   ❌ Error: {e}")
+        print(f"   [ERROR] Error: {e}")
         return False
 
 
 def test_get_principals():
     """Тест 3: Получение пользователей и групп"""
-    print("\n🧪 Тест 3: Получение пользователей и групп...")
+    print("\n[X] Тест 3: Получение пользователей и групп...")
     
     try:
         collector = LocalPermissionCollector()
@@ -83,13 +83,13 @@ def test_get_principals():
         
         return True
     except Exception as e:
-        print(f"   ❌ Error: {e}")
+        print(f"   [ERROR] Error: {e}")
         return False
 
 
 def test_get_principal_groups():
     """Тест 4: Получение групп пользователя"""
-    print("\n🧪 Тест 4: Получение групп пользователя...")
+    print("\n[X] Тест 4: Получение групп пользователя...")
     
     try:
         collector = LocalPermissionCollector()
@@ -108,13 +108,13 @@ def test_get_principal_groups():
         
         return True
     except Exception as e:
-        print(f"   ❌ Error: {e}")
+        print(f"   [ERROR] Error: {e}")
         return False
 
 
 def test_factory():
     """Тест 5: Проверка фабрики"""
-    print("\n🧪 Тест 5: Проверка фабрики...")
+    print("\n[X] Тест 5: Проверка фабрики...")
     
     try:
         # Получить доступные коллекторы
@@ -131,13 +131,13 @@ def test_factory():
         
         return True
     except Exception as e:
-        print(f"   ❌ Error: {e}")
+        print(f"   [ERROR] Error: {e}")
         return False
 
 
 def test_ad_collector():
     """Тест 6: Проверка AD коллектора (День 33 — реализация)"""
-    print("\n🧪 Тест 6: Проверка AD коллектора (реализация)...")
+    print("\n[X] Тест 6: Проверка AD коллектора (реализация)...")
     
     try:
         collector = ADPermissionCollector(
@@ -154,14 +154,14 @@ def test_ad_collector():
         return True
             
     except Exception as e:
-        print(f"   ❌ Error: {e}")
+        print(f"   [ERROR] Error: {e}")
         return False
 
 
 def main():
     """Запуск всех тестов"""
     print("=" * 70)
-    print("🧪 ТЕСТИРОВАНИЕ КОННЕКТОРА ПРАВ ДОСТУПА (День 10)")
+    print("[X] ТЕСТИРОВАНИЕ КОННЕКТОРА ПРАВ ДОСТУПА (День 10)")
     print("=" * 70)
     
     # Проверяем ОС
@@ -183,22 +183,22 @@ def main():
         results.append(test())
     
     print("\n" + "=" * 70)
-    print("📊 РЕЗУЛЬТАТЫ ТЕСТИРОВАНИЯ")
+    print("[X] РЕЗУЛЬТАТЫ ТЕСТИРОВАНИЯ")
     print("=" * 70)
     
     passed = sum(results)
     total = len(results)
-    print(f"✅ Пройдено: {passed}/{total}")
+    print(f"[OK] Пройдено: {passed}/{total}")
     
     if passed == total:
-        print("\n🎉 ВСЕ ТЕСТЫ ПРОЙДЕНЫ УСПЕШНО!")
-        print("\n📋 Коннектор готов к использованию:")
-        print("   ✅ LocalPermissionCollector (Windows 10)")
-        print("   ✅ ADPermissionCollector (заглушка)")
-        print("   ✅ PermissionCollectorFactory")
-        print("\n🔧 Следующий шаг: День 11 — AccessService (анализ прав)")
+        print("\n[X] ВСЕ ТЕСТЫ ПРОЙДЕНЫ УСПЕШНО!")
+        print("\n[X] Коннектор готов к использованию:")
+        print("   [OK] LocalPermissionCollector (Windows 10)")
+        print("   [OK] ADPermissionCollector (заглушка)")
+        print("   [OK] PermissionCollectorFactory")
+        print("\n[X] Следующий шаг: День 11 — AccessService (анализ прав)")
     else:
-        print("\n⚠️ НЕ ВСЕ ТЕСТЫ ПРОЙДЕНЫ")
+        print("\n[WARN] НЕ ВСЕ ТЕСТЫ ПРОЙДЕНЫ")
         print("   Проверьте:")
         print("   - Windows 10 (тесты рассчитаны на Windows)")
         print("   - Наличие icacls (должен быть в системе)")

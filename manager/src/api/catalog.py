@@ -81,38 +81,79 @@ def get_catalog_tree(
         )
     
     entries = query.order_by(models.CatalogEntry.path).all()
-    
-    # Строим дерево
+
+    # Строим дерево узлами-папками (W-60): корень/промежуточные считаются
+    # папками, метаданные агрегируются рекурсивно по детям.
     tree = {}
-    
+
+    def _node(part_name, part_path, children=None):
+        return {
+            "name": part_name,
+            "is_folder": True,
+            "path": part_path,
+            "children": children if children is not None else {},
+            "classifiers": None,
+            "total_findings": 0,
+            "file_count": 0,
+            "last_scanned": None,
+            "updated_at": None,
+            "has_findings": False,
+        }
+
+    leaf_meta = {}
     for entry in entries:
-        parts = entry.path.replace('\\', '/').split('/')
+        meta = entry.entry_metadata or {}
+        leaf_meta[entry.path.replace('\\', '/')] = {
+            "classifiers": meta.get("classifiers", {}),
+            "total_findings": meta.get("total_findings", 0),
+            "file_count": meta.get("file_count", 0),
+            "last_scanned": meta.get("last_scanned"),
+            "updated_at": entry.updated_at.isoformat() if entry.updated_at else None,
+        }
+
+    for full in sorted(leaf_meta, key=lambda x: (len(x.split('/')), x)):
+        parts = full.split('/')
         current = tree
-        
+        acc = ""
         for i, part in enumerate(parts):
-            is_folder = i == len(parts) - 1
-            
-            if not current.get(part):
-                current[part] = {
-                    "name": part,
-                    "is_folder": is_folder,
-                    "path": '/'.join(parts[:i+1]),
-                    "children": {},
-                    "classifiers": entry.entry_metadata.get("classifiers", {}) if is_folder else None,
-                    "total_findings": entry.entry_metadata.get("total_findings", 0) if is_folder else None,
-                    "file_count": entry.entry_metadata.get("file_count", 0) if is_folder else None,
-                    "last_scanned": entry.entry_metadata.get("last_scanned") if is_folder else None,
-                    "updated_at": entry.updated_at.isoformat() if is_folder and entry.updated_at else None
-                }
-            
-            if is_folder:
-                current[part]["has_findings"] = True
-                current[part]["classifiers"] = entry.entry_metadata.get("classifiers", {})
-                current[part]["total_findings"] = entry.entry_metadata.get("total_findings", 0)
+            acc = acc + "/" + part if acc else part
+            if part not in current:
+                current[part] = _node(part, acc)
+            if i == len(parts) - 1:
+                m = leaf_meta[full]
+                n = current[part]
+                n["classifiers"] = m["classifiers"]
+                n["total_findings"] = m["total_findings"]
+                n["file_count"] = m["file_count"]
+                n["last_scanned"] = m["last_scanned"]
+                n["updated_at"] = m["updated_at"]
+                n["has_findings"] = True if (m["total_findings"] or m["file_count"]) else False
             else:
                 current = current[part]["children"]
-    
-    return tree
+
+    def _aggregate(node):
+        if not node["children"]:
+            return node
+        for child in node["children"].values():
+            _aggregate(child)
+            node["total_findings"] += child["total_findings"] or 0
+            node["file_count"] += child["file_count"] or 0
+            if child["has_findings"]:
+                node["has_findings"] = True
+            if child["last_scanned"] and (node["last_scanned"] is None
+                                          or child["last_scanned"] > node["last_scanned"]):
+                node["last_scanned"] = child["last_scanned"]
+            if child["updated_at"] and (node["updated_at"] is None
+                                        or child["updated_at"] > node["updated_at"]):
+                node["updated_at"] = child["updated_at"]
+            child["children"] = list(child["children"].values())
+        node["children"] = list(node["children"].values())
+        return node
+
+    result = {}
+    for name, node in tree.items():
+        result[name] = _aggregate(node)
+    return result
 
 @router.get("/stats")
 def get_catalog_stats(

@@ -279,31 +279,31 @@ class PiiClassifier(IClassifier):
             import spacy
             try:
                 spacy.load("ru_core_news_sm")
-                print("[PII] ✅ Модель ru_core_news_sm найдена")
+                print("[PII] [OK] Модель ru_core_news_sm найдена")
             except Exception as e:
-                print(f"[PII] ⚠️ Модель ru_core_news_sm не найдена: {e}")
+                print(f"[PII] [WARN] Модель ru_core_news_sm не найдена: {e}")
                 print("[PII]    Скачиваем...")
                 spacy.cli.download("ru_core_news_sm")
-                print("[PII] ✅ Модель ru_core_news_sm скачана")
+                print("[PII] [OK] Модель ru_core_news_sm скачана")
             
             try:
                 spacy.load("en_core_web_sm")
-                print("[PII] ✅ Модель en_core_web_sm найдена")
+                print("[PII] [OK] Модель en_core_web_sm найдена")
             except Exception as e:
-                print(f"[PII] ⚠️ Модель en_core_web_sm не найдена: {e}")
+                print(f"[PII] [WARN] Модель en_core_web_sm не найдена: {e}")
                 print("[PII]    Скачиваем...")
                 spacy.cli.download("en_core_web_sm")
-                print("[PII] ✅ Модель en_core_web_sm скачана")
+                print("[PII] [OK] Модель en_core_web_sm скачана")
             
             # Создаём провайдер
             provider = NlpEngineProvider(nlp_configuration=configuration)
             nlp_engine = provider.create_engine()
             
-            print("[PII] ✅ NLP движок создан с моделями: en_core_web_sm, ru_core_news_sm")
+            print("[PII] [OK] NLP движок создан с моделями: en_core_web_sm, ru_core_news_sm")
             return nlp_engine
             
         except Exception as e:
-            print(f"[PII] ❌ Ошибка создания NLP движка: {e}")
+            print(f"[PII] [ERROR] Ошибка создания NLP движка: {e}")
             raise
     
     def configure(self, config: Dict[str, Any]) -> None:
@@ -342,10 +342,10 @@ class PiiClassifier(IClassifier):
             # совместимость: единичный движок используется как self._analyzer
             self._analyzer = self._analyzers[0][0]
 
-            print(f"[PII] ✅ Presidio инициализирован с локальными моделями (пул: {pool_size})")
+            print(f"[PII] [OK] Presidio инициализирован с локальными моделями (пул: {pool_size})")
             
         except Exception as e:
-            print(f"[PII] ❌ Ошибка инициализации Presidio: {e}")
+            print(f"[PII] [ERROR] Ошибка инициализации Presidio: {e}")
             print("[PII]    Установите модели вручную:")
             print("[PII]    python -m spacy download ru_core_news_sm")
             print("[PII]    python -m spacy download en_core_web_sm")

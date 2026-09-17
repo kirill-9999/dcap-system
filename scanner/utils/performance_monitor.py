@@ -227,7 +227,7 @@ class PerformanceMonitor:
             print("\n" + "=" * 70)
             print("ФИНАЛЬНЫЙ ОТЧЁТ ПРОИЗВОДИТЕЛЬНОСТИ")
             print("=" * 70)
-            print("\n⚠️ Нет данных для отображения (обработано 0 файлов)")
+            print("\n[WARN] Нет данных для отображения (обработано 0 файлов)")
             print("=" * 70)
             return
         
@@ -247,7 +247,7 @@ class PerformanceMonitor:
         print("ФИНАЛЬНЫЙ ОТЧЁТ ПРОИЗВОДИТЕЛЬНОСТИ")
         print("=" * 70)
         
-        print("\n📊 СТАТИСТИКА ОБРАБОТКИ:")
+        print("\n[X] СТАТИСТИКА ОБРАБОТКИ:")
         print(f"   Обработано файлов: {self.total_files:,}")
         print(f"   Файлов с находками: {self.files_with_findings:,}")
         print(f"   Всего находок: {self.total_findings:,}")
@@ -257,12 +257,12 @@ class PerformanceMonitor:
         print(f"   Мин/Макс время: {min_time_ms:.1f}/{max_time_ms:.1f} мс")
         
         if self.ocr_count > 0:
-            print("\n🔍 OCR СТАТИСТИКА:")
+            print("\n[X] OCR СТАТИСТИКА:")
             print(f"   Вызовов OCR: {self.ocr_count}")
             print(f"   Ошибок OCR: {self.ocr_errors} ({100 - ocr_success_rate:.1f}%)")
             print(f"   Среднее время OCR: {avg_ocr_time_ms:.1f} мс")
         
-        print("\n💻 СИСТЕМНЫЕ МЕТРИКИ:")
+        print("\n[X] СИСТЕМНЫЕ МЕТРИКИ:")
         print(f"   CPU (средний): {avg_cpu:.1f}%")
         print(f"   RAM (средний): {avg_ram:.1f}%")
         
@@ -273,7 +273,7 @@ class PerformanceMonitor:
         except:
             pass
         
-        print(f"\n💾 ДИСКОВЫЙ I/O (за сессию):")
+        print(f"\n[X] ДИСКОВЫЙ I/O (за сессию):")
         print(f"   Прочитано: {total_disk_read:.1f} MB")
         print(f"   Записано: {total_disk_write:.1f} MB")
         
@@ -281,7 +281,7 @@ class PerformanceMonitor:
         if self.speed_samples:
             last_speeds = list(self.speed_samples)[-5:]
             avg_last_speed = sum(last_speeds) / len(last_speeds) if last_speeds else 0
-            print(f"\n⚡ Финальная скорость: {avg_last_speed:.2f} файлов/сек")
+            print(f"\n[X] Финальная скорость: {avg_last_speed:.2f} файлов/сек")
         
         print("\n" + "=" * 70)
     

@@ -27,6 +27,13 @@ async function loadDashboard() {
         renderAuditCharts(stats);
     } catch(e) { console.error('Dashboard stats error:', e); }
     try {
+        // W-42: kpiFindings считает НАХОДКИ через /api/findings/count,
+        // а не события аудита (s.total из /api/audit/stats).
+        const cnt = await api.get('/api/findings/count');
+        const el = document.getElementById('kpiFindings');
+        if (el) el.textContent = cnt && cnt.count != null ? cnt.count : 0;
+    } catch(e) { console.error('Dashboard findings count error:', e); }
+    try {
         const findings = await api.get('/api/findings', {limit: 500});
         renderFindingsCharts(Array.isArray(findings) ? findings : []);
         updateRecentFindings(Array.isArray(findings) ? findings.slice(0, 10) : []);

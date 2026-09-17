@@ -2,10 +2,10 @@
 > Это единственный источник правды о текущем состоянии проекта.
 > План и бэклог — в `ROADMAP.md`. Архитектура — в `ARCHITECTURE.md`.
 
-**Обновлено:** 12.09.2026
-**Текущая версия:** v3.13.2
+**Обновлено:** 17.09.2026
+**Текущая версия:** v3.13.3
 **Целевая версия:** v3.0.0 (релиз)
-**Статус:** 🟢 День 42.7 — Файловый PII-анализ: пул движков + FP-батчинг + мгновенная остановка (v3.13.2)
+**Статус:** 🟢 Блок 1 (фиксы): BUG-034/035/027/022, Deploy/Config, WebUI W-42…W-73 (v3.13.3)
 
 ---
 
@@ -13,10 +13,10 @@
 
 | Параметр | Значение |
 |----------|----------|
-| Текущий день | 42.7 — Файловый PII-анализ: пул движков + FP-батчинг + мгновенная остановка (v3.13.2) |
+| Текущий день | 43 — Блок 1 (фиксы): BUG-034/035/027/022 + Deploy/Config + WebUI (v3.13.3) |
 | Статус дня | ✅ Выполнен |
-| Последний принятый отчёт | `day_42.7_file_pii_stop_report.md` (v3.13.2) |
-| Следующий шаг | Приёмка отчёта Дня 42.7 → ТЗ Дня 42.6 (финализация пула + E2E на реальном каталоге) |
+| Последний принятый отчёт | `day_43_block1_fix_report.md` (v3.13.3) |
+| Следующий шаг | Приёмка отчёта Блока 1 → ТЗ Блока 2 (следующие баги/фичи) |
 | Открытые вопросы к архитектору | — |
 
 ---
@@ -41,7 +41,8 @@
 | 42.3 | Админ-руководство: сканер + агенты | — | 📋 |
 | 42.4 | Админ-руководство: мониторинг + retention + troubleshooting + FAQ | — | 📋 |
 | 42 | Публикация на GitHub | — | 📋 |
-| 43 | Релиз v3.0.0 | — | 📋 |
+| 43 | Блок 1 (фиксы): BUG-034/035/027/022 + Deploy/Config + WebUI | v3.13.3 | `day_43_block1_fix_report.md` |
+| 43 (далее) | Релиз v3.0.0 | — | 📋 |
 
 ---
 
@@ -131,16 +132,16 @@
 
 ## 📁 Последние использованные файлы
 
-- `prompts/reports/day_40.4_report.md` — отчёт v3.12.0
-- `prompts/archive/day_40.4_fragments_export.md` — ТЗ дня 40.4 заархивировано
-- `manager/src/api/findings.py` — `/fragment` (PNG/hex), `/export`, X-Total-Count
-- `manager/src/core/image_fragment.py`, `hex_dump.py`, `csv_utils.py` — новые core-модули 40.4
-- `webui/static/js/finding_detail.js` — `<img>`/`<pre>`/hex для фрагментов; `findings.js` — кнопка «Экспорт» + пагинация по total; `api.js` — `getWithMeta`
-- `webui/templates/findings.html` — счётчик пагинации; `webui/static/css/findings.css` — стили изображений/hex
-- `tests/unit/test_hex_dump.py`, `test_csv_utils.py`; `tests/e2e/test_finding_fragments.py`, `test_findings_export.py` — тесты 40.4
-- `docs/deployment.md` — раздел фрагментов + экспорта
-- `CHANGELOG.md` — v3.12.0
-📌 Что изменилось в STATE.md
+- `prompts/reports/day_43_block1_fix_report.md` — отчёт v3.13.3
+- `prompts/archive/day_43_block1_fix.md` — ТЗ Блока 1 заархивировано
+- `manager/src/api/scanner.py` — BUG-034.1 (stale→failed), BUG-035 (batch/total, аккумуляция, финализация), status relaxed
+- `manager/src/api/tasks.py` — BUG-034.2 (`/tasks/{id}/cancel`), BUG-027.2 (files_scanned sync)
+- `manager/src/api/findings.py`, `schemas_findings.py` — W-66/W-67 (FP: file_path, reviewed_by_username), W-55 (encryption_key_id)
+- `manager/src/api/catalog.py` — W-60 (дерево каталога: is_folder, рекурсивная агрегация)
+- `scanner/src/managed_scanner.py` — BUG-035 (батчинг findings по 500)
+- `webui/static/js/{dashboard,false_positives,finding_detail,main}.js`, `webui/config.py`, `webui/main.py`, `webui/templates/base.html` — W-42/43/54/55/57/70
+
+## 📌 Что изменилось в STATE.md
 #	Изменение
 1	Статус: «40.3 в работе» (было «40.2 реализован»)
 2	Текущий день: 40.3 (было 40.3 — совпадает)

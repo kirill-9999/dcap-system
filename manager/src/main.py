@@ -1,4 +1,4 @@
-# manager/src/main.py
+﻿# manager/src/main.py
 import os
 
 from fastapi import FastAPI
@@ -24,10 +24,33 @@ from manager.src.auth.router import router as auth_router, set_auth_manager
 from manager.src.core.security import CertificateManager
 from manager.src.db import session
 
+def get_version() -> str:
+    """Версия Manager: env VERSION → config.json version → default.
+
+    Устраняет BUG-001 (хардкод "3.7.0" в /api/health).
+    """
+    v = os.getenv("VERSION")
+    if v:
+        return v.strip()
+
+    # fallback: из config.json (секция version)
+    try:
+        import json
+
+        from manager.src.config import _base_dir
+
+        cfg_path = _base_dir / "config" / "config.json"
+        if cfg_path.exists():
+            return json.loads(cfg_path.read_text(encoding="utf-8")).get("version", "unknown")
+    except Exception:
+        pass
+    return "unknown"
+
+
 app = FastAPI(
     title="DCAP System Manager",
     description="Data-Centric Audit and Protection System",
-    version="3.7.0",
+    version=get_version(),
 )
 
 # CORS
@@ -136,7 +159,8 @@ app.add_middleware(
 
 @app.get("/api/health")
 async def health_check():
-    return {"status": "healthy", "version": "3.7.0"}
+    return {"status": "healthy", "version": get_version()}
+    return {"status": "healthy", "version": get_version()}
 
 
 @app.get("/metrics")

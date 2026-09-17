@@ -155,18 +155,18 @@ class ManagerClient:
             if response.status_code == 200:
                 result = response.json()
                 scanner_id = result.get("scanner_id")
-                logger.info(f"[Register] ✅ Scanner registered: ID={scanner_id}, name={result.get('name')}")
+                logger.info(f"[Register] [OK] Scanner registered: ID={scanner_id}, name={result.get('name')}")
                 self.scanner_id = scanner_id
                 return scanner_id
             else:
-                logger.error(f"[Register] ❌ Failed: {response.status_code} - {response.text}")
+                logger.error(f"[Register] [ERROR] Failed: {response.status_code} - {response.text}")
                 return None
                 
         except requests.exceptions.Timeout:
-            logger.error("[Register] ❌ Timeout")
+            logger.error("[Register] [ERROR] Timeout")
             return None
         except requests.exceptions.RequestException as e:
-            logger.error(f"[Register] ❌ Error: {e}")
+            logger.error(f"[Register] [ERROR] Error: {e}")
             return None
     
     def heartbeat(self, status: str = "idle", task_id: Optional[int] = None) -> bool:
@@ -238,25 +238,31 @@ class ManagerClient:
             return False
             
         url = f"{self.base_url}/api/scanner/tasks/{task_id}/results"
-        data = {
-            "findings": findings,
-            "catalog_entries": catalog_entries,
-            "failed_files": failed_files,
-            "stats": stats
-        }
-        
+        batch_size = 500
+        chunks = [findings[i:i + batch_size] for i in range(0, len(findings), batch_size)] or [[]]
+        total_batches = len(chunks)
+
         try:
-            response = self.session.post(url, json=data, timeout=self.submit_timeout)
-            if response.status_code == 200:
-                result = response.json()
-                logger.info(f"[SubmitResults] OK: {result.get('findings_count', 0)} findings, {result.get('catalog_entries_count', 0)} catalog entries")
-                return True
-            else:
-                logger.error(f"[SubmitResults] Failed: {response.status_code}")
-                logger.error(f"[SubmitResults] Response: {response.text[:200]}")
-                return False
+            for batch_idx, chunk in enumerate(chunks, start=1):
+                is_last = batch_idx == total_batches
+                data = {
+                    "findings": chunk,
+                    "catalog_entries": catalog_entries if is_last else [],
+                    "failed_files": failed_files if is_last else [],
+                    "stats": stats if is_last else {},
+                }
+                params = {"batch": batch_idx, "total": total_batches}
+                response = self.session.post(url, json=data, params=params, timeout=self.submit_timeout)
+                if response.status_code == 200:
+                    result = response.json()
+                    logger.info(f"[SubmitResults] batch {batch_idx}/{total_batches}: {result.get('findings_count', 0)} findings saved")
+                else:
+                    logger.error(f"[SubmitResults] batch {batch_idx}/{total_batches} failed: {response.status_code}")
+                    logger.error(f"[SubmitResults] response: {response.text[:200]}")
+                    return False
+            return True
         except Exception as e:
-            logger.error(f"[SubmitResults] Error: {e}")
+            logger.error(f"[SubmitResults] error: {e}")
             return False
     
     def get_scanner_info(self) -> Optional[Dict[str, Any]]:
@@ -379,7 +385,7 @@ class ManagedScanner:
                         )
                 pii.configure(pii_config_dict)
                 self.classifiers.append(pii)
-                logger.info(f"✅ PII Classifier loaded (OCR enabled: {pii_config_dict.get('ocr_enabled', True)})")
+                logger.info(f"[OK] PII Classifier loaded (OCR enabled: {pii_config_dict.get('ocr_enabled', True)})")
             
             if not cred_config or cred_config.enabled:
                 cred = CredentialsClassifier()
@@ -396,7 +402,7 @@ class ManagedScanner:
                     }
                 cred.configure(cred_config_dict)
                 self.classifiers.append(cred)
-                logger.info(f"✅ Credentials Classifier loaded")
+                logger.info(f"[OK] Credentials Classifier loaded")
             
             if not code_config or code_config.enabled:
                 code = CodeClassifier()
@@ -407,12 +413,12 @@ class ManagedScanner:
                     }
                 code.configure(code_config_dict)
                 self.classifiers.append(code)
-                logger.info(f"✅ Code Classifier loaded")
+                logger.info(f"[OK] Code Classifier loaded")
             
-            logger.info(f"✅ Загружено {len(self.classifiers)} классификаторов")
+            logger.info(f"[OK] Загружено {len(self.classifiers)} классификаторов")
             
         except Exception as e:
-            logger.error(f"❌ Ошибка загрузки классификаторов: {e}")
+            logger.error(f"[ERROR] Ошибка загрузки классификаторов: {e}")
     
     def _register_scanner(self) -> bool:
         if self.client is None:
@@ -437,7 +443,7 @@ class ManagedScanner:
             self.scanner_id = scanner_id
             return True
         
-        logger.error("[Register] ❌ Registration failed")
+        logger.error("[Register] [ERROR] Registration failed")
         return False
     
     def _get_connector_config(self) -> Dict[str, Any]:
@@ -582,7 +588,9 @@ class ManagedScanner:
         msg = f"{file_path}|{line}|{match}|{finding_type}".encode("utf-8")
         return hashlib.sha256(msg).hexdigest()
 
-    def _serialize_finding(self, finding: Finding, resource_path: str) -> Dict[str, Any]:
+    def _serialize_finding(self, finding: Finding, resource_path: str,
+                           all_findings_in_line: Optional[List[Finding]] = None,
+                           line_text: Optional[str] = None) -> Dict[str, Any]:
         """Сериализация находки для Manager (новый формат, день 40.2).
 
         При включённом шифровании открытый текст НЕ покидает хост:
@@ -595,6 +603,15 @@ class ManagedScanner:
         line_text = finding.line_text or ""
         ctx_before = finding.context_before or ""
         ctx_after = finding.context_after or ""
+
+        # BUG-022: маскируем ВСЕ PII в строке, а не только своей категории.
+        positions = [
+            (f.start_pos, f.end_pos, f.category or cat)
+            for f in (all_findings_in_line or [finding])
+            if f.start_pos is not None and f.end_pos is not None
+        ]
+        if not positions:
+            positions = [(finding.start_pos, finding.end_pos, cat)]
         line_no = int(finding.line_number or 0)
 
         d: Dict[str, Any] = {
@@ -622,7 +639,7 @@ class ManagedScanner:
             d["match_text_encrypted"] = enc.encrypt(value) if value else None
             d["match_text_masked"] = mask(value, cat) if value else None
             d["line_text_encrypted"] = enc.encrypt(line_text) if line_text else None
-            d["line_text_masked"] = mask_line(line_text, [(finding.start_pos, finding.end_pos, cat)]) if line_text else None
+            d["line_text_masked"] = mask_line(line_text, positions) if line_text else None
             d["context_before_masked"] = mask_context(ctx_before, cat) if ctx_before else None
             d["context_after_masked"] = mask_context(ctx_after, cat) if ctx_after else None
             d["encryption_key_id"] = enc.key_id
@@ -838,8 +855,21 @@ class ManagedScanner:
             }
 
         # Сериализация в новый формат (шифрование/маскирование на хосте)
+        # BUG-022: группируем находки по строке и маскируем ВСЕ PII строки,
+        # а не только своей категории.
+        findings_by_line: dict = {}
+        for _f in findings_objects:
+            _key = (_f.fragment_path or resource_path, int(_f.line_number or 0))
+            findings_by_line.setdefault(_key, []).append(_f)
+
         serialized = [
-            self._serialize_finding(f, resource_path)
+            self._serialize_finding(
+                f,
+                resource_path,
+                all_findings_in_line=findings_by_line[
+                    (f.fragment_path or resource_path, int(f.line_number or 0))
+                ],
+            )
             for f in findings_objects
         ]
 
@@ -1148,7 +1178,7 @@ class ManagedScanner:
     
     def run_loop(self):
         print("=" * 60)
-        print("🔍 DCAP MANAGED SCANNER (REST API)")
+        print("[X] DCAP MANAGED SCANNER (REST API)")
         print("=" * 60)
         print(f"   Имя: {self.name}")
         print(f"   Manager: {self.manager_url}")
@@ -1164,10 +1194,10 @@ class ManagedScanner:
         )
         
         if not self._register_scanner():
-            logger.error("❌ Ошибка регистрации сканера")
+            logger.error("[ERROR] Ошибка регистрации сканера")
             return
         
-        logger.info(f"🔄 Сканер {self.name} запущен (ID: {self.scanner_id})")
+        logger.info(f"[X] Сканер {self.name} запущен (ID: {self.scanner_id})")
         
         self.client.heartbeat(status="idle")
         
@@ -1191,7 +1221,7 @@ class ManagedScanner:
                         time.sleep(1)
                 
                 if not heartbeat_ok:
-                    logger.warning("⚠️ Heartbeat не удался после 3 попыток")
+                    logger.warning("[WARN] Heartbeat не удался после 3 попыток")
 
                 # Попытка отправить накопленные оффлайн-результаты
                 if heartbeat_ok:
@@ -1205,7 +1235,7 @@ class ManagedScanner:
                     result = self._execute_task(task)
                     
                     if self._should_exit or self._stop_event.is_set():
-                        logger.warning("⏹️ Задача прервана пользователем — результаты не отправлены")
+                        logger.warning("[STOP] Задача прервана пользователем — результаты не отправлены")
                         break
                     
                     success = self.client.submit_results(
@@ -1217,9 +1247,9 @@ class ManagedScanner:
                     )
                     
                     if success:
-                        logger.info(f"✅ Task {task['id']} completed successfully")
+                        logger.info(f"[OK] Task {task['id']} completed successfully")
                     else:
-                        logger.error(f"❌ Failed to submit results for task {task['id']}")
+                        logger.error(f"[ERROR] Failed to submit results for task {task['id']}")
                         self._save_offline(task["id"], result)
                     
                     self.client.heartbeat(status="idle")
@@ -1229,7 +1259,7 @@ class ManagedScanner:
             except KeyboardInterrupt:
                 break
             except Exception as e:
-                logger.error(f"❌ Ошибка в основном цикле: {e}")
+                logger.error(f"[ERROR] Ошибка в основном цикле: {e}")
                 time.sleep(5)
         
         self.client.heartbeat(status="offline")
@@ -1244,7 +1274,7 @@ class ManagedScanner:
                     shutdown()
                 except Exception as e:
                     logger.debug("Classifier shutdown error %s: %s", getattr(clf, "classifier_name", clf), e)
-        logger.info("👋 Сканер остановлен")
+        logger.info("[X] Сканер остановлен")
     
     def stop(self):
         self._should_exit = True
@@ -1295,7 +1325,7 @@ def main():
     try:
         scanner.run_loop()
     except KeyboardInterrupt:
-        print("\n⏹️ Прервано пользователем")
+        print("\n[STOP] Прервано пользователем")
     finally:
         scanner.stop()
 

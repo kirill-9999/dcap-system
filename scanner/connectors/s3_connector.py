@@ -112,27 +112,27 @@ class S3Connector(BaseConnector):
             
             # Проверяем подключение
             self.client.list_objects_v2(Bucket=self.bucket, MaxKeys=1)
-            print(f"[S3] ✅ Подключено успешно")
+            print(f"[S3] [OK] Подключено успешно")
             
         except ConnectTimeoutError as e:
-            print(f"[S3] ❌ Таймаут подключения к {endpoint_url}")
+            print(f"[S3] [ERROR] Таймаут подключения к {endpoint_url}")
             print(f"[S3] Проверьте доступность сервера {self.endpoint}")
             self.client = None
         except ClientError as e:
             error_code = e.response['Error']['Code']
             if error_code == 'InvalidAccessKeyId':
-                print(f"[S3] ❌ Неверный Access Key")
+                print(f"[S3] [ERROR] Неверный Access Key")
             elif error_code == 'SignatureDoesNotMatch':
-                print(f"[S3] ❌ Неверный Secret Key")
+                print(f"[S3] [ERROR] Неверный Secret Key")
             elif error_code == 'NoSuchBucket':
-                print(f"[S3] ❌ Бакет не найден: {self.bucket}")
+                print(f"[S3] [ERROR] Бакет не найден: {self.bucket}")
             elif error_code == 'AccessDenied':
-                print(f"[S3] ❌ Доступ запрещен к бакету {self.bucket}")
+                print(f"[S3] [ERROR] Доступ запрещен к бакету {self.bucket}")
             else:
-                print(f"[S3] ❌ Ошибка: {error_code}")
+                print(f"[S3] [ERROR] Ошибка: {error_code}")
             self.client = None
         except Exception as e:
-            print(f"[S3] ❌ Ошибка подключения: {e}")
+            print(f"[S3] [ERROR] Ошибка подключения: {e}")
             self.client = None
     
     def test_connection(self) -> bool:
@@ -221,7 +221,7 @@ class S3Connector(BaseConnector):
             print(f"[S3] Бакет '{bucket}': найдено {total_objects} объектов, отфильтровано {filtered_objects} файлов")
             
         except Exception as e:
-            print(f"[S3] ❌ Ошибка при сканировании: {e}")
+            print(f"[S3] [ERROR] Ошибка при сканировании: {e}")
     
     def get_content(self, file_context: FileContext) -> Optional[FileContext]:
         """Загрузка содержимого файла"""

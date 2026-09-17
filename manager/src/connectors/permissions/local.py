@@ -91,13 +91,13 @@ class LocalPermissionCollector(PermissionCollector):
             if 'наследование' in line.lower() or 'inheritance' in line.lower():
                 continue
             
-            # ✅ КЛЮЧЕВОЕ ИСПРАВЛЕНИЕ: игнорируем дублирующие строки с флагами наследования
+            # [OK] КЛЮЧЕВОЕ ИСПРАВЛЕНИЕ: игнорируем дублирующие строки с флагами наследования
             # Например: BUILTIN\Администраторы:(I)(OI)(CI)(IO)(F) — это дубликат
             # Оставляем только основную запись: BUILTIN\Администраторы:(I)(F)
             if '(OI)(CI)(IO)' in line or '(OI)(CI)' in line:
                 continue
             
-            # ✅ Основной паттерн: principal:(flags)permissions
+            # [OK] Основной паттерн: principal:(flags)permissions
             match = re.match(r'^([^:]+):\(([^)]*)\)([A-Z]+|\([^)]+\))', line)
             if match:
                 principal = match.group(1).strip()
@@ -122,7 +122,7 @@ class LocalPermissionCollector(PermissionCollector):
                 })
                 continue
             
-            # ✅ Альтернативный формат: principal:permissions
+            # [OK] Альтернативный формат: principal:permissions
             match = re.match(r'^([^:]+):([A-Z]+)$', line)
             if match:
                 principal = match.group(1).strip()
@@ -145,7 +145,7 @@ class LocalPermissionCollector(PermissionCollector):
                 })
                 continue
             
-            # ✅ Формат: (special access: ...)
+            # [OK] Формат: (special access: ...)
             match = re.match(r'^([^:]+):\(special access:([^)]*)\)$', line)
             if match:
                 principal = match.group(1).strip()

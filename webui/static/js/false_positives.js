@@ -30,6 +30,7 @@ const FalsePositivesPage = {
 
     list.innerHTML = items.map(fp => {
       const reviewed = fp.reviewed_at ? new Date(fp.reviewed_at).toLocaleString('ru-RU') : '—';
+      const reviewedBy = fp.reviewed_by_username || fp.reviewed_by || '—';
       return `
       <div class="card mb-2 finding-row" data-id="${fp.id}">
         <div class="card-body py-2">
@@ -40,7 +41,10 @@ const FalsePositivesPage = {
               <span class="ms-2 badge bg-info text-dark">${typeName[fp.finding_type] || escapeHtml(fp.finding_type)}</span>
               <span class="badge bg-danger">❌ FP</span>
             </div>
-            <span class="text-muted small">помечено: ${escapeHtml(fp.reviewed_by || '—')}, ${escapeHtml(reviewed)}</span>
+            <div class="d-flex align-items-center gap-2">
+              <span class="text-muted small">помечено: ${escapeHtml(reviewedBy)}, ${escapeHtml(reviewed)}</span>
+              <button class="btn btn-sm btn-outline-success restore-fp" data-id="${fp.id}"><i class="fas fa-undo me-1"></i>Восстановить</button>
+            </div>
           </div>
           <div class="mt-1">
             <code class="finding-match">${escapeHtml(fp.match_text_masked || '(masked)')}</code>
@@ -49,6 +53,19 @@ const FalsePositivesPage = {
         </div>
       </div>`;
     }).join('');
+    document.querySelectorAll('.restore-fp').forEach(btn =>
+      btn.addEventListener('click', () => this.restore(parseInt(btn.dataset.id, 10))));
+  },
+
+  async restore(id) {
+    try {
+      await api.patch(`/api/findings/${id}`, { status: 'new', comment: 'Возвращено из ложных срабатываний' });
+      showSuccess('Находка возвращена в /findings');
+      await this.init();
+    } catch (e) {
+      showError(e.message);
+    }
+  },
   },
 };
 

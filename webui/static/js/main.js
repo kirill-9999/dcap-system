@@ -15,6 +15,14 @@ function updateFooterTime() {
     const el = document.getElementById('footerTime');
     if (el) el.textContent = new Date().toLocaleString('ru-RU');
 }
+function initFooterVersion() {
+    const el = document.getElementById('footerVersion');
+    if (!el) return;
+    fetch('/api/health', {headers: {'Accept': 'application/json'}, credentials: 'include'})
+        .then(r => { if (!r.ok) throw new Error(); return r.json(); })
+        .then(h => { if (h && h.version) el.textContent = 'v' + h.version; })
+        .catch(() => { /* Manager недоступен — оставляем v3.0.0 */ });
+}
 function openModal(id) {
     const el = document.getElementById(id);
     if (el) el.classList.add('show');
@@ -44,5 +52,6 @@ function showToast(message, type) {
 document.addEventListener('DOMContentLoaded', function() {
     initSidebar();
     updateFooterTime();
+    initFooterVersion();
     setInterval(updateFooterTime, 10000);
 });

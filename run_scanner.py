@@ -24,7 +24,7 @@ from scanner.src.config_loader import load_config
 def print_usage():
     """Вывод справки по использованию"""
     print("=" * 60)
-    print("🔍 DCAP SCANNER")
+    print("[X] DCAP SCANNER")
     print("=" * 60)
     print("Использование:")
     print("  python run_scanner.py <config_file>")
@@ -39,8 +39,21 @@ def print_usage():
     print("=" * 60)
 
 
+def _setup_utf8():
+    """UTF-8 обёртка для корректного вывода кириллицы (Windows console)."""
+    try:
+        sys.stdout.reconfigure(encoding="utf-8")
+    except (AttributeError, ValueError):
+        pass
+    try:
+        sys.stderr.reconfigure(encoding="utf-8")
+    except (AttributeError, ValueError):
+        pass
+
+
 def main():
     """Запуск сканера"""
+    _setup_utf8()
     # Проверяем аргументы
     args = sys.argv[1:]
     
@@ -56,7 +69,7 @@ def main():
     
     # Проверяем, что передан путь к конфигу
     if not args:
-        print("❌ Ошибка: не указан путь к файлу конфигурации")
+        print("[ERROR] Ошибка: не указан путь к файлу конфигурации")
         print_usage()
         sys.exit(1)
     
@@ -64,7 +77,7 @@ def main():
     
     # Проверяем наличие дополнительных аргументов
     if len(args) > 1:
-        print(f"⚠️ Предупреждение: лишние аргументы игнорируются: {args[1:]}")
+        print(f"[WARN] Предупреждение: лишние аргументы игнорируются: {args[1:]}")
     
     # Загружаем конфигурацию
     config = load_config(config_path)
@@ -81,14 +94,14 @@ def main():
     
     # Выводим информацию о конфигурации
     print("=" * 60)
-    print("🔍 DCAP SCANNER")
+    print("[X] DCAP SCANNER")
     print("=" * 60)
-    print(f"📁 Конфиг: {config_path}")
-    print(f"📌 Имя сканера: {config.scanner.name}")
-    print(f"🌐 Manager URL: {config.scanner.manager_url}")
-    print(f"🆔 Scanner ID: {config.scanner.scanner_id or 'авто-регистрация'}")
-    print(f"⏱️  Интервал: {config.scanner.scan_interval} сек")
-    print(f"📊 Уровень логов: {config.scanner.log_level}")
+    print(f"[X] Конфиг: {config_path}")
+    print(f"[X] Имя сканера: {config.scanner.name}")
+    print(f"[X] Manager URL: {config.scanner.manager_url}")
+    print(f"[X] Scanner ID: {config.scanner.scanner_id or 'авто-регистрация'}")
+    print(f"[TIME]  Интервал: {config.scanner.scan_interval} сек")
+    print(f"[X] Уровень логов: {config.scanner.log_level}")
     print("=" * 60)
     
     # Создаем сканер с конфигурацией
@@ -102,7 +115,7 @@ def main():
     
     # Обработка сигналов
     def signal_handler(sig, frame):
-        print("\n⏹️ Получен сигнал остановки...")
+        print("\n[STOP] Получен сигнал остановки...")
         scanner.stop()
     
     signal.signal(signal.SIGINT, signal_handler)
@@ -111,7 +124,7 @@ def main():
     try:
         scanner.run_loop()
     except KeyboardInterrupt:
-        print("\n⏹️ Прервано пользователем")
+        print("\n[STOP] Прервано пользователем")
     finally:
         scanner.stop()
 

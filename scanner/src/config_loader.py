@@ -383,22 +383,22 @@ def load_config(config_path: str) -> AppConfig:
     (значений по умолчанию для обязательных параметров нет).
     """
     if not config_path:
-        print("❌ Config file path is required")
+        print("[ERROR] Config file path is required")
         print("Usage: python run_scanner.py <config.json>")
         sys.exit(1)
     
     if not os.path.exists(config_path):
-        print(f"❌ Config file not found: {config_path}")
+        print(f"[ERROR] Config file not found: {config_path}")
         sys.exit(1)
     
     try:
         with open(config_path, 'r', encoding='utf-8') as f:
             data = json.load(f)
     except json.JSONDecodeError as e:
-        print(f"❌ Invalid JSON in config file: {e}")
+        print(f"[ERROR] Invalid JSON in config file: {e}")
         sys.exit(1)
     except Exception as e:
-        print(f"❌ Error reading config: {e}")
+        print(f"[ERROR] Error reading config: {e}")
         sys.exit(1)
 
     _apply_env_overrides(data)
@@ -406,10 +406,10 @@ def load_config(config_path: str) -> AppConfig:
 
     try:
         config = AppConfig.from_dict(data)
-        print(f"✅ Config loaded: {config_path}")
+        print(f"[OK] Config loaded: {config_path}")
         return config
     except Exception as e:
-        print(f"❌ Error loading config: {e}")
+        print(f"[ERROR] Error loading config: {e}")
         sys.exit(1)
 
 
@@ -435,7 +435,7 @@ def _validate_required(data: Dict[str, Any]):
     required_sections = ["scanner", "connector", "classifiers", "client", "logging"]
     missing_sections = [s for s in required_sections if s not in data]
     if missing_sections:
-        print(f"❌ Ошибка: отсутствуют обязательные секции конфига: {', '.join(missing_sections)}")
+        print(f"[ERROR] Ошибка: отсутствуют обязательные секции конфига: {', '.join(missing_sections)}")
         sys.exit(1)
 
     missing_keys = []
@@ -461,7 +461,7 @@ def _validate_required(data: Dict[str, Any]):
         missing_keys.append("classifiers.<классификатор>")
 
     if missing_keys:
-        print(f"❌ Ошибка: отсутствуют обязательные параметры конфига: {', '.join(missing_keys)}")
+        print(f"[ERROR] Ошибка: отсутствуют обязательные параметры конфига: {', '.join(missing_keys)}")
         sys.exit(1)
 
 

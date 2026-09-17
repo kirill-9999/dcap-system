@@ -19,7 +19,7 @@ from ..metrics import (
 logger = logging.getLogger(__name__)
 
 # ============================================================
-# ✅ РОУТЕР (ДОЛЖЕН БЫТЬ ПЕРВЫМ)
+# [OK] РОУТЕР (ДОЛЖЕН БЫТЬ ПЕРВЫМ)
 # ============================================================
 router = APIRouter(prefix="/api/scanner", tags=["scanner"])
 
@@ -86,13 +86,8 @@ TASK_TIMEOUT_MINUTES = 30
 STALE_THRESHOLD_MINUTES = 2
 
 
-def _mark_stale_scanners(db: Session):
-    """Пометить сканеры как inactive, если heartbeat старше порога.
-
-    Исключение (День 39): сканеры с активным заданием (status='assigned')
-    не помечаются inactive — heartbeat-поток поддерживает их активными
-    во время долгого сканирования.
-    """
+def _mark_stale_scanners(db: Session):  # BUG-034.1 (06045225 R): stale assigned->failed
+    """Mark inactive stale scanners; BUG-034.1: failed their assigned tasks."""
     threshold = datetime.utcnow() - timedelta(minutes=STALE_THRESHOLD_MINUTES)
     stale = db.query(models.Scanner).filter(
         models.Scanner.status.in_(["active", "ACTIVE"]),
@@ -101,23 +96,21 @@ def _mark_stale_scanners(db: Session):
     if not stale:
         return
 
-    active_task_ids = {
-        t.scanner_id for t in db.query(models.ScanTask).filter(
-            models.ScanTask.scanner_id.in_([s.id for s in stale]),
-            models.ScanTask.status == "assigned"
-        ).all()
-    }
-
     for s in stale:
-        if s.id in active_task_ids:
-            continue
+        # BUG-034.1: tasks assigned to stale scanner -> failed
+        _ids_06045225 = [r[0] for r in db.query(models.ScanTask.id).filter(
+            models.ScanTask.scanner_id == s.id,
+            models.ScanTask.status == "assigned").all()]
+        if _ids_06045225:
+            db.query(models.ScanTask).filter(
+                models.ScanTask.id.in_(_ids_06045225)
+            ).update({models.ScanTask.status: "failed",
+                       models.ScanTask.completed_at: datetime.utcnow()},
+                      synchronize_session=False)
+            db.commit()
+
         s.status = "inactive"
     db.commit()
-
-
-# ============================================================
-# ЭНДПОИНТЫ
-# ============================================================
 
 @router.get("")
 def list_scanners(db: Session = Depends(session.get_db)):
@@ -227,13 +220,25 @@ async def heartbeat(
         task = db.query(models.ScanTask).filter(
             models.ScanTask.id == int(task_id)
         ).first()
-        if task and task.status == "assigned":
+        # BUG-027.3: сканер слал heartbeat(status="busy", task_id=...) при
+        # живой задаче — переводим назначенную задачу в running.
+        hb_status = (data.get("status") or "").strip().lower()
+        if task and task.status in ("assigned", "pending", "running") and hb_status == "busy":
+            task.status = "running"
+
+        if task and task.status in ("assigned", "running"):
             progress_data = data.get("progress") or {}
             files_scanned = progress_data.get("files_scanned", 0)
             total = progress_data.get("total")
+            # BUG-027.1: если total не пришёл с heartbeat — берём из задачи.
+            if total is None:
+                total = (task.progress or {}).get("total")
             percent = None
-            if total:
+            # BUG-027.1: percent только при total > 0 (иначе не 100% на 70%)
+            if total and int(total) > 0:
                 percent = round((files_scanned / total) * 100, 1)
+                if percent > 100:
+                    percent = 100.0
             task.progress = {
                 "files_scanned": files_scanned,
                 "total": total,
@@ -342,13 +347,22 @@ async def submit_results(
         raise HTTPException(400, f"Invalid JSON: {e}")
     
     logger.info(f"Results for task {task_id}: {len(payload.get('findings', []))} findings")
+
+    try:
+        _batch_no_06045225 = int(request.query_params.get("batch", 1) or 1)
+        _batch_total_06045225 = int(request.query_params.get("total", 1) or 1)
+    except (TypeError, ValueError):
+        _batch_no_06045225 = 1
+        _batch_total_06045225 = 1
+    _is_final_06045225 = _batch_no_06045225 >= _batch_total_06045225
+
     
     task = db.query(models.ScanTask).filter(models.ScanTask.id == task_id).first()
     if not task:
         raise HTTPException(404, "Task not found")
     
-    if task.status != "assigned":
-        raise HTTPException(400, f"Task status is {task.status}, expected 'assigned'")
+    if task.status not in ("assigned", "pending", "running"):
+        raise HTTPException(400, f"Task status is {task.status}, expected assigned/running")
     
     # === Сохраняем findings (день 40.2: новый формат + дедупликация по fingerprint) ===
     from manager.src.core.encryption import get_encryption, mask, mask_line
@@ -356,6 +370,12 @@ async def submit_results(
     saved_findings = 0
     deduped_findings = 0
     skipped_false_positives = 0
+
+    # BUG-035-marker: findings сохраняются батчами (по 500) чтобы
+    # не держать огромный payload в памяти manager'а - защита от
+    # гигантских POST по 10k+ findings с одного сканера.
+    _bug35_batch_06045225 = 500
+    _bug35_cnt_06045225 = 0
 
     for finding_data in payload.get("findings", []):
         file_path = finding_data.get("file_path", finding_data.get("filepath", ""))
@@ -446,6 +466,11 @@ async def submit_results(
             detector=finding_data.get("detector") or "legacy",
         )
         db.add(finding)
+        _bug35_cnt_06045225 += 1
+        if _bug35_cnt_06045225 >= _bug35_batch_06045225:
+            db.flush()
+            _bug35_cnt_06045225 = 0
+
         saved_findings += 1
     
     # Сохраняем catalog_entries
@@ -500,28 +525,42 @@ async def submit_results(
         db.add(failed_file)
     
     stats = payload.get("stats", {})
-    task.status = "completed"
-    task.completed_at = datetime.utcnow()
-    task.findings_count = saved_findings
-    task.files_scanned = stats.get("files_scanned", 0)
-    task.files_failed = stats.get("files_failed", 0)
-    
-    # Prometheus-метрики (День 39)
-    track_task_submitted(status="completed")
-    if task.assigned_at:
-        track_task_completed(
-            (task.completed_at - task.assigned_at).total_seconds()
-        )
-    track_findings(stats.get("category_stats", {}))
-    
-    resource = db.query(models.Resource).filter(models.Resource.id == task.resource_id).first()
-    if resource:
-        resource.last_scanned_at = datetime.utcnow()
-        resource.status = "ACTIVE"
-    
+    task.findings_count = (task.findings_count or 0) + saved_findings
+
+    if _is_final_06045225:
+        task.status = "completed"
+        task.completed_at = datetime.utcnow()
+        # BUG-027.4: при завершении (linewise) финальный heartbeat может не
+        # донести progress — заполняем полностью из финальной статистики.
+        prev = task.progress or {}
+        task_total = prev.get("total")
+        if not task_total:
+            task_total = int(stats.get("files_scanned", 0) or 0)
+        task.progress = {
+            "files_scanned": int(stats.get("files_scanned", task.files_scanned or 0)),
+            "total": task_total,
+            "percent": 100.0,
+            "status": "completed",
+        }
+        task.files_scanned = stats.get("files_scanned", 0)
+        task.files_failed = stats.get("files_failed", 0)
+
+        # Prometheus-метрики (День 39)
+        track_task_submitted(status="completed")
+        if task.assigned_at:
+            track_task_completed(
+                (task.completed_at - task.assigned_at).total_seconds()
+            )
+        track_findings(stats.get("category_stats", {}))
+
+        resource = db.query(models.Resource).filter(models.Resource.id == task.resource_id).first()
+        if resource:
+            resource.last_scanned_at = datetime.utcnow()
+            resource.status = "ACTIVE"
+
     db.commit()
     
-    logger.info(f"[Task] Task {task_id} completed by scanner {task.scanner_id}")
+    logger.info(f"[Task] Task {task_id}: batch {_batch_no_06045225}/{_batch_total_06045225} accepted")
 
     return {
         "status": "accepted",

@@ -66,5 +66,5 @@ def test_10000_events(api_client, manager_url):
 
     total_saved = sum(saved)
     assert total_saved > 0, "No events saved"
-    print(f"\n📊 {N} events in {duration:.1f}s ({N / duration:.0f} events/s) | "
+    print(f"\n[X] {N} events in {duration:.1f}s ({N / duration:.0f} events/s) | "
           f"saved={total_saved}")

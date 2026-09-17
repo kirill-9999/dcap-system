@@ -51,6 +51,7 @@ class FindingResponse(BaseModel):
     # Возможности
     has_encrypted: bool = False
     can_reveal: bool = False
+    encryption_key_id: Optional[str] = None
 
     class Config:
         from_attributes = True
@@ -99,12 +100,14 @@ class FalsePositiveResponse(BaseModel):
     """Ложное срабатывание (для аудита)."""
     id: int
     resource_id: int
+    file_path: Optional[str] = None
     line_number: Optional[int] = None
     match_text_masked: Optional[str] = None
     category: str
     finding_type: str
     comment: Optional[str] = None
     reviewed_by: Optional[int] = None
+    reviewed_by_username: Optional[str] = None
     reviewed_at: Optional[datetime] = None
 
 

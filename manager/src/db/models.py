@@ -25,7 +25,7 @@ class Resource(Base):
     schedule_enabled = Column(Boolean, default=False)
     cron_expression = Column(String(100), nullable=True)
 
-    # 🆕 НОВЫЕ ПОЛЯ ДЛЯ УПРАВЛЕНИЯ ДОСТУПОМ (День 9)
+    # [X] НОВЫЕ ПОЛЯ ДЛЯ УПРАВЛЕНИЯ ДОСТУПОМ (День 9)
     # Владелец ресурса
     owner = Column(String(200), nullable=True)  # DOMAIN\User или LOCAL\User
     owner_sid = Column(String(100), nullable=True)  # SID владельца
@@ -48,7 +48,7 @@ class Resource(Base):
     # Домен (для будущей AD интеграции)
     domain = Column(String(100), nullable=True)
 
-    # 🆕 СВЯЗИ (День 9)
+    # [X] СВЯЗИ (День 9)
     access_entries = relationship(
         "AccessEntry", back_populates="resource", cascade="all, delete-orphan", lazy="select"
     )
@@ -221,7 +221,7 @@ class Schedule(Base):
         return f"<Schedule(id={self.id}, resource_id={self.resource_id}, cron='{self.cron_expression}')>"
 
 
-# 🆕 НОВЫЕ МОДЕЛИ ДЛЯ УПРАВЛЕНИЯ ДОСТУПОМ (День 9)
+# [X] НОВЫЕ МОДЕЛИ ДЛЯ УПРАВЛЕНИЯ ДОСТУПОМ (День 9)
 
 
 class AccessEntry(Base):
@@ -477,7 +477,7 @@ class AuditLog(Base):
         return f"<AuditLog(id={self.id}, event_type='{self.event_type}', file='{self.file_path}')>"
 
 
-# 🆕 АРХИВНЫЕ МОДЕЛИ (День 35)
+# [X] АРХИВНЫЕ МОДЕЛИ (День 35)
 class AuditLogArchive(Base):
     """Архивная таблица для аудит-событий"""
 

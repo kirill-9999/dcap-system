@@ -44,19 +44,19 @@ RESET = '\033[0m'
 
 
 def log_ok(msg):
-    print(f"{GREEN}✅ {msg}{RESET}")
+    print(f"{GREEN}[OK] {msg}{RESET}")
 
 
 def log_fail(msg):
-    print(f"{RED}❌ {msg}{RESET}")
+    print(f"{RED}[ERROR] {msg}{RESET}")
 
 
 def log_info(msg):
-    print(f"{BLUE}ℹ️  {msg}{RESET}")
+    print(f"{BLUE}ℹ  {msg}{RESET}")
 
 
 def log_warn(msg):
-    print(f"{YELLOW}⚠️  {msg}{RESET}")
+    print(f"{YELLOW}[WARN]  {msg}{RESET}")
 
 
 def log_separator():
@@ -292,7 +292,7 @@ def test_switch_mode():
 
 def main():
     log_separator()
-    log_info("🧪 ТЕСТИРОВАНИЕ МОДУЛЯ УПРАВЛЕНИЯ ДОСТУПОМ")
+    log_info("[X] ТЕСТИРОВАНИЕ МОДУЛЯ УПРАВЛЕНИЯ ДОСТУПОМ")
     log_separator()
 
     try:
@@ -337,20 +337,20 @@ def main():
             failed += 1
 
     log_separator()
-    log_info(f"✅ Пройдено: {passed}/{len(tests)}")
+    log_info(f"[OK] Пройдено: {passed}/{len(tests)}")
     if failed > 0:
-        log_fail(f"❌ Не пройдено: {failed}")
+        log_fail(f"[ERROR] Не пройдено: {failed}")
         sys.exit(1)
     else:
-        log_ok("🎉 Все тесты пройдены!")
+        log_ok("[X] Все тесты пройдены!")
         log_info("Готов к коммиту.")
 
     log_separator()
 
     # Инструкция по WebUI
-    log_info("🌐 Проверка WebUI:")
+    log_info("[X] Проверка WebUI:")
     log_info("  1. Открой http://localhost:8000 (Manager) или :8001 (WebUI)")
-    log_info("  2. Перейди на страницу '🔐 Доступ'")
+    log_info("  2. Перейди на страницу '[X] Доступ'")
     log_info("  3. Выбери ресурс D:\\Projects\\dcap-system\\test_files")
     log_info("  4. Проверь таблицу прав, алерты и отчет")
 

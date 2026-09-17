@@ -86,6 +86,7 @@ def _finding_to_response(
         "last_seen_at": finding.last_seen_at,
         "has_encrypted": bool(finding.match_text_encrypted or finding.line_text_encrypted),
         "can_reveal": can_reveal,
+        "encryption_key_id": finding.encryption_key_id,
         # legacy-поля (backward compat с v3.8.0)
         "file_path": finding.fragment_path,
         "value": finding.match_text_masked,
@@ -236,16 +237,30 @@ def list_false_positives(
         .order_by(desc(Finding.reviewed_at))
         .offset(offset).limit(limit).all()
     )
+    # W-66/W-67: file_path из resource + reviewed_by_username из users.
+    from manager.src.db import models as _m
+    resource_ids = [f.resource_id for f in findings if f.resource_id]
+    reviewer_ids = [f.reviewed_by for f in findings if f.reviewed_by]
+    res_map = {}
+    if resource_ids:
+        for r in db.query(_m.Resource).filter(_m.Resource.id.in_(set(resource_ids))).all():
+            res_map[r.id] = r.path
+    reviewer_map = {}
+    if reviewer_ids:
+        for u in db.query(_m.User).filter(_m.User.id.in_(set(reviewer_ids))).all():
+            reviewer_map[u.id] = u.username
     return [
         {
             "id": f.id,
             "resource_id": f.resource_id,
+            "file_path": res_map.get(f.resource_id) or f.fragment_path,
             "line_number": f.line_number,
             "match_text_masked": f.match_text_masked,
             "category": f.category,
             "finding_type": f.finding_type,
             "comment": f.comment,
             "reviewed_by": f.reviewed_by,
+            "reviewed_by_username": reviewer_map.get(f.reviewed_by),
             "reviewed_at": f.reviewed_at,
         }
         for f in findings
