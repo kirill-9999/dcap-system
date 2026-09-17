@@ -49,7 +49,7 @@
 
 ### 2.5. День 1 (Deploy/Config) — проверено/закрыто
 - **BUG-001**: `/api/health` version = `get_version()` (env VERSION → config.json version → default) — уже в коде (`manager/src/main.py:27`).
-- **BUG-002/007**: `.env.example` VERSION=3.13.2; docker-compose `${VERSION:-3.13.2}`; `scripts/deploy.sh` fail-fast без `.env`; `docs/deployment.md` шаг `cp .env.example .env`.
+- **BUG-002/007**: `.env.example` VERSION=3.13.3; docker-compose `${VERSION:-3.13.3}`; `scripts/deploy.sh` fail-fast без `.env`; `docs/deployment.md` шаг `cp .env.example .env`. *(17.09: версия поднята 3.13.2 → 3.13.3 — коммит `a6d3bff`)*.
 - **BUG-017/019**: `postgres_exporter`/`redis_exporter`/`celery_exporter` — все в `dcap-network`.
 - **BUG-036**: эмодзи в коде ядра отсутствуют (TODO-таблица замен на ASCII уже применена); `run_scanner.py`/`run_manager.py` — `_setup_utf8()` (reconfigure utf-8).
 
@@ -365,7 +365,7 @@ def list_false_positives(...):
 
 ### `webui/config.py`, `webui/main.py`, `webui/templates/base.html`, `webui/static/js/main.js` — W-43
 
-- `webui/config.py`: `VERSION = os.getenv("VERSION") or _config.get("version") or "3.13.2"`.
+- `webui/config.py`: `VERSION = os.getenv("VERSION", "3.13.3")`; далее `os.getenv("VERSION") or _config.get("version") or VERSION`.
 - `webui/main.py`: `from webui.config import ..., VERSION`; `app = FastAPI(..., version=VERSION)`; `/health` → `{"status":"ok","version":VERSION}`.
 - `base.html`: `<span id="footerVersion">v3.0.0</span>`.
 - `main.js`: `initFooterVersion()` — `fetch('/api/health')` → `el.textContent = 'v' + h.version`.
@@ -405,7 +405,7 @@ python run_webui.py                  # WebUI :8001
 python run_scanner.py scanner/config/scanner_config.json   # сканер на хосте
 
 # проверки
-Invoke-RestMethod http://localhost:8000/api/health                     # version: 3.13.2
+Invoke-RestMethod http://localhost:8000/api/health                     # version: 3.13.3
 Invoke-RestMethod http://localhost:8000/api/tasks                      # progress/files_scanned синхрон
 # остановить сканер (Ctrl+C), подождать > 2 мин → assigned-задачи → failed:
 #   GET /api/tasks → статусы failed у задач stale-сканера
@@ -461,7 +461,7 @@ WebUI:
 
 Docker (пересборка контейнеров):
 - celery_beat healthcheck: findstr (Windows) -> python-socket PING (Linux)
-- VERSION env во все сервисы -> /api/health отдаёт 3.13.2
+- VERSION env во все сервисы -> /api/health отдаёт 3.13.3
 
 Docs: отчёт day_43_block1_fix_report.md, STATE.md v3.13.3
 ```
