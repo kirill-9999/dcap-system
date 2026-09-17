@@ -311,12 +311,8 @@ services:
         condition: service_healthy
     networks:
       - dcap-network
-    healthcheck:
-      test: ["CMD-SHELL", "celery -A manager.src.workers.celery_app:app inspect ping --timeout=10 || exit 1"]
-      interval: 30s
-      timeout: 10s
-      start_period: 15s
-      retries: 3
+    # BUG-017.1: healthcheck УДАЛЁН — образ prometheuscommunity/postgres-exporter
+    # (distroless: нет celery/sh/curl), любой healthcheck падает → контейнер unhealthy.
     <<: *default-restart
     logging: *default-logging
 
