@@ -138,6 +138,86 @@ def test_mask_context(monkeypatch):
     assert "test@example.com" not in masked
 
 
+def test_mask_context_extra_pii(monkeypatch):
+    # BUG-022.2: паспорт/СНИЛС/ИНН/карты в контексте тоже маскируются
+    ctx = "Паспорт: 1234 567890, СНИЛС: 123-456-789 00"
+    masked = sen.mask_context(ctx, "phone")
+    assert "1234 567890" not in masked
+    assert "123-456-789 00" not in masked
+
+
+# ============================================================
+# BUG-022: маскирование всех PII строки (person + phone)
+# ============================================================
+
+def _make_serializer(enc=None):
+    """Минимальный ManagedScanner: только _enc (обход __init__ с классификаторами)."""
+    from scanner.src.managed_scanner import ManagedScanner
+    sc = object.__new__(ManagedScanner)
+    sc._enc = enc
+    return sc
+
+
+def _serialize(sc, finding, line, all_in_line):
+    return sc._serialize_finding(
+        finding,
+        resource_path="E:/test_smoke",
+        all_findings_in_line=all_in_line,
+    )
+
+
+def test_bug022_person_line_masked_also_masks_phone(monkeypatch):
+    """BUG-022: person-находка в строке с phone — телефон обязан маскироваться."""
+    # legacy-режим (без шифрования) — как в продакшене без FINDINGS_ENCRYPTION_KEY
+    sc = _make_serializer(enc=None)
+    line = "Иван Иванов, тел +7 999 123-45-67"
+    phone = Finding(
+        line_number=1,
+        line_text=line,
+        match_text="+7 999 123-45-67",
+        start_pos=18,
+        end_pos=34,
+        finding_type="pii",
+        category="phone",
+        fragment_path="E:/test_smoke/pii.txt",
+    )
+    person = Finding(
+        line_number=1,
+        line_text=line,
+        match_text="Иван Иванов",
+        start_pos=6,
+        end_pos=12,
+        finding_type="pii",
+        category="person",
+        fragment_path="E:/test_smoke/pii.txt",
+    )
+    # person сериализуется с all_findings_in_line = [phone, person]
+    d = _serialize(sc, person, line, [phone, person])
+    assert d["line_text_masked"] is not None
+    # телефон в замаскированной строке не должен содержать открытый номер
+    assert "+7 999 123-45-67" not in d["line_text_masked"]
+    assert "+7***" in d["line_text_masked"]
+
+
+def test_bug022_phone_line_masked(monkeypatch):
+    """BUG-022: phone-находка — телефон маскируется (исходное поведение)."""
+    sc = _make_serializer(enc=None)
+    line = "Иван Иванов, тел +7 999 123-45-67"
+    phone = Finding(
+        line_number=1,
+        line_text=line,
+        match_text="+7 999 123-45-67",
+        start_pos=18,
+        end_pos=34,
+        finding_type="pii",
+        category="phone",
+        fragment_path="E:/test_smoke/pii.txt",
+    )
+    d = _serialize(sc, phone, line, [phone])
+    assert "+7 999 123-45-67" not in d["line_text_masked"]
+    assert "+7***" in d["line_text_masked"]
+
+
 # ============================================================
 # CredentialsClassifier.scan_line
 # ============================================================

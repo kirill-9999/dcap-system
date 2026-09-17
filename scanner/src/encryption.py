@@ -101,20 +101,28 @@ def mask_line(line: str, matches: list) -> str:
     return result
 
 
-def mask_context(context: str, category: str) -> str:
+def mask_context(context: str, category: str = None) -> str:
     """
     Маскирует контекст (строки до/после).
     Простая эвристика: маскирует всё, что похоже на секрет.
+
+    BUG-022.2: расширена набором PII-паттернов (паспорт/СНИЛС/ИНН/карты),
+    помимо телефонов и email. Передача positions находок соседних строк
+    (точный пересчёт смещений) — отдельная задача, отложена.
     """
     if not context:
         return context
-    # Маскируем по общим паттернам
     result = context
     # Телефоны
     result = re.sub(r"\+?7[\s\-\(\)]*\d{3}[\s\-\(\)]*\d{3}[\s\-]*\d{2}[\s\-]*\d{2}",
                     lambda m: mask(m.group(), "phone"), result)
     # Email
     result = re.sub(r"\S+@\S+\.\S+", lambda m: mask(m.group(), "email"), result)
+    # BUG-022.2: паспорт, СНИЛС, ИНН, кредитные карты — тоже PII
+    result = re.sub(r"\d{4}\s?\d{6}", lambda m: mask(m.group(), "passport"), result)
+    result = re.sub(r"\d{3}[\-\s]\d{3}[\-\s]\d{3}[\-\s]\d{2}", lambda m: mask(m.group(), "snils"), result)
+    result = re.sub(r"\d{12}", lambda m: mask(m.group(), "inn"), result)
+    result = re.sub(r"\d{4}[\s\-]?\d{4}[\s\-]?\d{4}[\s\-]?\d{4}", lambda m: mask(m.group(), "credit_card"), result)
     return result
 
 

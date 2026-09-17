@@ -647,7 +647,7 @@ class ManagedScanner:
         else:
             d["fingerprint"] = None
             d["match_text_masked"] = mask(value, cat) if value else None
-            d["line_text_masked"] = mask_line(line_text, [(finding.start_pos, finding.end_pos, cat)]) if line_text else None
+            d["line_text_masked"] = mask_line(line_text, positions) if line_text else None
             d["context_before_masked"] = mask_context(ctx_before, cat) if ctx_before else None
             d["context_after_masked"] = mask_context(ctx_after, cat) if ctx_after else None
 

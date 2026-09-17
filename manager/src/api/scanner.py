@@ -417,7 +417,21 @@ async def submit_results(
                 skipped_false_positives += 1
                 continue
             # new/confirmed/archived — не создаём повторно, обновляем last_seen_at
+            # и замаскированные поля (BUG-022.8): при повторном скане
+            # line_text_masked/context_* должны обновляться, а не стареть.
             existing.last_seen_at = datetime.utcnow()
+            if finding_data.get("line_text_masked"):
+                existing.line_text_masked = finding_data.get("line_text_masked")
+            if finding_data.get("line_text_encrypted"):
+                existing.line_text_encrypted = finding_data.get("line_text_encrypted")
+            if finding_data.get("match_text_masked"):
+                existing.match_text_masked = finding_data.get("match_text_masked")
+            if finding_data.get("match_text_encrypted"):
+                existing.match_text_encrypted = finding_data.get("match_text_encrypted")
+            if finding_data.get("context_before_masked"):
+                existing.context_before_masked = finding_data.get("context_before_masked")
+            if finding_data.get("context_after_masked"):
+                existing.context_after_masked = finding_data.get("context_after_masked")
             deduped_findings += 1
             continue
 
