@@ -183,7 +183,7 @@ if existing:
 4. **BUG-022.8**: `UPDATE findings SET line_text_masked=NULL, context_*=NULL WHERE id=15`;
    повторный скан (task #9, Manager пересобран) → id=15 обновлён: `+7***123-45-67`, `context_after_masked`
    = «Email: ivan.iv***@example.com / Паспорт: 12** ******» ✅
-5. Manager пересобран (`docker compose up -d --build manager`) — здоров (health: healthy), лог `POST /api/health` → 200 (v3.13.3).
+5. Manager пересобран (`docker compose up -d --build manager`) — здоров (health: healthy), лог `POST /api/health` → 200 (v3.13.5).
 
 ---
 
