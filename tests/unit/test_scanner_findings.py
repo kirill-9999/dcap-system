@@ -219,6 +219,47 @@ def test_bug022_phone_line_masked(monkeypatch):
 
 
 # ============================================================
+# BUG-022.9: приоритизация категорий при дублировании позиций
+# ============================================================
+
+def test_bug022_9_passport_not_overwritten_by_phone():
+    """BUG-022.9: passport и phone на одной сущности → passport побеждает."""
+    from classifiers.pii_classifier import PiiClassifier
+    c = PiiClassifier()
+    c.configure({"min_confidence": 0.3, "ocr_enabled": False})
+
+    findings = c.scan_line('Паспорт: 1234 567890', 3)
+    # Ожидаем: одна находка (passport), phone отфильтрован
+    categories = [f.category for f in findings]
+    assert 'passport' in categories, f"passport отсутствует: {categories}"
+    assert categories.count('phone') == 0 or (
+        'passport' in categories and categories.index('passport') < categories.index('phone')
+    ), f"phone не должен затирать passport: {categories}"
+
+
+def test_bug022_9_snils_not_overwritten_by_phone():
+    """BUG-022.9: snils и phone на одной сущности → snils побеждает."""
+    from classifiers.pii_classifier import PiiClassifier
+    c = PiiClassifier()
+    c.configure({"min_confidence": 0.3, "ocr_enabled": False})
+
+    findings = c.scan_line('СНИЛС: 123-456-789 00', 4)
+    categories = [f.category for f in findings]
+    assert 'snils' in categories, f"snils отсутствует: {categories}"
+
+
+def test_bug022_9_mask_line_no_overwrite():
+    """BUG-022.9: mask_line не перезаписывает одинаковые позиции."""
+    from scanner.src.encryption import mask_line
+    # Два matches с одинаковыми позициями (passport, phone)
+    line = 'Паспорт: 1234 567890'
+    matches = [(9, 20, 'passport'), (9, 20, 'phone')]
+    result = mask_line(line, matches)
+    # Ожидаем: маска passport (не phone-***)
+    assert result == 'Паспорт: 12** ******', f"Неверный результат: {result!r}"
+
+
+# ============================================================
 # CredentialsClassifier.scan_line
 # ============================================================
 

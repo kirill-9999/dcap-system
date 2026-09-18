@@ -92,7 +92,15 @@ def mask_line(line: str, matches: list) -> str:
     """matches: [(start, end, category), ...]"""
     if not matches:
         return line
-    sorted_matches = sorted(matches, key=lambda m: m[0], reverse=True)
+    # BUG-022.9: при одинаковых (start, end) — оставляем одну (первую в sorted)
+    seen_positions = set()
+    unique_matches = []
+    for m in matches:
+        key = (m[0], m[1])
+        if key not in seen_positions:
+            seen_positions.add(key)
+            unique_matches.append(m)
+    sorted_matches = sorted(unique_matches, key=lambda m: m[0], reverse=True)
     result = line
     for start, end, category in sorted_matches:
         original = result[start:end]

@@ -28,6 +28,26 @@ from scanner.src.finding import Finding
 logger = logging.getLogger(__name__)
 
 
+# BUG-022.9: приоритет категорий при дублировании позиций.
+# Специфичные regex-категории (passport/snils/inn) точнее, чем встроенный
+# PhoneRecognizer Presidio, который ловит 1234 567890 / 123-456-789 00
+# как PHONE_NUMBER с теми же позициями (score 0.40).
+CATEGORY_PRIORITY: Dict[str, int] = {
+    "passport": 100,
+    "snils": 100,
+    "inn": 100,
+    "credit_card": 100,
+    "email": 90,
+    "api_key": 90,
+    "aws_key": 90,
+    "phone": 50,
+    "person": 10,
+    "url": 5,
+    "high_entropy": 5,
+    "unknown": 0,
+}
+
+
 class PiiClassifier(IClassifier):
     """PII классификатор на основе Presidio с локальными моделями"""
     
@@ -497,15 +517,17 @@ class PiiClassifier(IClassifier):
                     detector="regex",
                 ))
 
-        # Дедупликация: ключ по номеру строки и позициям (относительно строки)
-        seen = set()
-        result = []
+        # BUG-022.9: дедупликация по позиции с приоритетом категорий
+        by_pos = {}
         for f in findings:
-            key = (f.line_number, f.start_pos, f.end_pos, f.category)
-            if key not in seen:
-                seen.add(key)
-                result.append(f)
-        return result
+            key = (f.line_number, f.start_pos, f.end_pos)
+            existing = by_pos.get(key)
+            if existing is None:
+                by_pos[key] = f
+            else:
+                if CATEGORY_PRIORITY.get(f.category, 0) > CATEGORY_PRIORITY.get(existing.category, 0):
+                    by_pos[key] = f
+        return list(by_pos.values())
 
     @staticmethod
     def _line_starts(text: str) -> List[int]:
@@ -558,15 +580,22 @@ class PiiClassifier(IClassifier):
         return "high" if entity_type in high else "medium"
 
     def _deduplicate(self, findings: List[Finding]) -> List[Finding]:
-        """Убирает дубликаты (одинаковые позиции)."""
-        seen = set()
-        result = []
+        """Убирает дубликаты (одинаковые позиции).
+
+        BUG-022.9: при одинаковых (start_pos, end_pos) — оставляем
+        категорию с ВЫСШИМ приоритетом (passport > phone).
+        """
+        by_pos = {}
         for f in findings:
-            key = (f.start_pos, f.end_pos, f.category)
-            if key not in seen:
-                seen.add(key)
-                result.append(f)
-        return result
+            key = (f.start_pos, f.end_pos)
+            existing = by_pos.get(key)
+            if existing is None:
+                by_pos[key] = f
+            else:
+                # BUG-022.9: приоритет
+                if CATEGORY_PRIORITY.get(f.category, 0) > CATEGORY_PRIORITY.get(existing.category, 0):
+                    by_pos[key] = f
+        return list(by_pos.values())
 
     def _add_custom_recognizers(self, analyzer: Optional[AnalyzerEngine] = None):
         """Добавление кастомных распознавателей для РФ"""
