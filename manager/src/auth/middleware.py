@@ -176,6 +176,24 @@ class AuthMiddleware(BaseHTTPMiddleware):
             mtls_error = self._check_mtls(request)
             if mtls_error is not None:
                 return mtls_error
+            # TASK-004/TASK-005 (BUG-048): если передан валидный JWT —
+            # устанавливаем пользователя (для RBAC-дефолтов require_admin и т.п.).
+            # Без токена — machine-доступ (публичный, by design).
+            token = self._extract_token(request)
+            if token:
+                payload = self.auth_manager.jwt.verify_token(token, "access")
+                if payload:
+                    user_id = payload.get("user_id")
+                    if user_id:
+                        db = await self._get_db()
+                        if db is not None:
+                            try:
+                                user = db.query(User).filter(User.id == user_id).first()
+                                if user and user.is_active:
+                                    request.state.user = user
+                                    request.state.auth_method = "jwt"
+                            finally:
+                                db.close()
             return await call_next(request)
 
         # 1. Проверка JWT (cookie или Bearer)

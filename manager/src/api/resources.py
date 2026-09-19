@@ -4,6 +4,8 @@ from typing import Optional
 from datetime import datetime
 
 from ..db import models, session
+from manager.src.auth.dependencies import require_admin, require_scanner
+from manager.src.auth.models import User
 
 router = APIRouter(prefix="/api/resources", tags=["resources"])
 
@@ -72,9 +74,11 @@ def list_resources(
 def create_resource(
     path: str = Query(..., min_length=1),
     type: str = Query("FILESYSTEM"),
-    db: Session = Depends(session.get_db)
+    db: Session = Depends(session.get_db),
+    user: User = Depends(require_admin),
 ):
-    """Создать новый ресурс"""
+    """Создать новый ресурс (только Admin, BUG-046). BUG-059: type нормализуется."""
+    type = type.lower()  # noqa: A001
     # Проверяем, не существует ли уже
     existing = db.query(models.Resource).filter(models.Resource.path == path).first()
     if existing:
@@ -102,8 +106,12 @@ def create_resource(
     }
 
 @router.delete("/{resource_id}")
-def delete_resource(resource_id: int, db: Session = Depends(session.get_db)):
-    """Удалить ресурс"""
+def delete_resource(
+    resource_id: int,
+    db: Session = Depends(session.get_db),
+    user: User = Depends(require_admin),
+):
+    """Удалить ресурс (только Admin, BUG-046)."""
     resource = db.query(models.Resource).filter(models.Resource.id == resource_id).first()
     if not resource:
         raise HTTPException(404, "Resource not found")
@@ -119,8 +127,12 @@ def delete_resource(resource_id: int, db: Session = Depends(session.get_db)):
     return {"status": "deleted", "id": resource_id}
 
 @router.post("/{resource_id}/scan")
-def scan_resource(resource_id: int, db: Session = Depends(session.get_db)):
-    """Запустить сканирование ресурса"""
+def scan_resource(
+    resource_id: int,
+    db: Session = Depends(session.get_db),
+    user: User = Depends(require_scanner),
+):
+    """Запустить сканирование ресурса (Админ/Сканер, BUG-046)."""
     resource = db.query(models.Resource).filter(models.Resource.id == resource_id).first()
     if not resource:
         raise HTTPException(404, "Resource not found")
@@ -167,9 +179,10 @@ def get_resource_config(resource_id: int, db: Session = Depends(session.get_db))
 def update_resource_config(
     resource_id: int,
     config_data: dict,
-    db: Session = Depends(session.get_db)
+    db: Session = Depends(session.get_db),
+    user: User = Depends(require_admin),
 ):
-    """Обновить конфигурацию сканирования для ресурса"""
+    """Обновить конфигурацию сканирования для ресурса (только Admin, BUG-046)."""
     resource = db.query(models.Resource).filter(models.Resource.id == resource_id).first()
     if not resource:
         raise HTTPException(404, "Resource not found")

@@ -4,6 +4,8 @@ from typing import Optional
 from datetime import datetime
 
 from ..db import models, session
+from manager.src.auth.dependencies import require_admin
+from manager.src.auth.models import User
 
 router = APIRouter(prefix="/api/tasks", tags=["tasks"])
 
@@ -74,9 +76,10 @@ def get_task(
 @router.post("/{task_id}/cancel")
 def cancel_task_06045225(
     task_id: int,
-    db: Session = Depends(session.get_db)
+    db: Session = Depends(session.get_db),
+    user: User = Depends(require_admin),
 ):
-    """BUG-034.2 (06045225): cancel a task -> failed."""
+    """BUG-034.2 (06045225): cancel a task -> failed. (только Admin, BUG-047)."""
     task = db.query(models.ScanTask).filter(
         models.ScanTask.id == task_id).first()
     if not task:
@@ -91,19 +94,26 @@ def cancel_task_06045225(
 @router.delete("/{task_id}")
 def delete_task(
     task_id: int,
-    db: Session = Depends(session.get_db)
+    db: Session = Depends(session.get_db),
+    user: User = Depends(require_admin),
 ):
-    """Удалить задание"""
+    """Удалить задание (каскадно, только Admin, BUG-047: транзакция + 409)."""
     task = db.query(models.ScanTask).filter(models.ScanTask.id == task_id).first()
     if not task:
         raise HTTPException(404, "Task not found")
-    
-    # Удаляем связанные записи
-    db.query(models.Finding).filter(models.Finding.task_id == task_id).delete()
-    db.query(models.CatalogEntry).filter(models.CatalogEntry.task_id == task_id).delete()
-    db.query(models.FailedFile).filter(models.FailedFile.task_id == task_id).delete()
-    
-    db.delete(task)
-    db.commit()
-    
+
+    if task.status in ("assigned", "running"):
+        raise HTTPException(409, "Cannot delete task in status assigned/running")
+
+    try:
+        db.query(models.Finding).filter(models.Finding.task_id == task_id).delete()
+        db.query(models.CatalogEntry).filter(models.CatalogEntry.task_id == task_id).delete()
+        db.query(models.FailedFile).filter(models.FailedFile.task_id == task_id).delete()
+
+        db.delete(task)
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise HTTPException(500, "Failed to delete task (rolled back)")
+
     return {"status": "deleted", "id": task_id}

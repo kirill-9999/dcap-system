@@ -10,6 +10,8 @@ import logging
 
 from ..db import models, session
 from .resources import get_default_config, deep_merge
+from manager.src.auth.dependencies import require_admin
+from manager.src.auth.models import User
 from ..metrics import (
     track_task_submitted,
     track_task_completed,
@@ -200,14 +202,20 @@ async def heartbeat(
     """Обновление heartbeat сканера (День 39: + task_id и progress)."""
     try:
         data = await request.json()
-    except:
-        data = {}
-    
+    except Exception:
+        raise HTTPException(400, "Invalid JSON body")
+    if not isinstance(data, dict):
+        raise HTTPException(400, "JSON body must be an object")
+
     scanner_id = data.get("scanner_id")
     if not scanner_id:
         raise HTTPException(400, "Missing 'scanner_id'")
-    
-    scanner = db.query(models.Scanner).filter(models.Scanner.id == int(scanner_id)).first()
+    try:
+        scanner_id_int = int(scanner_id)
+    except (TypeError, ValueError):
+        raise HTTPException(400, f"Invalid 'scanner_id': {scanner_id!r}")
+
+    scanner = db.query(models.Scanner).filter(models.Scanner.id == scanner_id_int).first()
     if not scanner:
         raise HTTPException(404, "Scanner not found")
     
@@ -217,8 +225,12 @@ async def heartbeat(
     # Обновление прогресса задания
     task_id = data.get("task_id") or data.get("current_task_id")
     if task_id:
+        try:
+            task_id_int = int(task_id)
+        except (TypeError, ValueError):
+            raise HTTPException(400, f"Invalid 'task_id': {task_id!r}")
         task = db.query(models.ScanTask).filter(
-            models.ScanTask.id == int(task_id)
+            models.ScanTask.id == task_id_int
         ).first()
         # BUG-027.3: сканер слал heartbeat(status="busy", task_id=...) при
         # живой задаче — переводим назначенную задачу в running.
@@ -424,6 +436,8 @@ async def submit_results(
                 existing.line_text_masked = finding_data.get("line_text_masked")
             if finding_data.get("line_text_encrypted"):
                 existing.line_text_encrypted = finding_data.get("line_text_encrypted")
+            elif finding_data.get("line_text") and not existing.line_text_encrypted:
+                existing.line_text_encrypted = _enc.encrypt(finding_data.get("line_text"))  # BUG-058
             if finding_data.get("match_text_masked"):
                 existing.match_text_masked = finding_data.get("match_text_masked")
             if finding_data.get("match_text_encrypted"):
@@ -452,6 +466,12 @@ async def submit_results(
         elif line_text_masked is None and line_text:
             line_text_masked = line_text
 
+        # BUG-058: fallback line_text_encrypted — если сканер не прислал
+        # зашифрованную строку (legacy), шифруем на стороне Manager.
+        line_enc = finding_data.get("line_text_encrypted")
+        if not line_enc and line_text:
+            line_enc = _enc.encrypt(line_text)
+
         finding = models.Finding(
             task_id=task_id,
             resource_id=task.resource_id,
@@ -464,7 +484,7 @@ async def submit_results(
             match_text_masked=match_masked,
             match_text_encrypted=match_enc,
             line_text_masked=line_text_masked,
-            line_text_encrypted=finding_data.get("line_text_encrypted"),
+            line_text_encrypted=line_enc,
             context_before_masked=finding_data.get("context_before_masked") or context or None,
             context_after_masked=finding_data.get("context_after_masked") or None,
             bounding_box=finding_data.get("bounding_box") or (
@@ -707,9 +727,10 @@ def release_task(
 def delete_scanner(
     scanner_id: int,
     force: bool = False,
-    db: Session = Depends(session.get_db)
+    db: Session = Depends(session.get_db),
+    user: User = Depends(require_admin),
 ):
-    """Удалить сканер. Если force=True — освободить назначенные задания."""
+    """Удалить сканер (только Admin, BUG-048). Если force=True — освободить назначенные задания."""
     scanner = db.query(models.Scanner).filter(models.Scanner.id == scanner_id).first()
     if not scanner:
         raise HTTPException(404, f"Scanner {scanner_id} not found")

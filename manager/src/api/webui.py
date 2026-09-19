@@ -39,6 +39,8 @@ import logging
 
 from manager.src.db.session import get_db
 from manager.src.db import models
+from manager.src.auth.dependencies import require_admin, require_scanner, require_auditor
+from manager.src.auth.models import User
 
 logger = logging.getLogger(__name__)
 
@@ -185,8 +187,13 @@ def get_scanner(scanner_id: int, db: Session = Depends(get_db)):
 
 
 @router.delete("/api/scanners/{scanner_id}")
-def delete_scanner(scanner_id: int, force: bool = False, db: Session = Depends(get_db)):
-    """Удалить сканер (с опцией force для активных задач)"""
+def delete_scanner(
+    scanner_id: int,
+    force: bool = False,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_admin),
+):
+    """Удалить сканер (с опцией force для активных задач). Только Admin (BUG-049)."""
     scanner = db.query(models.Scanner).filter(models.Scanner.id == scanner_id).first()
     if not scanner:
         raise HTTPException(404, "Scanner not found")
@@ -211,8 +218,12 @@ def delete_scanner(scanner_id: int, force: bool = False, db: Session = Depends(g
 
 
 @router.post("/api/scanners/{scanner_id}/ping")
-def ping_scanner(scanner_id: int, db: Session = Depends(get_db)):
-    """Отметить сканер активным (ping)"""
+def ping_scanner(
+    scanner_id: int,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_scanner),
+):
+    """Отметить сканер активным (ping). Админ/Сканер (BUG-050)."""
     scanner = db.query(models.Scanner).filter(models.Scanner.id == scanner_id).first()
     if not scanner:
         raise HTTPException(404, "Scanner not found")
@@ -241,17 +252,19 @@ def get_classifiers(db: Session = Depends(get_db)):
 def create_task(
     payload: Dict[str, Any],
     db: Session = Depends(get_db),
+    user: User = Depends(require_scanner),
 ):
-    """Создать ресурс (если нет) + задание (WebUI-формат)"""
+    """Создать ресурс (если нет) + задание (WebUI-формат). Админ/Сканер (BUG-051)."""
     resource_path = str(payload.get("resource_path") or "").strip()
-    resource_type = str(payload.get("resource_type") or "FILESYSTEM")
+    # BUG-059: нормализуем type (БД хранит lowercase 'filesystem', WebUI шлёт 'FILESYSTEM').
+    resource_type = str(payload.get("resource_type") or "FILESYSTEM").lower()
     if not resource_path:
         raise HTTPException(400, "resource_path is required")
 
     # Путь может существовать только на хосте сканера (сканер НЕ в Docker),
     # а Manager может работать в контейнере. Поэтому проверка `exists()`
     # не является блокирующей — фактическое существование проверит сканер.
-    if resource_type == "FILESYSTEM" and not Path(resource_path).exists():
+    if resource_type in ("filesystem", "FILESYSTEM") and not Path(resource_path).exists():
         logger.warning(f"Resource path not visible from Manager host, "
                        f"will be checked by scanner: {resource_path}")
 
@@ -280,16 +293,16 @@ def create_task(
             db.flush()
         except IntegrityError:
             # Конкурентное создание ресурса с тем же путём (load/parallel):
-            # unique constraint resources_path_key — переиспользуем существующий.
+            # unique resources_path_key (по старым БД) или (path+type) —
+            # переиспользуем существующий. BUG-059: ищем БЕЗ type.
             db.rollback()
             resource = (
                 db.query(models.Resource)
-                .filter(models.Resource.type == resource_type,
-                        models.Resource.path == resource_path)
+                .filter(models.Resource.path == resource_path)
                 .first()
             )
             if resource is None:
-                raise
+                raise HTTPException(500, f"Resource creation conflict for {resource_path}")
             resource_id = resource.id
         else:
             resource_id = resource.id
@@ -320,9 +333,11 @@ def create_task(
 def create_resource_webui(
     payload: Dict[str, Any],
     db: Session = Depends(get_db),
+    user: User = Depends(require_admin),
 ):
-    """Создать новый ресурс (WebUI-формат)"""
-    resource_type = str(payload.get("type") or "FILESYSTEM")
+    """Создать новый ресурс (WebUI-формат). Только Admin (BUG-052)."""
+    # BUG-059: нормализуем type (БД хранит lowercase).
+    resource_type = str(payload.get("type") or "FILESYSTEM").lower()
     resource_path = str(payload.get("path") or "").strip()
     enabled = bool(payload.get("enabled", True))
     if not resource_path:
@@ -512,8 +527,13 @@ def get_access_alerts_stats(db: Session = Depends(get_db)):
 
 
 @router.put("/api/access/alerts/{alert_id}")
-def update_access_alert_status(alert_id: int, payload: Dict[str, Any], db: Session = Depends(get_db)):
-    """Обновить статус алерта (open/acknowledged/resolved/ignored)"""
+def update_access_alert_status(
+    alert_id: int,
+    payload: Dict[str, Any],
+    db: Session = Depends(get_db),
+    user: User = Depends(require_auditor),
+):
+    """Обновить статус алерта (open/acknowledged/resolved/ignored). Админ/Аудитор (BUG-053)."""
     status = payload.get("status")
     if status not in ["open", "acknowledged", "resolved", "ignored"]:
         raise HTTPException(400, f"Invalid status: {status}")
@@ -600,14 +620,22 @@ def _audit_preview(db: Session, data: Dict[str, Any]) -> dict:
 
 
 @router.post("/api/audit/report/preview")
-def preview_audit_report(payload: Dict[str, Any], db: Session = Depends(get_db)):
-    """Предпросмотр данных для отчёта по аудиту"""
+def preview_audit_report(
+    payload: Dict[str, Any],
+    db: Session = Depends(get_db),
+    user: User = Depends(require_auditor),
+):
+    """Предпросмотр данных для отчёта по аудиту. Админ/Аудитор (BUG-054)."""
     return _audit_preview(db, payload)
 
 
 @router.post("/api/audit/report/export/excel")
-def export_audit_report_excel(payload: Dict[str, Any], db: Session = Depends(get_db)):
-    """Экспорт отчёта по аудиту в Excel"""
+def export_audit_report_excel(
+    payload: Dict[str, Any],
+    db: Session = Depends(get_db),
+    user: User = Depends(require_auditor),
+):
+    """Экспорт отчёта по аудиту в Excel. Админ/Аудитор (BUG-054)."""
     from fastapi.responses import StreamingResponse
     from openpyxl import Workbook
 
@@ -659,8 +687,12 @@ def export_audit_report_excel(payload: Dict[str, Any], db: Session = Depends(get
 
 
 @router.post("/api/audit/report/export/pdf")
-def export_audit_report_pdf(payload: Dict[str, Any], db: Session = Depends(get_db)):
-    """Экспорт отчёта по аудиту в PDF"""
+def export_audit_report_pdf(
+    payload: Dict[str, Any],
+    db: Session = Depends(get_db),
+    user: User = Depends(require_auditor),
+):
+    """Экспорт отчёта по аудиту в PDF. Админ/Аудитор (BUG-054)."""
     from fastapi.responses import StreamingResponse
     from reportlab.lib.pagesizes import A4
     from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer

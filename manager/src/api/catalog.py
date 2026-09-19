@@ -132,22 +132,22 @@ def get_catalog_tree(
                 current = current[part]["children"]
 
     def _aggregate(node):
-        if not node["children"]:
-            return node
-        for child in node["children"].values():
-            _aggregate(child)
-            node["total_findings"] += child["total_findings"] or 0
-            node["file_count"] += child["file_count"] or 0
-            if child["has_findings"]:
-                node["has_findings"] = True
-            if child["last_scanned"] and (node["last_scanned"] is None
-                                          or child["last_scanned"] > node["last_scanned"]):
-                node["last_scanned"] = child["last_scanned"]
-            if child["updated_at"] and (node["updated_at"] is None
-                                        or child["updated_at"] > node["updated_at"]):
-                node["updated_at"] = child["updated_at"]
-            child["children"] = list(child["children"].values())
-        node["children"] = list(node["children"].values())
+        children = node["children"]
+        if children:
+            for child in children.values():
+                _aggregate(child)
+                node["total_findings"] += child["total_findings"] or 0
+                node["file_count"] += child["file_count"] or 0
+                if child["has_findings"]:
+                    node["has_findings"] = True
+                if child["last_scanned"] and (node["last_scanned"] is None
+                                              or child["last_scanned"] > node["last_scanned"]):
+                    node["last_scanned"] = child["last_scanned"]
+                if child["updated_at"] and (node["updated_at"] is None
+                                            or child["updated_at"] > node["updated_at"]):
+                    node["updated_at"] = child["updated_at"]
+        # BUG-043: единый тип children — list (листья были {} и ломали WebUI).
+        node["children"] = list(children.values())
         return node
 
     result = {}

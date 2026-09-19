@@ -17,6 +17,8 @@ from datetime import datetime, timedelta
 
 from manager.src.db.session import get_db
 from manager.src.db import models
+from manager.src.auth.dependencies import require_admin
+from manager.src.auth.models import User
 
 router = APIRouter(tags=["audit"])
 
@@ -381,8 +383,12 @@ def get_audit_stats(days: int = Query(7, ge=1, le=30), db: Session = Depends(get
 
 
 @router.delete("/api/audit/agents/{agent_id}")
-def delete_audit_agent(agent_id: int, db: Session = Depends(get_db)):
-    """Удалить агент аудита. Связанные события остаются (agent_id = NULL)."""
+def delete_audit_agent(
+    agent_id: int,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_admin),
+):
+    """Удалить агент аудита. Связанные события остаются (agent_id = NULL). Только Admin (BUG-055)."""
     agent = db.query(models.AuditAgent).filter(models.AuditAgent.id == agent_id).first()
     if not agent:
         raise HTTPException(404, f"Agent {agent_id} not found")

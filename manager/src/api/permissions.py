@@ -24,6 +24,8 @@ from manager.src.db.session import get_db
 from manager.src.db import models
 from manager.src.services.access_service import AccessService
 from manager.src.services.access_config import get_access_config, AccessConfig
+from manager.src.auth.dependencies import require_admin, require_auditor
+from manager.src.auth.models import User
 
 router = APIRouter(
     prefix="/api/permissions",
@@ -91,9 +93,10 @@ def get_mode(db: Session = Depends(get_db)):
 @router.post("/mode", response_model=ModeResponse)
 def switch_mode(
     request: ModeSwitchRequest,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    user: User = Depends(require_admin),
 ):
-    """Переключить режим сбора прав (local/remote/ad/mixed)"""
+    """Переключить режим сбора прав (local/remote/ad/mixed). Только Admin (BUG-055)."""
     if request.mode not in ["local", "remote", "ad", "mixed"]:
         raise HTTPException(
             status_code=400, 
@@ -151,9 +154,10 @@ def resolve_sid(
 def sync_permissions(
     resource_id: int = Query(..., description="ID ресурса для синхронизации"),
     force: bool = Query(False, description="Принудительная синхронизация"),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    user: User = Depends(require_admin),
 ):
-    """Синхронизировать права доступа для ресурса"""
+    """Синхронизировать права доступа для ресурса. Только Admin (BUG-055)."""
     service = AccessService(db)
     
     try:
@@ -437,9 +441,10 @@ def get_alerts_stats(
 def update_alert_status(
     alert_id: int,
     request: AlertUpdateRequest,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    user: User = Depends(require_auditor),
 ):
-    """Обновить статус алерта (open → acknowledged/resolved/ignored)"""
+    """Обновить статус алерта (open → acknowledged/resolved/ignored). Админ/Аудитор (BUG-055)."""
     alert = db.query(models.AccessAlert).filter(models.AccessAlert.id == alert_id).first()
     if not alert:
         raise HTTPException(404, f"Alert {alert_id} not found")
@@ -469,9 +474,10 @@ def update_alert_status(
 @router.post("/alerts/{alert_id}/generate")
 def generate_alert(
     alert_id: int,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    user: User = Depends(require_auditor),
 ):
-    """Принудительно сгенерировать алерты для ресурса"""
+    """Принудительно сгенерировать алерты для ресурса. Админ/Аудитор (BUG-055)."""
     alert = db.query(models.AccessAlert).filter(models.AccessAlert.id == alert_id).first()
     if not alert:
         raise HTTPException(404, f"Alert {alert_id} not found")

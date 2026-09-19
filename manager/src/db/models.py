@@ -1,6 +1,6 @@
 # manager/src/db/models.py
 
-from sqlalchemy import Column, Integer, String, DateTime, Boolean, ForeignKey, Text, JSON, Float, Index
+from sqlalchemy import Column, Integer, String, DateTime, Boolean, ForeignKey, Text, JSON, Float, Index, UniqueConstraint
 from sqlalchemy.orm import relationship
 from sqlalchemy.ext.declarative import declarative_base
 from datetime import datetime
@@ -10,10 +10,16 @@ Base = declarative_base()
 
 class Resource(Base):
     __tablename__ = "resources"
+    __table_args__ = (
+        # BUG-059: уникальность по (path, type), а не только path — нормализуем
+        # type в lowercase при создании; индекс создаётся на новых БД.
+        UniqueConstraint("path", "type", name="uq_resources_path_type"),
+        Index("ix_resources_path", "path"),
+    )
 
     # Существующие поля
     id = Column(Integer, primary_key=True)
-    path = Column(String(500), nullable=False, unique=True)
+    path = Column(String(500), nullable=False)
     type = Column(String(50), default="FILESYSTEM")
     status = Column(String(20), default="ACTIVE")
     last_scanned_at = Column(DateTime, nullable=True)
