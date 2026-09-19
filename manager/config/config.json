@@ -19,8 +19,9 @@
     "auth": {
         "mode": "${AUTH_MODE:-hybrid}",
         "jwt_secret_key": "${JWT_SECRET_KEY:-change-me-in-production-32-chars-long}",
-        "jwt_access_ttl_minutes": 1440,
-        "jwt_refresh_ttl_days": 7,
+        "jwt_access_ttl_minutes": "${JWT_ACCESS_TTL_MINUTES:-1440}",
+        "jwt_refresh_ttl_days": "${JWT_REFRESH_TTL_DAYS:-7}",
+        "cookie_secure": "${AUTH_COOKIE_SECURE:-false}",
         "bcrypt_rounds": 12,
         "local_users_enabled": true,
         "auto_create_ad_users": true,

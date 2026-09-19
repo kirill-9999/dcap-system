@@ -128,6 +128,24 @@ python scripts/init_ad_test_data.py
 3. Локальный пользователь/пароль (JWT + Bcrypt)
 4. Кэшированный AD-пользователь (`ADCache`, Redis + memory-fallback)
 
+### 4.3.1 JWT TTL и cookie (BUG-038 / BUG-042)
+
+TTL токенов задаётся env и не захардкожен в config.json:
+
+```
+JWT_ACCESS_TTL_MINUTES=1440   # 24 часа
+JWT_REFRESH_TTL_DAYS=7
+```
+
+HttpOnly-cookie (`access_token`/`refresh_token`) шлются с `Secure`-флагом
+только при `AUTH_COOKIE_SECURE=true` (обязательно за HTTPS). Локальная
+разработка на `http://127.0.0.1` — флаг `false` (по умолчанию), иначе
+браузер не пришлёт cookie обратно.
+
+Refresh-токен используется только в `/api/auth/refresh` (BUG-039) и
+отзывается (blacklist jti) при каждой ротации и при `/logout` (BUG-041;
+черный список — Redis `jwt-blacklist:*`, fail-open без Redis).
+
 ## 4.4 Управление пользователями и ролями (RBAC WebUI)
 
 После входа под `admin` доступны страницы:
