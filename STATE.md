@@ -1,11 +1,13 @@
+📄 2. STATE.md (обновлённый)
+markdown
 > **Обновляется кодером в конце каждого рабочего дня.**
-> Это единственный источник правды о текущем состоянии проекта.
+> Единственный источник правды о текущем состоянии проекта.
 > План и бэклог — в `ROADMAP.md`. Архитектура — в `ARCHITECTURE.md`.
 
-**Обновлено:** 19.09.2026
+**Обновлено:** 19.09.2026 (вечер)
 **Текущая версия:** v3.13.8
 **Целевая версия:** v3.0.0 (релиз)
-**Статус:** 🟢 Блок 1 (фиксы): BUG-034 завершён (v3.13.7); AD-контейнер переупакован в профиль (v3.13.8)
+**Статус:** 🔴 Блок 2 (Auth/RBAC) закрыт с 20+ багами → **fix-спринт**
 
 ---
 
@@ -13,10 +15,10 @@
 
 | Параметр | Значение |
 |----------|----------|
-| Текущий день | 44 — AD-контейнер: упаковка через profile 'ad' (v3.13.8) |
-| Статус дня | ✅ Выполнен |
-| Последний принятый отчёт | `day_44_ad_packaging_report.md` (v3.13.8) |
-| Следующий шаг | ТЗ Блока 2 (следующие баги/фичи) |
+| Текущий день | 45 — Fix-спринт по результатам Блока 2 |
+| Статус дня | 📋 Запуск |
+| Последний принятый отчёт | `STATE_TEST_SESSION.md` (19.09.2026, вечер) |
+| Следующий шаг | Закрыть BUG-039/046/047/048 (критичные), потом 037/043/045/049-059 |
 | Открытые вопросы к архитектору | — |
 
 ---
@@ -25,165 +27,82 @@
 
 | День | Задача | Версия | Отчёт |
 |------|--------|--------|-------|
-| 28 | WebUI редизайн | v3.0.0 | — |
-| 29-35 | Стандартизация, аутентификация, S3, AD, безопасность, архивация, Secret Scanner | до v3.4.0 | — |
-| 36-37 | Масштабирование (PG, Redis, Celery) | v3.5.0 | — |
-| 38 | Контейнеризация и деплой | v3.6.0 | `day_38_report.md` |
-| 38.5 | Scanner: Docker → хост | v3.6.2 | `day_38.5_report.md` |
-| 39 | Мониторинг + Heartbeat-thread | v3.7.0 | `day_39_report.md` |
-| 40-41 | Тестирование (E2E + Chaos + Load) | v3.8.0 | `day_40-41_report.md` |
-| 40.1 | Findings Refactor: модель + шифрование + API (Этап 1) | v3.9.0 | `day_40.1_report.md` |
-| 40.2 | Findings Refactor: сканер (Этап 2) | v3.10.0 | `day_40.2_report.md` |
-| 40.3 | Findings Refactor: WebUI (Этап 3) | v3.11.0 | `day_40.3_report.md` |
-| 40.4 | Findings Refactor: фрагменты + экспорт (Этап 4) | v3.12.0 | `day_40.4_report.md` |
-| 42.1 | Админ-руководство: установка + конфигурация | — | 📋 |
-| 42.2 | Админ-руководство: аутентификация + безопасность | — | 📋 |
-| 42.3 | Админ-руководство: сканер + агенты | — | 📋 |
-| 42.4 | Админ-руководство: мониторинг + retention + troubleshooting + FAQ | — | 📋 |
-| 42 | Публикация на GitHub | — | 📋 |
-| 43 | Блок 1 (фиксы): BUG-034/035/027/022 + Deploy/Config + WebUI | v3.13.3 | `day_43_block1_fix_report.md` |
-| 43 (далее) | Блок 1 (продолжение): BUG-022.9 (приоритизация категорий) | v3.13.6 | `day_43_3_bug_022_9_report.md` |
-| 44 | BUG-034: зависшие задачи сканера при прерывании | v3.13.7 | `day_44_bug_034_report.md` |
-| 44 (далее) | AD-контейнер: корректная упаковка (profile 'ad') | v3.13.8 | `day_44_ad_packaging_report.md` |
-| 43 (далее) | Релиз v3.0.0 | — | 📋 |
+| 28-40.4 | WebUI, AD, безопасность, Findings Refactor, фрагменты | до v3.12.0 | *(см. предыдущие STATE)* |
+| 42.1 | Админ-руководство: установка + конфигурация | — | ✅ |
+| 42.2 | Админ-руководство: аутентификация + безопасность | — | ✅ |
+| 43 (блок 1) | BUG-034/035/027/022 + Deploy/Config + WebUI | v3.13.3-4 | `day_43_*` |
+| 44 (BUG-034) | Зависшие задачи сканера при прерывании | v3.13.7 | `day_44_bug_034_report.md` |
+| 44 (AD) | AD-контейнер: профиль 'ad' | v3.13.8 | `day_44_ad_packaging_report.md` |
+| **45 (тест)** | **Мастер-сессия: Блок 2 (Auth/RBAC)** | **v3.13.8** | **`STATE_TEST_SESSION.md`** |
 
 ---
 
-## ⚠️ Открытые проблемы
+## 🔴 Открытые проблемы (fix-спринт)
 
-| ID | Проблема | Статус | Приоритет |
-|----|----------|--------|-----------|
-| BACKLOG-039 | Аудит NOT NULL полей в приёмных эндпоинтах | 📋 | 🟡 |
-| BACKLOG-044 | Защита `/metrics` (JWT/basic_auth для Prometheus scrape) | 📋 production | 🟡 |
-| BACKLOG-045 | Параметризация портов экспортеров в compose | 📋 | 🟢 |
-| **BACKLOG-063** | **Presidio медленный на файлах 100k+ строк** | 📋 v3.1.0 | 🟡 |
-| **BACKLOG-064** | **Бенчмарк построчного сканирования (до/после)** | 📋 v3.1.0 | 🟢 |
-| **BACKLOG-065** | **Удалить `findings_old` после проверки** | 📋 v3.0.0 | 🟢 |
-| **BACKLOG-068** | **linux-агент: build fail из корня compose (`COPY config.json` из контекста `.`)** | 📋 | 🟡 |
+### Критичные (блокеры v3.0.0)
 
-*(Закрытые в v3.7.0: BACKLOG-021, 037, 038, 041, 042)*
-*(Закрытые в v3.8.0 при валидации: alembic 002 на fresh-PG, rate-limit/login-limit через env, гонка /api/tasks/create, tmpfs postgres_test → named volume)*
-*(Закрытые в v3.9.0: доступ к «сырым» значениям в API — только masked + reveal для Auditor; BACKLOG-050/051/052)*
-*(Закрытые в v3.10.0: сканер переведён на новую модель (Finding + построчно), FP-фильтр до отправки, дедупликация в Manager; BACKLOG-053/054/055)*
-*(Закрытые в v3.11.0: WebUI на строчной модели (BACKLOG-056/057), прогресс сканера (BACKLOG-043), MD5 → SHA-256 (BACKLOG-066), деградация WebUI v3.8 устранена (BACKLOG-061))*
-*(Закрытые в v3.12.0: фрагменты изображений (BACKLOG-058), hex-дамп бинарных (BACKLOG-059), экспорт с маскированием (BACKLOG-060), X-Total-Count в /api/findings (BACKLOG-067))*
+| ID | Проблема | Компонент |
+|----|----------|-----------|
+| BUG-039 | Refresh-токен принимается как access | `auth/jwt.py::verify_token` |
+| BUG-046 | Все роли DELETE `/api/resources/{id}` | `api/resources.py:104` |
+| BUG-047 | DELETE `/api/tasks/{id}` без auth | `api/tasks.py:91` |
+| BUG-048 | DELETE `/api/scanner/{id}` без auth + 500 | `api/scanner.py:706` |
+
+### Важные
+
+| ID | Проблема |
+|----|----------|
+| BUG-037 | `_defaults.group_mapping` — ед.ч. vs мн.ч. |
+| BUG-043 | `/api/catalog/tree` → 500 |
+| BUG-045 | `/api/scanner/*` → 500 |
+| BUG-049…055 | 7 unprotected write-эндпоинтов |
+| BUG-057 | Scanner legacy mode by default |
+| BUG-059 | `POST tasks/create` 500 |
+
+### Средние
+
+| ID | Проблема |
+|----|----------|
+| BUG-038 | TTL не в env |
+| BUG-041 | Reuse refresh |
+| BUG-042 | `secure=False` hardcoded |
+| BUG-044 | `context_before` не маскирует домен |
+| BUG-058 | Manager не компенсирует `line_text_encrypted` |
 
 ---
 
-## 🔴 Критично к релизу (v3.0.0)
+## 🎯 Ключевые решения (обновлённые)
 
-| ID | Задача | День | Статус |
-|----|--------|------|--------|
-| BACKLOG-028 | Публикация на GitHub | 42 | 📋 |
-| — | Админ-руководство (4 под-дня) | 42.1-42.4 | 📋 |
-| — | Релиз v3.0.0 | 43 | 📋 |
+**Findings Refactor (v3.9.0-v3.12.0):**
+- Findings = строка/фрагмент, гибрид masked + AES-256-GCM
+- HMAC-SHA256 fingerprint
+- **NEW: Scanner должен работать fail-fast без ключей** (BUG-057 fix)
+- **NEW: Manager компенсирует `line_text_encrypted`** (BUG-058 fix)
 
----
-
-## 🚫 Ключевые решения (краткие)
-
-**Findings Refactor (v3.9.0-v3.10.0):**
-- **Findings = строка/фрагмент** (не файл): `fragment_type`, `line_number`, `bounding_box`, `byte_*`, `hex_preview`
-- **Гибридное хранение** — masked + AES-256-GCM encrypted; reveal только Auditor с записью `audit_logs`
-- **HMAC-SHA256 fingerprint** для дедупликации/сторожевых FP; ключи — Docker Secrets / env
-- **Сканер шифрует/маскирует находки на хосте** до отправки; без ключей — legacy-режим (Manager шифрует сам)
-- **Дедупликация в Manager** по fingerprint: FP не пересоздаются, повторные находки обновляют `last_seen_at`
-- **Batch FP-фильтр** `check-fingerprints` до отправки
-- **MD5 → SHA-256** (BACKLOG-066, крипто-фикс) — **закрыт в 40.3**
-- **WebUI на строчной модели** (40.3): `/findings` (фильтры, bulk, экспорт), `/findings/{id}` (reveal + FP), `/catalog` (дерево файл→строки), `/false-positives`; общий `webui/static/js/api.js`; панель «Сканеры» с прогрессом из heartbeat
-- **Фрагменты и экспорт** (40.4, v3.12.0):
-  - **`GET /api/findings/{id}/fragment`** — PNG (image_region, вырезанный или crop по `bounding_box` через Pillow) или hex-дамп (byte_range, `?format=hex`, окно ±64 байта); person → только Auditor+
-  - **`GET /api/findings/export`** — CSV/JSON с маскированием по умолчанию, `?reveal=true` (Auditor+) с аудитом `findings_exported`; CSV injection protection (`csv_utils.sanitize_csv_cell`), BOM для Excel
-  - **CSV/JSON BOM + Content-Disposition: attachment**, проброс через WebUI-прокси
-  - **X-Total-Count** в `GET /api/findings` (BACKLOG-067) → пагинация с номерами страниц в WebUI
+**Аутентификация (Блок 2):**
+- **NEW: `verify_token(token, expected_type)`** — access ≠ refresh (BUG-039)
+- **NEW: RBAC системно** — `Depends(require_role(...))` во все write-эндпоинты (BUG-046…055)
+- **NEW: Cookie `Secure`** — авто по HTTPS или env (BUG-042)
+- **NEW: `jti` + `iat`** в JWT для blacklist'а (BUG-041 + TEST-NOTE-2.6a)
 
 **Общие:**
-- **Scanner — на хосте, не в Docker** (bind-mount невозможен)
-- **Heartbeat-thread** — выделенный daemon-поток (v3.7.0)
-- **spaCy-модели `sm`** (не `lg`)
-- **spnego убран** из requirements (нет на PyPI)
-- **Rust Scanner (v3.1.0, BACKLOG-036)** — IPC (JSON-RPC, `interprocess`), CIFS через `pavao` + `libsmbclient`, NFS через `nfs-rs` (чистый Rust, авто-монтирование через API), Tesseract/Presidio на Python
-
-*(Полный список — в `ARCHITECTURE.md`)*
+- Scanner — на хосте, не в Docker
+- Heartbeat-thread — выделенный daemon
+- spaCy-модели `sm`
 
 ---
 
-## 📘 План админ-руководства (Дни 42.1-42.4)
+## 📁 Последние файлы (Блок 2)
 
-**Принцип:** документация = проверенный факт. Кодер валидирует каждый раздел по реальному коду.
-
-**Структура `docs/admin-guide/`:**
-- `README.md` — оглавление + быстрый старт
-- `01-architecture.md`
-- `02-installation.md`
-- `03-configuration.md`
-- `04-authentication.md`
-- `05-security.md`
-- `06-scanner.md`
-- `07-agents.md`
-- `08-monitoring.md`
-- `09-retention.md`
-- `10-troubleshooting.md`
-- `11-faq.md`
-
-**Разбивка по дням:**
-- 42.1 — установка + конфигурация
-- 42.2 — аутентификация + безопасность
-- 42.3 — сканер + агенты
-- 42.4 — мониторинг + retention + troubleshooting + FAQ
+- `manager/src/auth/{jwt,router,manager,middleware,dependencies}.py`
+- `manager/src/api/{findings,scanner,tasks,resources,webui,audit,permissions,catalog}.py`
+- `manager/src/config.py`, `manager/src/db/models.py`
+- `scanner/src/{encryption,managed_scanner}.py`
+- `backups/dcap_20260919_172037.sql` (1.1 МБ)
+- `TZ_FIX_SPRINT.md` (задание на доработку)
 
 ---
 
-## 📁 Последние использованные файлы
-
-- `prompts/reports/day_44_ad_packaging_report.md` — отчёт v3.13.8
-- `docker-compose.yml` — сервис `samba-ad-dc` (profile `ad`, aliases dcap.local), тома samba_data/samba_logs, VERSION 3.13.8
-- `docker-compose.ad.yml.example` — переименован из docker-compose.ad.yml (redis удалён)
-- `docs/admin-guide/04-authentication.md` — новый раздел AD/hybrid
-- `docs/deployment.md` — секция Active Directory (profile ad)
-- `prompts/reports/day_44_bug_034_report.md` — отчёт v3.13.7
-- `scanner/src/managed_scanner.py` — BUG-034: `fail_task` + обработка прерываний в run_loop
-- `manager/src/api/scanner.py` — BUG-034: endpoints fail/cancel, `_mark_stale_scanners` (assigned+running)
-- `tests/unit/test_stale_tasks.py` — BUG-034: 9 тестов (stale/fail/cancel)
-- `prompts/reports/day_43_3_bug_022_9_report.md` — отчёт v3.13.6
-- `manager/src/api/scanner.py` — BUG-034.1 (stale→failed), BUG-035 (batch/total, аккумуляция, финализация), status relaxed
-- `manager/src/api/tasks.py` — BUG-034.2 (`/tasks/{id}/cancel`), BUG-027.2 (files_scanned sync)
-- `manager/src/api/findings.py`, `schemas_findings.py` — W-66/W-67 (FP: file_path, reviewed_by_username), W-55 (encryption_key_id)
-- `manager/src/api/catalog.py` — W-60 (дерево каталога: is_folder, рекурсивная агрегация)
-- `scanner/src/managed_scanner.py` — BUG-035 (батчинг findings по 500)
-- `webui/static/js/{dashboard,false_positives,finding_detail,main}.js`, `webui/config.py`, `webui/main.py`, `webui/templates/base.html` — W-42/43/54/55/57/70
-
-## 📌 Что изменилось в STATE.md
-#	Изменение
-1	Статус: «40.3 в работе» (было «40.2 реализован»)
-2	Текущий день: 40.3 (было 40.3 — совпадает)
-3	Выполненные дни: добавлены строки 40.3 (🔄), 40.4, 42.1-42.4
-4	Открытые проблемы: добавлены BACKLOG-063, 064, 065, 066 (MD5→SHA-256, критично)
-5	Новый раздел: «🔴 Критично к релизу (v3.0.0)»
-6	Ключевые решения: добавлен MD5→SHA-256
-7	Новый раздел: «📘 План админ-руководства (42.1-42.4)»
-8	Последние файлы: обновлено (40.3 ТЗ передано, промпты картинок)
-💾 Что сохранить для следующей беседы
-Если лимит близко — сохрани три файла:
-
-Этот STATE.md (обновлённый)
-
-ROADMAP.md (актуальный — с BACKLOG-050…066, Дни 40.1-40.4, 42.1-42.4)
-
-ARCHITECTURE.md (актуальный — с Findings Refactor, шифрованием)
-
-Плюс краткое резюме:
-
-text
-Текущий день: 40.3 (WebUI, в работе)
-Версия: v3.10.0
-Следующий: 40.4 (фрагменты) → 42.1-42.4 (админ-руководство) → 42 (GitHub) → 43 (релиз)
-
-Ключевое:
-- Findings Refactor: 40.1 ✅, 40.2 ✅, 40.3 🔄, 40.4 📋
-- MD5 → SHA-256 — критично (BACKLOG-066)
-- Админ-руководство: 4 под-дня, кодер валидирует по коду
-- Картинка архитектуры: готова (DALL-E) + Mermaid для ARCHITECTURE.md
-- Rust Scanner (v3.1.0): IPC, CIFS (pavao), NFS (nfs-rs)
-
-Документация: STATE.md, ROADMAP.md, ARCHITECTURE.md, AGENTS.md
+**Актуально на:** 19.09.2026 (вечер)
+**Версия:** v3.13.8
+**Следующий шаг:** fix-спринт по TZ

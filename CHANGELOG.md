@@ -1,5 +1,40 @@
 # CHANGELOG
 
+## v3.13.9 (2026-09-19)
+
+### Fix-спринт (TZ_FIX_SPRINT.md) — Auth/RBAC + стабильность
+- **BUG-039**: refresh-токен больше не валиден как access — `verify_token(token, expected_type)`
+  проверяет `payload["type"]`; `/api/auth/refresh` требует `"refresh"` (manager/src/auth/jwt.py, router.py)
+- **BUG-046**: RBAC на CRUD ресурсов: POST/DELETE `/api/resources`, PUT `/api/resources/{id}/config` —
+  только `admin`; POST `/api/resources/{id}/scan` — `admin/scanner` (manager/src/api/resources.py)
+- **BUG-047**: RBAC + транзакция на задачи: POST `/api/tasks/{id}/cancel` и DELETE `/api/tasks/{id}` —
+  только `admin`, DELETE возвращает 409 для `assigned/running`, rollback при ошибке (tasks.py)
+- **BUG-048**: DELETE `/api/scanner/{id}` — только `admin` (scanner.py)
+- **BUG-049..054**: RBAC на WebUI-эндпоинты: DELETE `/api/scanners/{id}` — admin; ping — scanner;
+  `/api/tasks/create` — scanner; `/api/resources/create` — admin; алерт-status и отчёты
+  (preview/excel/pdf) — auditor (webui.py)
+- **BUG-055**: DELETE `/api/audit/agents/{id}` — только admin; `/api/permissions` mode/sync — admin,
+  update/generate алертов — auditor (audit.py, permissions.py)
+- **BUG-037**: `group_mapping` в конфиге — множественное число (`DCAP_Admins/DCAP_Auditors/DCAP_Scanners`)
+- **BUG-043**: каталог `/api/catalog/tree` — `children` теперь всегда `list` (листья не ломали WebUI),
+  агрегация рекурсивная корректная (catalog.py)
+- **BUG-045**: `/api/scanner/heartbeat` — 400 при кривом JSON/`scanner_id`/`task_id` вместо 500
+- **BUG-057**: сканер fail-fast — без `FINDINGS_ENCRYPTION_KEY`/`FINDINGS_HMAC_KEY` не стартует;
+  legacy только при `DCAP_ALLOW_LEGACY_SCANNER=true` (run_scanner.py, scanner/src/encryption.py)
+- **BUG-058**: Manager fallback `line_text_encrypted` — если сканер не прислал шифрованную строку,
+  Manager шифрует сам (scanner.py submit_results)
+- **BUG-059**: POST `/api/tasks/create` — нормализация `resource_type` в lowercase + fallback поиска
+  без type при IntegrityError (больше не 500); уникальность ресурсов (path,type) — модель + Alembic 004
+  (webui.py, resources.py, models.py, migrations/004_resources_path_type_unique.py)
+- **BUG-038**: TTL JWT из env (`JWT_ACCESS_TTL_MINUTES`, `JWT_REFRESH_TTL_DAYS`) + bind-mount
+  `manager/config` в docker-compose
+- **BUG-041**: jti/iat во всех токенах; blacklist jti при logout и ротации refresh (Redis, fail-open)
+- **BUG-042**: HttpOnly-cookie `Secure`-флаг из `AUTH_COOKIE_SECURE` (default false для localhost)
+- **BUG-044**: маска email маскирует и домен (`us***@ex***.com`) — manager + scanner encryption
+- Тесты: `tests/unit/test_rbac_guard.py`, `test_jwt_type.py`, `test_catalog_tree.py`,
+  `test_tasks_create.py` + обновлены `test_encryption.py`, `test_scanner_findings.py`
+  (всего 109 unit-тестов, green)
+
 ## v3.13.1 (2026-09-13)
 
 ### Файловый PII-анализ + остановка по Ctrl+C (день 42.5+, по прямому ТЗ)
