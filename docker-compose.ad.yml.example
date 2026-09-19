@@ -1,0 +1,49 @@
+# docker-compose.ad.yml.example
+# Samba AD DC для тестирования AD-аутентификации DCAP (День 33).
+#
+# С v3.13.8 AD-сервис встроен в ОСНОВНОЙ docker-compose.yml через профиль 'ad':
+#   docker compose --profile ad up -d
+#
+# Этот файл — справка (комментарий), НЕ используется напрямую.
+# Оставлен как .example: не логируется Docker'ом и не конфликтует с основным стеком.
+# Если нужен изолированный standalone-запуск — скопируйте и адаптируйте под свой
+# project имя + external network (см. docs/deployment.md, раздел про AD).
+
+services:
+  samba-ad-dc:
+    image: diegogslomp/samba-ad-dc
+    container_name: dcap-ad-dc
+    privileged: true
+    restart: unless-stopped
+    environment:
+      REALM: 'SAMDOM.EXAMPLE.COM'
+      DOMAIN: 'SAMDOM'
+      ADMIN_PASS: 'Passw0rd'
+      DNS_FORWARDER: '8.8.8.8'
+    hostname: DC1
+    # Проблема samba-domain-provision: контейнер стартует в docker-сети, и `ip a`
+    # в докер-контейнере отдаёт @ifN (например eth0@if7) в smb.conf,
+    # из-за чего samba стартует на loopback (недоступен LDAP снаружи).
+    # Фикс: заменить interfaces на eth0 после provisioning.
+    command: ["/bin/bash", "-c", "samba-domain-provision && sed -i 's/eth0@if[0-9]*/eth0/' /usr/local/samba/etc/smb.conf 2>/dev/null || true && samba -F"]
+    ports:
+      # host-часть 53/135/139/445 — из-за Windows-машины с занятыми этими портами
+      # (DNS/SMB), поэтому используем альтернативные host-порты.
+      - "1353:53"
+      - "1353:53/udp"
+      - "88:88"
+      - "464:464"
+      - "1135:135"
+      - "1139:139"
+      - "389:389"
+      - "1445:445"
+      - "636:636"
+      - "3268:3268"
+      - "3269:3269"
+    volumes:
+      - samba_data:/var/lib/samba
+      - samba_logs:/var/log/samba
+
+volumes:
+  samba_data:
+  samba_logs:

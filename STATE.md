@@ -3,9 +3,9 @@
 > План и бэклог — в `ROADMAP.md`. Архитектура — в `ARCHITECTURE.md`.
 
 **Обновлено:** 19.09.2026
-**Текущая версия:** v3.13.7
+**Текущая версия:** v3.13.8
 **Целевая версия:** v3.0.0 (релиз)
-**Статус:** 🟢 Блок 1 (фиксы): BUG-034 завершён (зависшие задачи сканера, v3.13.7)
+**Статус:** 🟢 Блок 1 (фиксы): BUG-034 завершён (v3.13.7); AD-контейнер переупакован в профиль (v3.13.8)
 
 ---
 
@@ -13,9 +13,9 @@
 
 | Параметр | Значение |
 |----------|----------|
-| Текущий день | 44 — BUG-034: зависшие задачи сканера (running) при прерывании (v3.13.7) |
+| Текущий день | 44 — AD-контейнер: упаковка через profile 'ad' (v3.13.8) |
 | Статус дня | ✅ Выполнен |
-| Последний принятый отчёт | `day_44_bug_034_report.md` (v3.13.7) |
+| Последний принятый отчёт | `day_44_ad_packaging_report.md` (v3.13.8) |
 | Следующий шаг | ТЗ Блока 2 (следующие баги/фичи) |
 | Открытые вопросы к архитектору | — |
 
@@ -44,6 +44,7 @@
 | 43 | Блок 1 (фиксы): BUG-034/035/027/022 + Deploy/Config + WebUI | v3.13.3 | `day_43_block1_fix_report.md` |
 | 43 (далее) | Блок 1 (продолжение): BUG-022.9 (приоритизация категорий) | v3.13.6 | `day_43_3_bug_022_9_report.md` |
 | 44 | BUG-034: зависшие задачи сканера при прерывании | v3.13.7 | `day_44_bug_034_report.md` |
+| 44 (далее) | AD-контейнер: корректная упаковка (profile 'ad') | v3.13.8 | `day_44_ad_packaging_report.md` |
 | 43 (далее) | Релиз v3.0.0 | — | 📋 |
 
 ---
@@ -58,6 +59,7 @@
 | **BACKLOG-063** | **Presidio медленный на файлах 100k+ строк** | 📋 v3.1.0 | 🟡 |
 | **BACKLOG-064** | **Бенчмарк построчного сканирования (до/после)** | 📋 v3.1.0 | 🟢 |
 | **BACKLOG-065** | **Удалить `findings_old` после проверки** | 📋 v3.0.0 | 🟢 |
+| **BACKLOG-068** | **linux-агент: build fail из корня compose (`COPY config.json` из контекста `.`)** | 📋 | 🟡 |
 
 *(Закрытые в v3.7.0: BACKLOG-021, 037, 038, 041, 042)*
 *(Закрытые в v3.8.0 при валидации: alembic 002 на fresh-PG, rate-limit/login-limit через env, гонка /api/tasks/create, tmpfs postgres_test → named volume)*
@@ -134,6 +136,11 @@
 
 ## 📁 Последние использованные файлы
 
+- `prompts/reports/day_44_ad_packaging_report.md` — отчёт v3.13.8
+- `docker-compose.yml` — сервис `samba-ad-dc` (profile `ad`, aliases dcap.local), тома samba_data/samba_logs, VERSION 3.13.8
+- `docker-compose.ad.yml.example` — переименован из docker-compose.ad.yml (redis удалён)
+- `docs/admin-guide/04-authentication.md` — новый раздел AD/hybrid
+- `docs/deployment.md` — секция Active Directory (profile ad)
 - `prompts/reports/day_44_bug_034_report.md` — отчёт v3.13.7
 - `scanner/src/managed_scanner.py` — BUG-034: `fail_task` + обработка прерываний в run_loop
 - `manager/src/api/scanner.py` — BUG-034: endpoints fail/cancel, `_mark_stale_scanners` (assigned+running)

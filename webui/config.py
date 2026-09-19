@@ -2,7 +2,7 @@
 import json
 from pathlib import Path
 
-VERSION = os.getenv("VERSION", "3.13.7")
+VERSION = os.getenv("VERSION", "3.13.8")
 
 BASE_DIR = Path(__file__).resolve().parent
 CONFIG_PATH = Path(os.getenv("WEBUI_CONFIG", BASE_DIR / "config" / "config.json"))

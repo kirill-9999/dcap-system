@@ -84,6 +84,46 @@ docker compose --profile agents up -d
 
 Для него в `.env` заполните `S3_ENDPOINT`, `S3_BUCKET`, `S3_ACCESS_KEY`, `S3_SECRET_KEY`.
 
+## Active Directory (Samba AD DC, profile `ad`)
+
+Собираются в **основной** docker-compose.yml как сервис `samba-ad-dc` с профилем
+`ad`. Вне профиля не запускается и не влияет на основной стек (redis, manager,
+s3-агент остаются).
+
+```bash
+# Без AD (обычный стек)
+docker compose up -d
+
+# С AD-контроллером домена — включается ТОЛЬКО сервис dcap-ad-dc
+docker compose --profile ad up -d
+```
+
+| Параметр | Значение |
+|----------|----------|
+| Образ | `diegogslomp/samba-ad-dc` |
+| Контейнер | `dcap-ad-dc` |
+| Realm / Domain | `SAMDOM.EXAMPLE.COM` / `SAMDOM` (env-переменные) |
+| Пароль админа | `Passw0rd` |
+| Host-порты | LDAP `389`, LDAPS `636`, DNS `1353→53`, SMB `1445→445` и др. |
+| Порт 53 на host занят → DNS наружу на `1353`; внутри docker-сети — `53` |
+| Сеть | `dcap-network` |
+
+Интеграция: Manager резолвит AD-контроллер по имени `dcap.local` (network alias
+сервиса `samba-ad-dc`), аутентификация — режим `hybrid` / `windows_integrated`
+(см. `docs/admin-guide/04-authentication.md`, раздел «Active Directory / hybrid»).
+
+> **Примечание.** Старый отдельный файл `docker-compose.ad.yml` удалён
+> (v3.13.8): его содержимое встроено в основной compose через profile `ad`.
+> Справочная копия — `docker-compose.ad.yml.example` (не используется compose).
+> Перед обновлением остановите ранее запущенный `docker compose -f docker-compose.ad.yml ...`,
+> иначе контейнер `dcap-ad-dc` будет orphan-ом.
+
+### Тестовые данные AD
+
+```bash
+python scripts/init_ad_test_data.py
+```
+
 ## Scanner (тяжёлый агент сканирования)
 
 Scanner — агент сканирования файлов (Tesseract, spaCy, Presidio), управляется через

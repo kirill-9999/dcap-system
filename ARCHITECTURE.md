@@ -149,7 +149,7 @@ dcap-system/
 ├── docker-compose.yml
 ├── docker-compose.prod.yml
 ├── docker-compose.test.yml       # 🆕 изолированный стек для тестов
-├── docker-compose.ad.yml
+├── docker-compose.ad.yml.example  # AD-сервис (samba-ad-dc) — profile 'ad' в docker-compose.yml
 ├── SECURITY.md
 ├── STATE.md                      # текущее состояние (обновляет кодер)
 ├── ROADMAP.md                    # план + бэклог
