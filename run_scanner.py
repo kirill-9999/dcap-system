@@ -19,6 +19,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 
 from scanner.src.managed_scanner import ManagedScanner
 from scanner.src.config_loader import load_config
+from scanner.src.encryption import get_encryption
 
 
 def print_usage():
@@ -103,7 +104,19 @@ def main():
     print(f"[TIME]  Интервал: {config.scanner.scan_interval} сек")
     print(f"[X] Уровень логов: {config.scanner.log_level}")
     print("=" * 60)
-    
+
+    # BUG-057: fail-fast — без ключей шифрования сканер не стартует.
+    # Legacy (plaintext) — только при DCAP_ALLOW_LEGACY_SCANNER=true.
+    try:
+        _enc = get_encryption(fail_if_missing=True)
+    except RuntimeError as e:
+        print(f"[ERROR] {e}")
+        print("[ERROR] Задайте FINDINGS_ENCRYPTION_KEY/FINDINGS_HMAC_KEY "
+              "(env или Docker Secrets) или включайте legacy "
+              "DCAP_ALLOW_LEGACY_SCANNER=true (только для разработки!)")
+        sys.exit(2)
+    print(f"[X] Шифрование находок: {'включено' if _enc else 'LEGACY (без шифрования!)'}")
+
     # Создаем сканер с конфигурацией
     scanner = ManagedScanner(
         name=config.scanner.name,

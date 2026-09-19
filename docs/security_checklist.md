@@ -31,6 +31,7 @@
 - [ ] `MTLS_ENABLED=true`, `MTLS_STRICT=true` (production)
 - [ ] Сертификаты сгенерированы (`generate_certs.py`)
 - [ ] Ключи находок сгенерированы (`generate_findings_keys.py`)
+- [ ] `DCAP_ALLOW_LEGACY_SCANNER` не задан/`false` (BUG-057: сканер fail-fast без ключей)
 - [ ] Docker Secrets настроены (не `.env`)
 - [ ] `DATABASE_URL` с `sslmode=require`
 - [ ] `REDIS_PASSWORD` установлен

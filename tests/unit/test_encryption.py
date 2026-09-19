@@ -29,7 +29,9 @@ class TestMask:
     def test_email(self):
         result = mask("user@example.com", "email")
         assert "user" not in result
-        assert "@example" in result
+        assert "example" not in result
+        # BUG-044: маскируются и local-part, и домен; TLD видимый.
+        assert result == "us***@ex***.com"
 
     def test_password(self):
         assert mask("P@ssw0rd", "password") == "***"

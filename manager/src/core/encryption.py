@@ -55,9 +55,27 @@ def _read_secret(name: str, default: Optional[bytes] = None) -> bytes:
 
 # ========== МАСКИРОВАНИЕ ==========
 
+def _mask_email(s: str) -> str:
+    """Маскирует email целиком (BUG-044): local и domain.
+
+    us***@ex***.com — первые 2 символа local-part и первого label домена,
+    остальное — маска; TLD остаётся видимым.
+    """
+
+    def repl(m):
+        local = m.group(1)
+        domain = m.group(2)
+        tld = m.group(3)
+        local_out = (local[:2] + "***") if len(local) >= 2 else "***"
+        domain_out = (domain[:2] + "***") if len(domain) >= 2 else "***"
+        return f"{local_out}@{domain_out}.{tld}"
+
+    return re.sub(r"([\w.+-]+)@([\w.-]+)\.([A-Za-z]{2,})", repl, s)
+
+
 MASK_RULES = {
     "phone": lambda s: _mask_phone(s),
-    "email": lambda s: re.sub(r"(\w{2})\w+@", r"\1***@", s),
+    "email": _mask_email,
     "api_key": lambda s: (s[:4] + "***") if len(s) > 4 else "***",
     "aws_key": lambda s: (s[:4] + "***") if len(s) > 4 else "***",
     "password": lambda s: "***",

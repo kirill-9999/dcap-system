@@ -40,6 +40,24 @@ def _read_secret(name: str, default: Optional[bytes] = None) -> bytes:
 
 # ========== МАСКИРОВАНИЕ ==========
 
+def _mask_email(s: str) -> str:
+    """Маскирует email целиком (BUG-044): local и domain.
+
+    us***@ex***.com — первые 2 символа local-part и первого label домена,
+    остальное — маска; TLD остаётся видимым.
+    """
+
+    def repl(m):
+        local = m.group(1)
+        domain = m.group(2)
+        tld = m.group(3)
+        local_out = (local[:2] + "***") if len(local) >= 2 else "***"
+        domain_out = (domain[:2] + "***") if len(domain) >= 2 else "***"
+        return f"{local_out}@{domain_out}.{tld}"
+
+    return re.sub(r"([\w.+-]+)@([\w.-]+)\.([A-Za-z]{2,})", repl, s)
+
+
 def _mask_phone(s: str) -> str:
     digits = re.sub(r"\D", "", s)
     if len(digits) == 11 and digits.startswith("7"):
@@ -51,7 +69,7 @@ def _mask_phone(s: str) -> str:
 
 MASK_RULES = {
     "phone": lambda s: _mask_phone(s),
-    "email": lambda s: re.sub(r"(\w{2})\w+@", r"\1***@", s),
+    "email": _mask_email,
     "api_key": lambda s: (s[:4] + "***") if len(s) > 4 else "***",
     "aws_key": lambda s: (s[:4] + "***") if len(s) > 4 else "***",
     "password": lambda s: "***",
@@ -157,19 +175,30 @@ class ScannerEncryption:
         self.key_id = key_id
 
     @classmethod
-    def from_env(cls) -> Optional["ScannerEncryption"]:
+    def from_env(cls, fail_if_missing: bool = True) -> Optional["ScannerEncryption"]:
         """
-        Загружает ключи из env/Docker Secrets. Если не заданы — возвращает None
-        (сканер работает в legacy-режиме без шифрования).
+        Загружает ключи из env/Docker Secrets.
+
+        По умолчанию fail_if_missing=True (BUG-057): если ключи не заданы —
+        RuntimeError (сканер не стартует). Режим legacy (без шифрования)
+        открывается только при DCAP_ALLOW_LEGACY_SCANNER=true.
         """
         enc_key = _read_optional_secret("findings_encryption_key", "FINDINGS_ENCRYPTION_KEY")
         hmac_key = _read_optional_secret("findings_hmac_key", "FINDINGS_HMAC_KEY")
 
         if not enc_key or not hmac_key:
-            logger.warning(
+            allow_legacy = os.getenv("DCAP_ALLOW_LEGACY_SCANNER", "false").lower() == "true"
+            msg = (
                 "FINDINGS_ENCRYPTION_KEY/FINDINGS_HMAC_KEY not set. "
-                "Scanner will send findings in legacy format (no encryption). "
-                "Manager will encrypt on receipt."
+                "Scanner cannot start without encryption keys. "
+                "Set them via env or Docker Secrets. "
+                "See docs/admin-guide/05-security.md."
+            )
+            if fail_if_missing and not allow_legacy:
+                raise RuntimeError(msg)
+            logger.warning(
+                "⚠️ SCANNER IN LEGACY MODE — plaintext leaves host! DEV ONLY! "
+                "Set DCAP_ALLOW_LEGACY_SCANNER=false in prod."
             )
             return None
 
@@ -218,11 +247,15 @@ _instance: Optional[ScannerEncryption] = None
 _initialized = False
 
 
-def get_encryption() -> Optional[ScannerEncryption]:
-    """Синглтон. Возвращает None, если ключи не заданы (legacy-режим)."""
+def get_encryption(fail_if_missing: bool = True) -> Optional[ScannerEncryption]:
+    """Синглтон. По умолчанию fail-fast (BUG-057): без ключей — RuntimeError.
+
+    Возвращает None только при явном fail_if_missing=False или
+    DCAP_ALLOW_LEGACY_SCANNER=true.
+    """
     global _instance, _initialized
     if not _initialized:
-        _instance = ScannerEncryption.from_env()
+        _instance = ScannerEncryption.from_env(fail_if_missing=fail_if_missing)
         _initialized = True
     return _instance
 

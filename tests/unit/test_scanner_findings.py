@@ -80,9 +80,23 @@ def _clear_keys():
 
 
 def test_encryption_disabled_without_keys():
+    """BUG-057: без ключей — RuntimeError (fail-fast), не None."""
     _clear_keys()
+    os.environ.pop("DCAP_ALLOW_LEGACY_SCANNER", None)
+    sen.reset_encryption()
+    with pytest.raises(RuntimeError):
+        sen.get_encryption()
+    sen.reset_encryption()
+
+
+def test_encryption_legacy_only_with_allow_env():
+    """BUG-057: legacy-режим (None) — только при DCAP_ALLOW_LEGACY_SCANNER=true."""
+    _clear_keys()
+    os.environ["DCAP_ALLOW_LEGACY_SCANNER"] = "true"
     sen.reset_encryption()
     assert sen.get_encryption() is None
+    sen.reset_encryption()
+    os.environ.pop("DCAP_ALLOW_LEGACY_SCANNER", None)
 
 
 def test_encryption_roundtrip(monkeypatch):
