@@ -2,10 +2,10 @@
 > Это единственный источник правды о текущем состоянии проекта.
 > План и бэклог — в `ROADMAP.md`. Архитектура — в `ARCHITECTURE.md`.
 
-**Обновлено:** 17.09.2026
-**Текущая версия:** v3.13.3
+**Обновлено:** 19.09.2026
+**Текущая версия:** v3.13.7
 **Целевая версия:** v3.0.0 (релиз)
-**Статус:** 🟢 Блок 1 (фиксы): BUG-034/035/027/022, Deploy/Config, WebUI W-42…W-73 (v3.13.3)
+**Статус:** 🟢 Блок 1 (фиксы): BUG-034 завершён (зависшие задачи сканера, v3.13.7)
 
 ---
 
@@ -13,10 +13,10 @@
 
 | Параметр | Значение |
 |----------|----------|
-| Текущий день | 43 — Блок 1 (фиксы): BUG-034/035/027/022 + Deploy/Config + WebUI (v3.13.3) |
+| Текущий день | 44 — BUG-034: зависшие задачи сканера (running) при прерывании (v3.13.7) |
 | Статус дня | ✅ Выполнен |
-| Последний принятый отчёт | `day_43_block1_fix_report.md` (v3.13.3) |
-| Следующий шаг | Приёмка отчёта Блока 1 → ТЗ Блока 2 (следующие баги/фичи) |
+| Последний принятый отчёт | `day_44_bug_034_report.md` (v3.13.7) |
+| Следующий шаг | ТЗ Блока 2 (следующие баги/фичи) |
 | Открытые вопросы к архитектору | — |
 
 ---
@@ -42,6 +42,8 @@
 | 42.4 | Админ-руководство: мониторинг + retention + troubleshooting + FAQ | — | 📋 |
 | 42 | Публикация на GitHub | — | 📋 |
 | 43 | Блок 1 (фиксы): BUG-034/035/027/022 + Deploy/Config + WebUI | v3.13.3 | `day_43_block1_fix_report.md` |
+| 43 (далее) | Блок 1 (продолжение): BUG-022.9 (приоритизация категорий) | v3.13.6 | `day_43_3_bug_022_9_report.md` |
+| 44 | BUG-034: зависшие задачи сканера при прерывании | v3.13.7 | `day_44_bug_034_report.md` |
 | 43 (далее) | Релиз v3.0.0 | — | 📋 |
 
 ---
@@ -132,8 +134,11 @@
 
 ## 📁 Последние использованные файлы
 
-- `prompts/reports/day_43_block1_fix_report.md` — отчёт v3.13.3
-- `prompts/archive/day_43_block1_fix.md` — ТЗ Блока 1 заархивировано
+- `prompts/reports/day_44_bug_034_report.md` — отчёт v3.13.7
+- `scanner/src/managed_scanner.py` — BUG-034: `fail_task` + обработка прерываний в run_loop
+- `manager/src/api/scanner.py` — BUG-034: endpoints fail/cancel, `_mark_stale_scanners` (assigned+running)
+- `tests/unit/test_stale_tasks.py` — BUG-034: 9 тестов (stale/fail/cancel)
+- `prompts/reports/day_43_3_bug_022_9_report.md` — отчёт v3.13.6
 - `manager/src/api/scanner.py` — BUG-034.1 (stale→failed), BUG-035 (batch/total, аккумуляция, финализация), status relaxed
 - `manager/src/api/tasks.py` — BUG-034.2 (`/tasks/{id}/cancel`), BUG-027.2 (files_scanned sync)
 - `manager/src/api/findings.py`, `schemas_findings.py` — W-66/W-67 (FP: file_path, reviewed_by_username), W-55 (encryption_key_id)

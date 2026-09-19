@@ -97,10 +97,10 @@ def _mark_stale_scanners(db: Session):  # BUG-034.1 (06045225 R): stale assigned
         return
 
     for s in stale:
-        # BUG-034.1: tasks assigned to stale scanner -> failed
+        # BUG-034.1: tasks assigned/running on stale scanner -> failed
         _ids_06045225 = [r[0] for r in db.query(models.ScanTask.id).filter(
             models.ScanTask.scanner_id == s.id,
-            models.ScanTask.status == "assigned").all()]
+            models.ScanTask.status.in_(["assigned", "running"])).all()]
         if _ids_06045225:
             db.query(models.ScanTask).filter(
                 models.ScanTask.id.in_(_ids_06045225)
@@ -639,6 +639,39 @@ def get_assigned_tasks(
         }
         for t in tasks
     ]
+
+
+@router.post("/tasks/{task_id}/fail")
+def fail_task(
+    task_id: int,
+    payload: dict,
+    db: Session = Depends(session.get_db),
+):
+    """BUG-034: сканер уведомляет о прерывании задачи."""
+    task = db.query(models.ScanTask).filter(models.ScanTask.id == task_id).first()
+    if not task:
+        raise HTTPException(404, "Task not found")
+    if task.status in ("completed", "failed"):
+        return {"status": task.status, "id": task_id, "already": True}
+    task.status = "failed"
+    task.completed_at = datetime.utcnow()
+    db.commit()
+    logger.info(f"[FailTask] Task {task_id} marked failed: {payload.get('reason', 'unknown')}")
+    return {"status": "failed", "id": task_id}
+
+
+@router.post("/tasks/{task_id}/cancel")
+def cancel_task(task_id: int, db: Session = Depends(session.get_db)):
+    """BUG-034: ручная отмена задачи (Admin/Auditor)."""
+    task = db.query(models.ScanTask).filter(models.ScanTask.id == task_id).first()
+    if not task:
+        raise HTTPException(404, "Task not found")
+    if task.status in ("completed", "failed"):
+        return {"status": task.status, "id": task_id, "already": True}
+    task.status = "failed"
+    task.completed_at = datetime.utcnow()
+    db.commit()
+    return {"status": "failed", "id": task_id}
 
 
 @router.post("/tasks/{task_id}/release")

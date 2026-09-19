@@ -322,6 +322,22 @@ class ManagerClient:
             logger.warning("[CheckFingerprints] Error: %s", e)
             return None
 
+    def fail_task(self, task_id: int, reason: str = "scanner aborted") -> bool:
+        """BUG-034: уведомить Manager о прерывании задачи (Ctrl+C/stop)."""
+        if self.scanner_id is None:
+            return False
+        url = f"{self.base_url}/api/scanner/tasks/{task_id}/fail"
+        try:
+            response = self.session.post(url, json={"reason": reason}, timeout=self.timeout)
+            if response.status_code == 200:
+                logger.info(f"[FailTask] Task {task_id} marked failed")
+                return True
+            logger.warning(f"[FailTask] Failed: {response.status_code}")
+            return False
+        except Exception as e:
+            logger.error(f"[FailTask] Error: {e}")
+            return False
+
 
 class ManagedScanner:
     def __init__(
@@ -1235,7 +1251,11 @@ class ManagedScanner:
                     result = self._execute_task(task)
                     
                     if self._should_exit or self._stop_event.is_set():
-                        logger.warning("[STOP] Задача прервана пользователем — результаты не отправлены")
+                        logger.warning("[STOP] Задача прервана пользователем — уведомляем Manager")
+                        try:
+                            self.client.fail_task(task["id"], reason="scanner aborted (Ctrl+C)")
+                        except Exception as e:
+                            logger.error(f"[STOP] Не удалось уведомить Manager: {e}")
                         break
                     
                     success = self.client.submit_results(
@@ -1257,6 +1277,12 @@ class ManagedScanner:
                     time.sleep(self.interval)
                     
             except KeyboardInterrupt:
+                logger.warning("[STOP] Ctrl+C — задача прервана, уведомляем Manager")
+                try:
+                    if "task" in locals() and task:
+                        self.client.fail_task(task["id"], reason="scanner aborted (Ctrl+C)")
+                except Exception as e:
+                    logger.error(f"[STOP] Не удалось уведомить Manager: {e}")
                 break
             except Exception as e:
                 logger.error(f"[ERROR] Ошибка в основном цикле: {e}")

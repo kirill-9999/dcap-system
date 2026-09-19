@@ -1,17 +1,17 @@
-# DCAP System — полный стек (День 38)
-# Деплой одной командой: docker compose up -d
+﻿# DCAP System вЂ” РїРѕР»РЅС‹Р№ СЃС‚РµРє (Р”РµРЅСЊ 38)
+# Р”РµРїР»РѕР№ РѕРґРЅРѕР№ РєРѕРјР°РЅРґРѕР№: docker compose up -d
 # Production overrides: docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
 #
-# Агенты (S3/MinIO) запускаются через profile: agents
+# РђРіРµРЅС‚С‹ (S3/MinIO) Р·Р°РїСѓСЃРєР°СЋС‚СЃСЏ С‡РµСЂРµР· profile: agents
 #   docker compose --profile agents up -d
 #
-# Сканер НЕ в Docker (День 38.5+) — он запускается на хосте через run_scanner.py:
+# РЎРєР°РЅРµСЂ РќР• РІ Docker (Р”РµРЅСЊ 38.5+) вЂ” РѕРЅ Р·Р°РїСѓСЃРєР°РµС‚СЃСЏ РЅР° С…РѕСЃС‚Рµ С‡РµСЂРµР· run_scanner.py:
 #   python run_scanner.py scanner/config/scanner_config.json
-# Причина: задания приходят с путями хоста (E:\..., /mnt/...). Docker-контейнер
-# может видеть только заранее смонтированные тома и не может сам примонтировать
-# папку из задания. На хосте сканер видит любые пути напрямую.
+# РџСЂРёС‡РёРЅР°: Р·Р°РґР°РЅРёСЏ РїСЂРёС…РѕРґСЏС‚ СЃ РїСѓС‚СЏРјРё С…РѕСЃС‚Р° (E:\..., /mnt/...). Docker-РєРѕРЅС‚РµР№РЅРµСЂ
+# РјРѕР¶РµС‚ РІРёРґРµС‚СЊ С‚РѕР»СЊРєРѕ Р·Р°СЂР°РЅРµРµ СЃРјРѕРЅС‚РёСЂРѕРІР°РЅРЅС‹Рµ С‚РѕРјР° Рё РЅРµ РјРѕР¶РµС‚ СЃР°Рј РїСЂРёРјРѕРЅС‚РёСЂРѕРІР°С‚СЊ
+# РїР°РїРєСѓ РёР· Р·Р°РґР°РЅРёСЏ. РќР° С…РѕСЃС‚Рµ СЃРєР°РЅРµСЂ РІРёРґРёС‚ Р»СЋР±С‹Рµ РїСѓС‚Рё РЅР°РїСЂСЏРјСѓСЋ.
 #
-# Build-контекст manager/worker/beat/s3 — КОРЕНЬ репо (пакет shared/ + root requirements.txt).
+# Build-РєРѕРЅС‚РµРєСЃС‚ manager/worker/beat/s3 вЂ” РљРћР Р•РќР¬ СЂРµРїРѕ (РїР°РєРµС‚ shared/ + root requirements.txt).
 
 x-logging: &default-logging
   driver: "json-file"
@@ -23,7 +23,7 @@ x-restart: &default-restart
   restart: unless-stopped
 
 services:
-  # ===== БАЗА ДАННЫХ =====
+  # ===== Р‘РђР—Рђ Р”РђРќРќР«РҐ =====
   postgres:
     image: postgres:16-alpine
     container_name: dcap-postgres
@@ -69,7 +69,7 @@ services:
     build:
       context: .
       dockerfile: manager/Dockerfile
-    image: dcap/manager:${VERSION:-3.13.6}
+    image: dcap/manager:${VERSION:-3.13.7}
     container_name: dcap-manager
     environment:
       DATABASE_URL: postgresql://${POSTGRES_USER:-dcap}:${POSTGRES_PASSWORD:-dcap123}@postgres:5432/${POSTGRES_DB:-dcap}
@@ -77,8 +77,8 @@ services:
       REDIS_PASSWORD: ${REDIS_PASSWORD:-redis123}
       JWT_SECRET_KEY: ${JWT_SECRET_KEY:-change-me-in-production}
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
-      VERSION: ${VERSION:-3.13.6}
-      # Fallback для dev (если secrets не заданы)
+      VERSION: ${VERSION:-3.13.7}
+      # Fallback РґР»СЏ dev (РµСЃР»Рё secrets РЅРµ Р·Р°РґР°РЅС‹)
       FINDINGS_KEY_ID: ${FINDINGS_KEY_ID:-key-2026-09}
     secrets:
       - findings_encryption_key
@@ -105,16 +105,16 @@ services:
     build:
       context: .
       dockerfile: manager/Dockerfile
-    image: dcap/manager:${VERSION:-3.13.6}
+    image: dcap/manager:${VERSION:-3.13.7}
     environment:
       DATABASE_URL: postgresql://${POSTGRES_USER:-dcap}:${POSTGRES_PASSWORD:-dcap123}@postgres:5432/${POSTGRES_DB:-dcap}
       REDIS_URL: redis://:${REDIS_PASSWORD:-redis123}@redis:6379/0
       REDIS_PASSWORD: ${REDIS_PASSWORD:-redis123}
       JWT_SECRET_KEY: ${JWT_SECRET_KEY:-change-me-in-production}
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
-      VERSION: ${VERSION:-3.13.6}
+      VERSION: ${VERSION:-3.13.7}
     command: celery -A manager.src.workers.celery_app:app worker -Q audit_events,scanner_tasks,retention,reports -c 4 --loglevel=info
-    healthcheck: # celery-worker: не HTTP-сервер, поэтому НЕ наследуем HEALTHCHECK manager/Dockerfile (curl :8000/api/health)
+    healthcheck: # celery-worker: РЅРµ HTTP-СЃРµСЂРІРµСЂ, РїРѕСЌС‚РѕРјСѓ РќР• РЅР°СЃР»РµРґСѓРµРј HEALTHCHECK manager/Dockerfile (curl :8000/api/health)
       test: ["CMD-SHELL", "celery -A manager.src.workers.celery_app:app inspect ping --timeout=10 || exit 1"]
       interval: 30s
       timeout: 15s
@@ -135,16 +135,16 @@ services:
     build:
       context: .
       dockerfile: manager/Dockerfile
-    image: dcap/manager:${VERSION:-3.13.6}
+    image: dcap/manager:${VERSION:-3.13.7}
     container_name: dcap-celery-beat
     environment:
       REDIS_URL: redis://:${REDIS_PASSWORD:-redis123}@redis:6379/0
       REDIS_PASSWORD: ${REDIS_PASSWORD:-redis123}
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
-      VERSION: ${VERSION:-3.13.6}
+      VERSION: ${VERSION:-3.13.7}
     command: celery -A manager.src.workers.celery_app:app beat --loglevel=info
     healthcheck:
-      # celery beat — планировщик, а не HTTP-сервер: проверяем брокер (redis) через python socket.
+      # celery beat вЂ” РїР»Р°РЅРёСЂРѕРІС‰РёРє, Р° РЅРµ HTTP-СЃРµСЂРІРµСЂ: РїСЂРѕРІРµСЂСЏРµРј Р±СЂРѕРєРµСЂ (redis) С‡РµСЂРµР· python socket.
       test:
         - "CMD-SHELL"
         - python3 -c "import socket;s=socket.create_connection(('redis',6379),timeout=5);s.sendall(b'PING\r\n');print(s.recv(1024).decode());s.close()" | grep -qE "PONG|NOAUTH" || exit 1
@@ -180,12 +180,12 @@ services:
     build:
       context: ./webui
       dockerfile: Dockerfile
-    image: dcap/webui:${VERSION:-3.13.6}
+    image: dcap/webui:${VERSION:-3.13.7}
     container_name: dcap-webui
     environment:
       MANAGER_URL: http://manager:8000
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
-      VERSION: ${VERSION:-3.13.6}
+      VERSION: ${VERSION:-3.13.7}
     ports:
       - "${WEBUI_PORT:-8001}:8001"
     depends_on:
@@ -201,7 +201,7 @@ services:
     build:
       context: .
       dockerfile: audit-agent-s3/Dockerfile
-    image: dcap/s3-agent:${VERSION:-3.13.6}
+    image: dcap/s3-agent:${VERSION:-3.13.7}
     container_name: dcap-s3-agent
     environment:
       S3_ENDPOINT: ${S3_ENDPOINT:-https://s3.amazonaws.com}
@@ -210,7 +210,7 @@ services:
       S3_SECRET_KEY: ${S3_SECRET_KEY}
       MANAGER_URL: http://manager:8000
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
-      VERSION: ${VERSION:-3.13.6}
+      VERSION: ${VERSION:-3.13.7}
     volumes:
       - s3_agent_data:/app/audit-agent-s3/data
       - s3_agent_logs:/app/audit-agent-s3/logs
@@ -224,17 +224,17 @@ services:
     networks:
       - dcap-network
 
-  # ===== LINUX AGENT (профиль agents) =====
+  # ===== LINUX AGENT (РїСЂРѕС„РёР»СЊ agents) =====
   audit_agent_linux:
     build:
       context: .
       dockerfile: audit-agent-linux/Dockerfile
-    image: dcap/linux-agent:${VERSION:-3.13.6}
+    image: dcap/linux-agent:${VERSION:-3.13.7}
     container_name: dcap-linux-agent
     environment:
       MANAGER_URL: http://manager:8000
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
-      VERSION: ${VERSION:-3.13.6}
+      VERSION: ${VERSION:-3.13.7}
     volumes:
       - linux_agent_data:/app/audit-agent-linux/data
       - linux_agent_logs:/app/audit-agent-linux/logs
@@ -248,7 +248,7 @@ services:
     networks:
       - dcap-network
 
-  # ===== MONITORING (День 39) =====
+  # ===== MONITORING (Р”РµРЅСЊ 39) =====
   prometheus:
     image: prom/prometheus:latest
     container_name: dcap-prometheus
@@ -311,8 +311,8 @@ services:
         condition: service_healthy
     networks:
       - dcap-network
-    # BUG-017.1: healthcheck УДАЛЁН — образ prometheuscommunity/postgres-exporter
-    # (distroless: нет celery/sh/curl), любой healthcheck падает → контейнер unhealthy.
+    # BUG-017.1: healthcheck РЈР”РђР›РЃРќ вЂ” РѕР±СЂР°Р· prometheuscommunity/postgres-exporter
+    # (distroless: РЅРµС‚ celery/sh/curl), Р»СЋР±РѕР№ healthcheck РїР°РґР°РµС‚ в†’ РєРѕРЅС‚РµР№РЅРµСЂ unhealthy.
     <<: *default-restart
     logging: *default-logging
 
@@ -337,9 +337,9 @@ services:
     container_name: dcap-celery-exporter
     environment:
       CELERY_BROKER_URL: "redis://:${REDIS_PASSWORD:-redis123}@redis:6379/0"
-    # образ danihodovic/celery-exporter принимает брокер ТОЛЬКО CLI-флагом --broker-url (env недостаточно)
-    # ENTRYPOINT образа danihodovic/celery-exporter = "python /app/cli.py" (docker image inspect),
-    # поэтому имя бинарника в command НЕ передаём — только флаги (--broker-url).
+    # РѕР±СЂР°Р· danihodovic/celery-exporter РїСЂРёРЅРёРјР°РµС‚ Р±СЂРѕРєРµСЂ РўРћР›Р¬РљРћ CLI-С„Р»Р°РіРѕРј --broker-url (env РЅРµРґРѕСЃС‚Р°С‚РѕС‡РЅРѕ)
+    # ENTRYPOINT РѕР±СЂР°Р·Р° danihodovic/celery-exporter = "python /app/cli.py" (docker image inspect),
+    # РїРѕСЌС‚РѕРјСѓ РёРјСЏ Р±РёРЅР°СЂРЅРёРєР° РІ command РќР• РїРµСЂРµРґР°С‘Рј вЂ” С‚РѕР»СЊРєРѕ С„Р»Р°РіРё (--broker-url).
     command:
       - "--broker-url"
       - "redis://:${REDIS_PASSWORD:-redis123}@redis:6379/0"
