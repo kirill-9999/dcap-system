@@ -1,4 +1,6 @@
 # manager/src/auth/router.py
+import os
+
 from fastapi import APIRouter, Depends, HTTPException, status, Request, Response
 from sqlalchemy.orm import Session
 from typing import Optional
@@ -41,6 +43,16 @@ def get_auth_manager() -> AuthManager:
     return _auth_manager
 
 
+def cookie_secure() -> bool:
+    """Secure-флаг для HttpOnly cookie (BUG-042).
+
+    Управляется env AUTH_COOKIE_SECURE (по умолчанию False — dev на
+    127.0.0.1; в production за HTTPS — ставить true). Внимание: True с
+    Secure-кукой на HTTP-сайте сделает cookie невидимой браузеру.
+    """
+    return os.getenv("AUTH_COOKIE_SECURE", "false").lower() in ("1", "true", "yes")
+
+
 # ===== ПУБЛИЧНЫЕ ЭНДПОИНТЫ =====
 
 
@@ -74,7 +86,7 @@ async def login(
         key="access_token",
         value=access_token,
         httponly=True,
-        secure=False,  # В разработке False, в production — True
+        secure=cookie_secure(),  # BUG-042: env AUTH_COOKIE_SECURE
         samesite="lax",
         max_age=60 * 60 * 24,  # 24 часа
     )
@@ -82,7 +94,7 @@ async def login(
         key="refresh_token",
         value=refresh_token,
         httponly=True,
-        secure=False,
+        secure=cookie_secure(),  # BUG-042
         samesite="lax",
         max_age=60 * 60 * 24 * 7,  # 7 дней
     )
@@ -117,12 +129,15 @@ async def refresh_token_endpoint(
             detail="Refresh token required",
         )
 
-    payload = auth_manager.jwt.verify_token(refresh_token)
-    if not payload or payload.get("type") != "refresh":
+    payload = auth_manager.jwt.verify_token(refresh_token, "refresh")
+    if not payload:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid refresh token",
         )
+
+    # TASK-013 (BUG-041): ротация refresh — старый jti в blacklist.
+    auth_manager.jwt.blacklist_jti(payload)
 
     user_id = payload.get("user_id")
     user = db.query(User).filter(User.id == user_id, User.is_active == True).first()  # noqa: E712
@@ -140,7 +155,7 @@ async def refresh_token_endpoint(
         key="access_token",
         value=access_token,
         httponly=True,
-        secure=False,
+        secure=cookie_secure(),  # BUG-042
         samesite="lax",
         max_age=60 * 60 * 24,
     )
@@ -148,7 +163,7 @@ async def refresh_token_endpoint(
         key="refresh_token",
         value=new_refresh,
         httponly=True,
-        secure=False,
+        secure=cookie_secure(),  # BUG-042
         samesite="lax",
         max_age=60 * 60 * 24 * 7,
     )
@@ -162,11 +177,26 @@ async def refresh_token_endpoint(
 
 @router.post("/logout")
 async def logout(
+    request: Request,
     response: Response,
     current_user: User = Depends(require_auth),
 ):
-    """Выход из системы."""
+    """Выход из системы. TASK-013 (BUG-041): access/refresh jti → blacklist."""
+    token = request.cookies.get("access_token")
+    if not token:
+        auth_header = request.headers.get("Authorization")
+        if auth_header and auth_header.startswith("Bearer "):
+            token = auth_header.replace("Bearer ", "")
     from .rate_limit import login_limiter as _limiter
+
+    jm = get_auth_manager().jwt
+    if token:
+        try:
+            payload = jm.verify_token(token, "access")
+            if payload:
+                jm.blacklist_jti(payload)
+        except Exception:  # noqa: BLE001
+            pass
 
     _limiter.reset(f"login:user:{current_user.username}")
     response.delete_cookie("access_token")
