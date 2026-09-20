@@ -4,10 +4,10 @@ markdown
 > Единственный источник правды о текущем состоянии проекта.
 > План и бэклог — в `ROADMAP.md`. Архитектура — в `ARCHITECTURE.md`.
 
-**Обновлено:** 19.09.2026 (вечер)
-**Текущая версия:** v3.13.8
+**Обновлено:** 20.09.2026 (отчёт + архивация ТЗ + пересборка контейнеров v3.13.9)
+**Текущая версия:** v3.13.9
 **Целевая версия:** v3.0.0 (релиз)
-**Статус:** 🔴 Блок 2 (Auth/RBAC) закрыт с 20+ багами → **fix-спринт**
+**Статус:** 🟢 Fix-спринт завершён — все 15 багов закрыты (BUG-037…059), 109 тестов ✅; отчёт и архив ТЗ оформлены; контейнеры пересобраны на v3.13.9
 
 ---
 
@@ -16,9 +16,9 @@ markdown
 | Параметр | Значение |
 |----------|----------|
 | Текущий день | 45 — Fix-спринт по результатам Блока 2 |
-| Статус дня | 📋 Запуск |
-| Последний принятый отчёт | `STATE_TEST_SESSION.md` (19.09.2026, вечер) |
-| Следующий шаг | Закрыть BUG-039/046/047/048 (критичные), потом 037/043/045/049-059 |
+| Статус дня | ✅ Выполнен (все 15 багов закрыты) |
+| Последний принятый отчёт | `day_45_fix_sprint_report.md` (20.09.2026, сформирован) |
+| Следующий шаг | Мастер-сессия: регресс Блока 2 на собранном стеке (STATE_TEST_SESSION.md) + релиз v3.0.0 |
 | Открытые вопросы к архитектору | — |
 
 ---
@@ -34,6 +34,7 @@ markdown
 | 44 (BUG-034) | Зависшие задачи сканера при прерывании | v3.13.7 | `day_44_bug_034_report.md` |
 | 44 (AD) | AD-контейнер: профиль 'ad' | v3.13.8 | `day_44_ad_packaging_report.md` |
 | **45 (тест)** | **Мастер-сессия: Блок 2 (Auth/RBAC)** | **v3.13.8** | **`STATE_TEST_SESSION.md`** |
+| **45 (fix-спринт)** | **BUG-037…059 (15 багов) + RBAC API-слоя + тесты + пересборка контейнеров v3.13.9** | **v3.13.9** | **`day_45_fix_sprint_report.md`** |
 
 ---
 
@@ -41,33 +42,37 @@ markdown
 
 ### Критичные (блокеры v3.0.0)
 
-| ID | Проблема | Компонент |
-|----|----------|-----------|
-| BUG-039 | Refresh-токен принимается как access | `auth/jwt.py::verify_token` |
-| BUG-046 | Все роли DELETE `/api/resources/{id}` | `api/resources.py:104` |
-| BUG-047 | DELETE `/api/tasks/{id}` без auth | `api/tasks.py:91` |
-| BUG-048 | DELETE `/api/scanner/{id}` без auth + 500 | `api/scanner.py:706` |
+| ID | Проблема | Компонент | Статус |
+|----|----------|-----------|--------|
+| BUG-039 | Refresh-токен принимается как access | `auth/jwt.py::verify_token` | ✅ |
+| BUG-046 | Все роли DELETE `/api/resources/{id}` | `api/resources.py:104` | ✅ |
+| BUG-047 | DELETE `/api/tasks/{id}` без auth | `api/tasks.py:91` | ✅ |
+| BUG-048 | DELETE `/api/scanner/{id}` без auth + 500 | `api/scanner.py:706` | ✅ |
 
 ### Важные
 
-| ID | Проблема |
-|----|----------|
-| BUG-037 | `_defaults.group_mapping` — ед.ч. vs мн.ч. |
-| BUG-043 | `/api/catalog/tree` → 500 |
-| BUG-045 | `/api/scanner/*` → 500 |
-| BUG-049…055 | 7 unprotected write-эндпоинтов |
-| BUG-057 | Scanner legacy mode by default |
-| BUG-059 | `POST tasks/create` 500 |
+| ID | Проблема | Статус |
+|----|----------|--------|
+| BUG-037 | `_defaults.group_mapping` — ед.ч. vs мн.ч. | ✅ |
+| BUG-043 | `/api/catalog/tree` → 500 | ✅ |
+| BUG-045 | `/api/scanner/*` → 500 | ✅ |
+| BUG-049…055 | 7 unprotected write-эндпоинтов | ✅ |
+| BUG-057 | Scanner legacy mode by default | ✅ |
+| BUG-059 | `POST tasks/create` 500 | ✅ |
 
 ### Средние
 
-| ID | Проблема |
-|----|----------|
-| BUG-038 | TTL не в env |
-| BUG-041 | Reuse refresh |
-| BUG-042 | `secure=False` hardcoded |
-| BUG-044 | `context_before` не маскирует домен |
-| BUG-058 | Manager не компенсирует `line_text_encrypted` |
+| ID | Проблема | Статус |
+|----|----------|--------|
+| BUG-038 | TTL не в env | ✅ |
+| BUG-041 | Reuse refresh | ✅ |
+| BUG-042 | `secure=False` hardcoded | ✅ |
+| BUG-044 | `context_before` не маскирует домен | ✅ |
+| BUG-058 | Manager не компенсирует `line_text_encrypted` | ✅ |
+| BACKLOG-068 | Per-scanner keys (`scanner_id → key_id`) | 📋 v3.1.0 | 🟡 |
+
+> Все 15 багов fix-спринта закрыты в v3.13.9. Непокрытый остаток тестов уровня E2E/мanual —
+> регресс Блока 2 на собранном стеке (см. след. шаг).
 
 ---
 
@@ -92,17 +97,21 @@ markdown
 
 ---
 
-## 📁 Последние файлы (Блок 2)
+## 📁 Последние файлы (fix-спринт v3.13.9)
 
-- `manager/src/auth/{jwt,router,manager,middleware,dependencies}.py`
-- `manager/src/api/{findings,scanner,tasks,resources,webui,audit,permissions,catalog}.py`
-- `manager/src/config.py`, `manager/src/db/models.py`
-- `scanner/src/{encryption,managed_scanner}.py`
-- `backups/dcap_20260919_172037.sql` (1.1 МБ)
-- `TZ_FIX_SPRINT.md` (задание на доработку)
+- `manager/src/auth/{jwt,router,middleware}.py` — BUG-039/041/042, JWT-резолв для RBAC
+- `manager/src/api/{scanner,tasks,resources,webui,audit,permissions,catalog}.py` — BUG-043/045-055/058/059
+- `manager/src/core/encryption.py`, `scanner/src/encryption.py`, `run_scanner.py` — BUG-044/057/058
+- `manager/src/config.py`, `manager/config/config.json`, `docker-compose.yml`, `.env.example` — BUG-037/038/042
+- `manager/src/db/models.py`, `manager/src/db/migrations/versions/004_resources_path_type_unique.py` — BUG-059
+- `tests/unit/{test_rbac_guard,test_jwt_type,test_catalog_tree,test_tasks_create,test_encryption,test_scanner_findings}.py`
+- `backups/dcap_pre_fix_sprint_20260919_183659.sql` (1.1 МБ)
+- `prompts/reports/day_45_fix_sprint_report.md` (сформирован 20.09.2026)
+- `prompts/archive/TZ_FIX_SPRINT.md` (ТЗ заархивировано)
+- `.env`, `.env.example`, `webui/config.py`, `docker-compose.yml` — версия 3.13.9
 
 ---
 
 **Актуально на:** 19.09.2026 (вечер)
-**Версия:** v3.13.8
-**Следующий шаг:** fix-спринт по TZ
+**Версия:** v3.13.9
+**Следующий шаг:** регресс Блока 2 на собранном стеке → релиз v3.0.0
