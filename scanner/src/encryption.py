@@ -21,23 +21,6 @@ logger = logging.getLogger(__name__)
 
 # ========== КЛЮЧИ ==========
 
-def _read_secret(name: str, default: Optional[bytes] = None) -> bytes:
-    """Читает секрет из Docker Secrets → env → default."""
-    secret_path = f"/run/secrets/{name}"
-    if os.path.exists(secret_path):
-        with open(secret_path, "rb") as f:
-            return f.read().strip()
-
-    env_val = os.getenv(name.upper())
-    if env_val:
-        return env_val.encode()
-
-    if default is not None:
-        return default
-
-    raise RuntimeError(f"Secret '{name}' not found.")
-
-
 # ========== МАСКИРОВАНИЕ ==========
 
 def _mask_email(s: str) -> str:
@@ -158,7 +141,7 @@ class ScannerEncryption:
     """
     AES-256-GCM + HMAC-fingerprint (на стороне сканера).
 
-    Ключи — env или Docker Secrets:
+    Ключи — только env:
       FINDINGS_ENCRYPTION_KEY (base64, 32 байта)
       FINDINGS_HMAC_KEY       (base64, 32 байта)
       FINDINGS_KEY_ID         (строка)
@@ -177,21 +160,21 @@ class ScannerEncryption:
     @classmethod
     def from_env(cls, fail_if_missing: bool = True) -> Optional["ScannerEncryption"]:
         """
-        Загружает ключи из env/Docker Secrets.
+        Загружает ключи из env (только).
 
         По умолчанию fail_if_missing=True (BUG-057): если ключи не заданы —
         RuntimeError (сканер не стартует). Режим legacy (без шифрования)
         открывается только при DCAP_ALLOW_LEGACY_SCANNER=true.
         """
-        enc_key = _read_optional_secret("findings_encryption_key", "FINDINGS_ENCRYPTION_KEY")
-        hmac_key = _read_optional_secret("findings_hmac_key", "FINDINGS_HMAC_KEY")
+        enc_key = _read_optional_env("FINDINGS_ENCRYPTION_KEY")
+        hmac_key = _read_optional_env("FINDINGS_HMAC_KEY")
 
         if not enc_key or not hmac_key:
             allow_legacy = os.getenv("DCAP_ALLOW_LEGACY_SCANNER", "false").lower() == "true"
             msg = (
                 "FINDINGS_ENCRYPTION_KEY/FINDINGS_HMAC_KEY not set. "
                 "Scanner cannot start without encryption keys. "
-                "Set them via env or Docker Secrets. "
+                "Set them via env. "
                 "See docs/admin-guide/05-security.md."
             )
             if fail_if_missing and not allow_legacy:
@@ -205,7 +188,7 @@ class ScannerEncryption:
         try:
             key = base64.b64decode(enc_key)
             hm = base64.b64decode(hmac_key)
-            key_id = _read_optional_secret("findings_key_id", "FINDINGS_KEY_ID")
+            key_id = _read_optional_env("FINDINGS_KEY_ID")
             if isinstance(key_id, bytes):
                 key_id = key_id.decode()
             if not key_id:
@@ -227,17 +210,11 @@ class ScannerEncryption:
         return hmac.new(self.hmac_key, msg, hashlib.sha256).hexdigest()
 
 
-def _read_optional_secret(secret_name: str, env_name: str) -> Optional[bytes]:
-    """Читает секрет из Docker Secrets → env. Не падает, если не задан."""
-    secret_path = f"/run/secrets/{secret_name}"
-    if os.path.exists(secret_path):
-        with open(secret_path, "rb") as f:
-            return f.read().strip()
-
+def _read_optional_env(env_name: str) -> Optional[bytes]:
+    """Читает секрет только из ENV. Не падает, если не задан."""
     env_val = os.getenv(env_name)
     if env_val:
         return env_val.encode()
-
     return None
 
 

@@ -137,6 +137,14 @@ def test_mask_rules(monkeypatch):
     assert sen.mask("John Smith", "person") == "John Smith"
 
 
+def test_encryption_env_only_no_secrets_path():
+    """TASK-018: сканер читает ключи ТОЛЬКО из env, /run/secrets не используется."""
+    _clear_keys()
+    src = Path(sen.__file__).read_text(encoding="utf-8")
+    assert "/run/secrets" not in src
+    assert "getenv" in src
+
+
 def test_mask_line(monkeypatch):
     line = "password = P@ssw0rd, phone = +7-999-123-45-67"
     # маскируем только пароль (позиции совпадения)

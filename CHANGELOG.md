@@ -1,5 +1,32 @@
 # CHANGELOG
 
+## v3.13.11 (2026-09-20)
+
+### Fix-спринт №2 (TZ_FIX_SPRINT_2.md) — ENV-ключи Findings + ротация (v3.0.0 blocker)
+- **TASK-018** ⚠️ BREAKING: ключи Findings — **только через ENV**; Docker Secrets для
+  findings убраны полностью (docker-compose manager без секции `secrets`, top-level
+  `secrets:` удалён, `FINDINGS_ENCRYPTION_KEY`/`FINDINGS_HMAC_KEY`/`FINDINGS_KEY_ID`
+  передаются через environment). Manager перестал читать `/run/secrets/`
+  (manager/src/core/encryption.py: `_read_secret` → `_read_env`, `from_secrets` → `from_env`),
+  сканер — тоже (scanner/src/encryption.py: `_read_optional_secret` → `_read_optional_env`)
+- **TASK-016**: `scripts/reencrypt_findings.py` — CLI-перешифровка находок старым ключом на
+  новый: `--old-key-file/--old-hmac-file/--new-key-file/--new-hmac-file/--new-key-id`
+  [+ `--dry-run`, `--batch-size 500`, `--filter-key-id`]; подключение к БД через
+  `manager.src.config.get_config()`; батчевая идемпотентная перешифровка
+  `match_text_encrypted`/`line_text_encrypted`; fingerprint НЕ пересчитывается;
+  decrypt-ошибка → skip + счётчик, encrypt-ошибка → rollback батча + abort;
+  отчёт `Total/Already new key/Reencrypted/Skipped/Batch size`
+- **TASK-020**: `tests/e2e/test_key_rotation.py` — E2E ротации (offline, маркер
+  `e2e_offline`): 100 findings key-test-01 → генерация key-test-02 → reencrypt →
+  все на key-test-02, данные целы, reveal новым ключом работает, старый ключ не нужен
+- **CLI**: `scripts/generate_findings_keys.py` — добавлены `--key-id` и `--output`
+- **Тесты**: `tests/unit/test_reencrypt.py` (4 теста: basic/skips_new_key_id/dry_run/
+  error_handling), `TestFindingEncryptionEnvOnly` в `test_encryption.py`
+  (env-only, без `/run/secrets`, ephemeral-fallback dev), env-only guard сканера
+- **Version**: v3.13.11 во всех контейнерах (12× в docker-compose), `.env`, `.env.example`,
+  `webui/config.py`
+- **Docs**: CHANGELOG; STATE.md; ROADMAP.md (TASK-016/018/020 закрыты)
+
 ## v3.13.10 (2026-09-20)
 
 ### BUG-048b — middleware пропускал machine-API без извлечения JWT

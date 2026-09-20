@@ -33,23 +33,15 @@ def _maybe_b64decode(data: bytes) -> bytes:
     return stripped
 
 
-def _read_secret(name: str, default: Optional[bytes] = None) -> bytes:
-    """Читает секрет из Docker Secrets → env → default."""
-    secret_path = f"/run/secrets/{name}"
-    if os.path.exists(secret_path):
-        with open(secret_path, "rb") as f:
-            return f.read().strip()
-
-    env_val = os.getenv(name.upper())
+def _read_env(name: str, default: Optional[bytes] = None) -> bytes:
+    """Читает секрет из ENV (только)."""
+    env_val = os.getenv(name)
     if env_val:
         return env_val.encode()
-
     if default is not None:
         return default
-
     raise RuntimeError(
-        f"Secret '{name}' not found. "
-        f"Set Docker Secret /run/secrets/{name} or env {name.upper()}."
+        f"ENV '{name}' not set. See docs/admin-guide/05-security.md."
     )
 
 
@@ -142,10 +134,10 @@ class FindingEncryption:
     """
     AES-256-GCM для находок + HMAC-fingerprint.
 
-    Ключи — Docker Secrets (base64, генерируются scripts/generate_findings_keys.py):
-      /run/secrets/findings_encryption_key (32 байта)
-      /run/secrets/findings_hmac_key        (32 байта)
-      /run/secrets/findings_key_id          (строка, напр. "key-2026-09")
+    Ключи — только ENV (base64, генерируются scripts/generate_findings_keys.py):
+      FINDINGS_ENCRYPTION_KEY (32 байта)
+      FINDINGS_HMAC_KEY       (32 байта)
+      FINDINGS_KEY_ID         (строка, напр. "key-2026-09")
     """
 
     def __init__(self, key: bytes, hmac_key: bytes, key_id: str):
@@ -159,13 +151,13 @@ class FindingEncryption:
         self.key_id = key_id
 
     @classmethod
-    def from_secrets(cls) -> "FindingEncryption":
-        key = _read_secret("findings_encryption_key")
-        hmac_key = _read_secret("findings_hmac_key")
-        key_id_bytes = _read_secret("findings_key_id", default=b"key-2026-09")
+    def from_env(cls) -> "FindingEncryption":
+        key = _read_env("FINDINGS_ENCRYPTION_KEY")
+        hmac_key = _read_env("FINDINGS_HMAC_KEY")
+        key_id_bytes = _read_env("FINDINGS_KEY_ID", default=b"key-2026-09")
         key_id = key_id_bytes.decode() if isinstance(key_id_bytes, bytes) else key_id_bytes
 
-        # Secrets, сгенерированные scripts/generate_findings_keys.py, — base64.
+        # Ключи, сгенерированные scripts/generate_findings_keys.py, — base64.
         # Поддерживаем оба формата (raw 32 байта и base64).
         key = _maybe_b64decode(key)
         hmac_key = _maybe_b64decode(hmac_key)
@@ -175,23 +167,17 @@ class FindingEncryption:
     @classmethod
     def from_env_or_default(cls) -> "FindingEncryption":
         """
-        Fallback для dev: генерирует ключи, если не заданы.
-        В production — Docker Secrets обязательны.
+        Fallback для dev: генерирует ephemeral ключи, если не заданы.
+        В production — ENV обязательны.
         """
-        if os.path.exists("/run/secrets/findings_encryption_key"):
-            return cls.from_secrets()
-
         if os.getenv("FINDINGS_ENCRYPTION_KEY"):
-            key = base64.b64decode(os.getenv("FINDINGS_ENCRYPTION_KEY"))
-            hmac_key = base64.b64decode(os.getenv("FINDINGS_HMAC_KEY"))
-            key_id = os.getenv("FINDINGS_KEY_ID", "key-dev")
-            return cls(key, hmac_key, key_id)
+            return cls.from_env()
 
         # Dev: генерируем ephemeral (предупреждение!)
         logger.warning(
             "Findings keys not configured! Using ephemeral keys. "
             "Data encrypted with them will be LOST on restart. "
-            "Set Docker Secrets or FINDINGS_ENCRYPTION_KEY env."
+            "Set FINDINGS_ENCRYPTION_KEY / FINDINGS_HMAC_KEY env."
         )
         return cls(
             key=os.urandom(32),

@@ -1,5 +1,8 @@
 """Unit-тесты шифрования находок (День 40.1)."""
+from pathlib import Path
+
 import pytest
+import manager.src.core.encryption as finding_encryption
 
 pytestmark = pytest.mark.unit
 
@@ -120,3 +123,54 @@ class TestFindingEncryption:
         enc = get_encryption()
         assert enc.key_id
         reset_encryption()
+
+
+class TestFindingEncryptionEnvOnly:
+    """TASK-018: ключи находок читаются ТОЛЬКО из env (Docker Secrets убраны)."""
+
+    _ENV_NAMES = (
+        "FINDINGS_ENCRYPTION_KEY",
+        "FINDINGS_HMAC_KEY",
+        "FINDINGS_KEY_ID",
+    )
+
+    @pytest.fixture(autouse=True)
+    def _clean_env(self, monkeypatch):
+        for name in self._ENV_NAMES:
+            monkeypatch.delenv(name, raising=False)
+
+    def test_module_has_no_secrets_path(self):
+        """Регрессионный guard: /run/secrets полностью убран из модуля."""
+        src = Path(finding_encryption.__file__).read_text(encoding="utf-8")
+        assert "/run/secrets" not in src
+        assert "getenv" in src
+
+    def test_from_env_roundtrip(self, monkeypatch):
+        monkeypatch.setenv("FINDINGS_ENCRYPTION_KEY", "A" * 32)
+        monkeypatch.setenv("FINDINGS_HMAC_KEY", "B" * 32)
+        monkeypatch.setenv("FINDINGS_KEY_ID", "key-test-env")
+        enc = finding_encryption.FindingEncryption.from_env()
+        assert enc.key_id == "key-test-env"
+        ct = enc.encrypt("secret")
+        assert enc.decrypt(ct) == "secret"
+        assert enc.fingerprint("/f", 1, "secret", "credentials") == enc.fingerprint(
+            "/f", 1, "secret", "credentials"
+        )
+
+    def test_from_env_missing_keys_raises(self):
+        with pytest.raises(Exception):
+            finding_encryption.FindingEncryption.from_env()
+
+    def test_from_env_or_default_ephemeral_when_unset(self):
+        """Без env - ephemeral-fallback в DEV (не падает при пустой конфигурации)."""
+        enc = finding_encryption.FindingEncryption.from_env_or_default()
+        assert enc.key_id
+
+    def test_encryption_env_only(self, monkeypatch):
+        """env-only: значение из env используется при любой окружающей среде."""
+        monkeypatch.setenv("FINDINGS_ENCRYPTION_KEY", "C" * 32)
+        monkeypatch.setenv("FINDINGS_HMAC_KEY", "D" * 32)
+        monkeypatch.setenv("FINDINGS_KEY_ID", "key-2026-09")
+        enc = finding_encryption.FindingEncryption.from_env()
+        ct = enc.encrypt("payload")
+        assert enc.decrypt(ct) == "payload"
