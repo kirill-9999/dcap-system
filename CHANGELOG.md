@@ -1,5 +1,23 @@
 # CHANGELOG
 
+## v3.13.10 (2026-09-20)
+
+### BUG-048b — middleware пропускал machine-API без извлечения JWT
+- **BUG-048b**: `_is_public` в `AuthMiddleware` преждевременно возвращал `True` для
+  `/api/scanner/*`, middleware выходил из `dispatch` без извлечения JWT → `request.state.user`
+  оставался пустым → защищённые `require_admin` scanner-эндпоинты (`DELETE /api/scanner/{id}`)
+  возвращали 401 вместо 403/404 (manager/src/auth/middleware.py)
+- Убрана ветка `/api/scanner*` из `_is_public` — запросы теперь идут через
+  `_is_machine_endpoint`, где JWT извлекается и `request.state.user` устанавливается
+- В machine-ветке `call_next` перенесён внутрь `try/finally` — сессия БД держится открытой,
+  пока хендлер читает `user.roles` (иначе DetachedInstanceError → 500)
+- Machine-API агентов (register/heartbeat/tasks/events) остаются публичными без JWT (by design)
+- **Тесты**: `tests/unit/test_scanner_middleware_rbac.py` — 9 регрессионных тестов
+  (viewer→403, admin→404, без JWT→401, garbage→401, heartbeat/register/список без JWT публичны,
+  mTLS relaxed не блокирует JWT); полный `tests/unit` — 118 passed
+- **Docs**: `docs/admin-guide/06-scanner.md` (раздел «Модель доступа к scanner-API»),
+  `docs/admin-guide/05-security.md` (§5.1 «Machine-API и JWT»)
+
 ## v3.13.9 (2026-09-19)
 
 ### Fix-спринт (TZ_FIX_SPRINT.md) — Auth/RBAC + стабильность

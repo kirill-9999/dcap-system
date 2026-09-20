@@ -69,9 +69,9 @@ class AuthMiddleware(BaseHTTPMiddleware):
     def _is_public(self, path: str) -> bool:
         if any(path.startswith(p) for p in self.public_paths):
             return True
-        # Список сканеров (list) — machine-доступ для ManagedScanner, не блокируем
-        if path == "/api/scanner" or path.startswith("/api/scanner/"):
-            return True
+        # /api/scanner/* НЕ публичный здесь: он попадает в _is_machine_endpoint,
+        # где JWT извлекается и request.state.user устанавливается (BUG-048b),
+        # чтобы RBAC-dependency (require_admin и т.п.) получала корректного user.
         if any(path.startswith(p) for p in self.machine_prefixes):
             return True
         return False
@@ -192,6 +192,9 @@ class AuthMiddleware(BaseHTTPMiddleware):
                                 if user and user.is_active:
                                     request.state.user = user
                                     request.state.auth_method = "jwt"
+                                    # BUG-048b: call_next ВНУТРИ try — сессия держится
+                                    # открытой, пока хендлер читает roles (Detached).
+                                    return await call_next(request)
                             finally:
                                 db.close()
             return await call_next(request)
