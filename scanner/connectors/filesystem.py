@@ -325,7 +325,14 @@ class FilesystemConnector:
             text = self._extract_document(str(p), ext)
             if not text:
                 return []
-            return self._scan_text(text, classifiers, str(p))
+            findings = self._scan_text(text, classifiers, str(p))
+            # BUG-067d (TASK-034, день 46.8): findings из OCR-изображения
+            # помечаем как image_region + detector=ocr + bounding_box.
+            for f in findings:
+                f.fragment_type = "image_region"
+                f.detector = "ocr"
+                f.bounding_box = {"x": 0, "y": 0, "width": 0, "height": 0}
+            return findings
 
         return []
 

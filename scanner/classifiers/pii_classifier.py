@@ -447,6 +447,12 @@ class PiiClassifier(IClassifier):
                     detector="regex",
                 ))
 
+        # BUG-066b (TASK-033): url с email-доменом отбрасываем (Finding-модель)
+        findings = self._filter_url_over_email_finding(findings)
+
+        # BUG-069/070 (TASK-035): фильтр spaCy noise (person/org/date_time)
+        findings = self._filter_spacy_noise(findings)
+
         # Дедупликация внутри строки (по позиции)
         return self._deduplicate(findings)
 
@@ -531,6 +537,12 @@ class PiiClassifier(IClassifier):
                     confidence=0.85,
                     detector="regex",
                 ))
+
+        # BUG-066b (TASK-033): url с email-доменом отбрасываем (Finding-модель)
+        findings = self._filter_url_over_email_finding(findings)
+
+        # BUG-069/070 (TASK-035): фильтр spaCy noise (person/org/date_time)
+        findings = self._filter_spacy_noise(findings)
 
         # BUG-022.9: дедупликация по позиции с приоритетом категорий
         by_pos = {}
@@ -635,6 +647,81 @@ class PiiClassifier(IClassifier):
                     email_start <= f.start_pos < f.end_pos <= email_end
                     for email_start, email_end in email_spans
                 ):
+                    continue
+            filtered.append(f)
+        return filtered
+
+    def _filter_url_over_email_finding(self, findings: List[Finding]) -> List[Finding]:
+        """BUG-066b (TASK-033, день 46.8): url-over-email для модели Finding.
+
+        В построчном/файловом конвейере (scan_line/scan_text) findings — это
+        Finding (поля start_pos/end_pos, category в нижнем регистре).
+        Отбрасываем url, который целиком лежит внутри email-спана.
+        """
+        email_spans = {
+            (f.start_pos, f.end_pos)
+            for f in findings
+            if f.category in ("email", "PII_EMAIL")
+        }
+        if not email_spans:
+            return findings
+
+        filtered = []
+        for f in findings:
+            if f.category in ("url", "PII_URL"):
+                if any(e_start <= f.start_pos and f.end_pos <= e_end
+                       for e_start, e_end in email_spans):
+                    continue
+            filtered.append(f)
+        return filtered
+
+    def _filter_spacy_noise(self, findings: List[Finding]) -> List[Finding]:
+        """BUG-069/070 (TASK-035, день 46.8): фильтр ложных PERSON/ORG/DATE_TIME.
+
+        spaCy en_core_web_sm из en-прохода агрессивно классифицирует
+        капитализированные токены ('Card 1:', 'GITHUB_TOKEN=...',
+        'DATABASE_URL=...') как PERSON/ORG/DATE_TIME. Отбрасываем шум.
+        """
+        NOISY_CATEGORIES = {"person", "organization", "date_time"}
+
+        filtered = []
+        for f in findings:
+            if f.category in NOISY_CATEGORIES:
+                val = f.match_text or ""
+                # Пропускаем, если значение:
+                # - содержит '_', '=', ':', '://'
+                # - >50% цифр
+                # - длина < 3
+                # - содержит 'card ' (case-insensitive)
+                if (any(c in val for c in "_:=")
+                        or "://" in val
+                        or sum(c.isdigit() for c in val) > len(val) / 2
+                        or len(val) < 3
+                        or "card " in val.lower()):
+                    continue
+            filtered.append(f)
+        return filtered
+
+    def _filter_spacy_noise_classification(
+        self, findings: List[ClassificationFinding]
+    ) -> List[ClassificationFinding]:
+        """BUG-069/070 (TASK-035): spaCy-noise для model ClassificationFinding.
+
+        В old-пути classify() findings используют subcategory (PII_PER, PII_ORG,
+        PII_DATE) и value вместо категории/match_text. Логика та же, что в
+        _filter_spacy_noise — отбрасываем шумные PERSON/ORG/DATE_TIME.
+        """
+        NOISY_SUBCATEGORIES = ("PII_PER", "PII_ORG", "PII_DATE")
+
+        filtered = []
+        for f in findings:
+            if f.subcategory in NOISY_SUBCATEGORIES:
+                val = f.value or ""
+                if (any(c in val for c in "_:=")
+                        or "://" in val
+                        or sum(c.isdigit() for c in val) > len(val) / 2
+                        or len(val) < 3
+                        or "card " in val.lower()):
                     continue
             filtered.append(f)
         return filtered
@@ -858,6 +945,8 @@ class PiiClassifier(IClassifier):
         # отбрасываем url (это домен внутри адреса, а не самостоятельный URL).
         findings = self._filter_url_over_email(findings)
         findings = self._filter_credit_cards_by_luhn(findings)
+        # BUG-069/070 (TASK-035): фильтр spaCy noise для ClassificationFinding
+        findings = self._filter_spacy_noise_classification(findings)
 
         # Дедупликация
         unique_findings = {}

@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+﻿#!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
 DCAP Agent - Credentials Classifier
@@ -54,13 +54,14 @@ PLACEHOLDER_PATTERNS = [
     r'<[A-Z_]+>',              # <PASSWORD>
     r'{{[A-Z_]+}}',            # {{PASSWORD}}
     r'xxx+',                   # xxx, xxxx
-    r'[0-9x]{8,}',             # 12345678, xxxxxxxx
+    # r'[0-9x]{8,}',           # BUG-065 (TASK-032, день 46.8): УБРАНО —
+    #                          # режет реальные токены вида XXXXXXXXXXXXXX
     r'NNN[_-]?[A-Z]+',         # NNN_KEY
-    r'password[0-9]{1,2}',     # password1, password12
-    r'admin[0-9]{1,2}',        # admin1
-    r'test[_-]?[a-z0-9]+',     # test_key, test-123
-    r'sample[_-]?[a-z0-9]+',   # sample_key
-    r'demo[_-]?[a-z0-9]+',     # demo_key
+    r'^password[0-9]{1,2}$',   # password1, password12 (полное совпадение)
+    r'^admin[0-9]{1,2}$',      # admin1 (полное совпадение)
+    r'^test[_-]?[a-z0-9]+$',   # test_key, test-123 (полное совпадение)
+    r'^sample[_-]?[a-z0-9]+$', # sample_key (полное совпадение)
+    r'^demo[_-]?[a-z0-9]+$',   # demo_key (полное совпадение)
     r'example\.com',           # example.com
     r'changeme\.com',          # changeme.com
 ]
@@ -185,12 +186,12 @@ class CredentialsClassifier(IClassifier):
             {"name": "SSH_PRIVATE_KEY", "pattern": r'-----BEGIN (?:RSA|DSA|EC|OPENSSH) PRIVATE KEY-----', "confidence": 0.99, "check_entropy": False},
             {"name": "GITHUB_TOKEN", "pattern": r'ghp_[A-Za-z0-9]{36}', "confidence": 0.95, "check_entropy": False},
             {"name": "GITHUB_TOKEN_OLD", "pattern": r'github_pat_[A-Za-z0-9]{22}_[A-Za-z0-9]{59}', "confidence": 0.95, "check_entropy": False},
-            {"name": "SLACK_TOKEN", "pattern": r'xox[baprs]-[0-9]{10,13}-[0-9]{10,13}-[a-zA-Z0-9]{24}', "confidence": 0.9, "check_entropy": False},
+            {"name": "SLACK_TOKEN", "pattern": r'xox[baprs]-[A-Za-z0-9-]{10,}', "confidence": 0.85, "check_entropy": False},
             {"name": "DISCORD_TOKEN", "pattern": r'[A-Za-z0-9]{24}\.[A-Za-z0-9]{6}\.[A-Za-z0-9]{27}', "confidence": 0.9, "check_entropy": False},
             {"name": "GENERIC_TOKEN", "pattern": r'token[\s]*[:=][\s]*[\'"]?([A-Za-z0-9_\-]{32,})[\'"]?', "confidence": 0.7, "check_entropy": True},
             {"name": "GENERIC_SECRET", "pattern": r'(?:secret|api_secret|client_secret)[\s]*[:=][\s]*[\'"]?([A-Za-z0-9_\-]{16,})[\'"]?', "confidence": 0.6, "check_entropy": True},
             {"name": "BEARER_TOKEN", "pattern": r'Bearer[\s]+([A-Za-z0-9_\-\.]{20,})', "confidence": 0.85, "check_entropy": True},
-            {"name": "BASIC_AUTH", "pattern": r'Authorization:\s*Basic\s+[A-Za-z0-9+/=]+', "confidence": 0.8, "check_entropy": False},
+            {"name": "BASIC_AUTH", "pattern": r'\bBasic\s+[A-Za-z0-9+/=]{10,}', "confidence": 0.8, "check_entropy": False},
         ]
     
     def _compile_all(self) -> None:
@@ -345,6 +346,11 @@ class CredentialsClassifier(IClassifier):
     
     def _is_placeholder(self, value: str) -> bool:
         """Проверка: является ли значение плейсхолдером"""
+        # BUG-065 (TASK-032, день 46.8): URL не помечаем как placeholder —
+        # DATABASE_URL=postgresql://... не должен резаться паттернами
+        # example.com / changeme.com и т.п.
+        if '://' in value:
+            return False
         for pattern in PLACEHOLDER_PATTERNS:
             if re.search(pattern, value, re.IGNORECASE):
                 return True
@@ -378,30 +384,36 @@ class CredentialsClassifier(IClassifier):
     
     def _apply_filters(self, value: str, line: str) -> bool:
         """Применение всех FP-фильтров к найденному значению.
-        
+
         Returns:
             True — значение проходит фильтры (оставляем), False — отбрасываем.
         """
+        # BUG-065 fix (TASK-032, день 46.8): signature-prefix (AKIA, ghp_,
+        # xox, eyJ, sk-, ...) пропускаем ДО placeholder-фильтров — это реальные
+        # токены, а не плейсхолдеры, даже если содержат 8+ цифр подряд.
+        if value.startswith(SIGNATURE_PREFIXES):
+            return True
+
         # 1. Минимальная длина
         if len(value) < self._min_length:
             return False
-        
+
         # 2. Плейсхолдеры
         if self._is_placeholder(value):
             return False
-        
+
         # 3. Дампы (строгий фильтр для коротких значений)
         if self._is_dump_value(value):
             return False
-        
+
         # 4. Комментарии
         if self._is_comment_line(line):
             return False
-        
+
         # 5. Смешанные символы (если включено)
         if self._require_mixed and not self._has_mixed_case(value):
             return False
-        
+
         return True
     
     def _calculate_entropy(self, text: str) -> float:
