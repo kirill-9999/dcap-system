@@ -2,9 +2,10 @@
 
 > **Чеклист для ввода в production.**
 > Политика безопасности — в [SECURITY.md](../SECURITY.md).
+> Полное руководство — в [docs/admin-guide/05-security.md](admin-guide/05-security.md).
 
-**Обновлено:** 12.09.2026
-**Версия:** v3.11.0
+**Обновлено:** 19.09.2026
+**Версия:** v3.13.8
 
 ---
 
@@ -14,7 +15,6 @@
 - [ ] Определены **роли** пользователей (Admin, Auditor, Scanner, Viewer)
 - [ ] Подготовлены **сертификаты** (если mTLS strict)
 - [ ] Подготовлены **ключи шифрования находок**
-- [ ] Подготовлены **секреты** (Docker Secrets / Vault)
 - [ ] Определён **объём хранения** (БД, архив, логи)
 - [ ] Настроен **backup** (PostgreSQL)
 - [ ] Определены **порты** (firewall)
@@ -30,9 +30,6 @@
 - [ ] `JWT_SECRET_KEY` — уникальный, ≥32 байт
 - [ ] `MTLS_ENABLED=true`, `MTLS_STRICT=true` (production)
 - [ ] Сертификаты сгенерированы (`generate_certs.py`)
-- [ ] Ключи находок сгенерированы (`generate_findings_keys.py`)
-- [ ] `DCAP_ALLOW_LEGACY_SCANNER` не задан/`false` (BUG-057: сканер fail-fast без ключей)
-- [ ] Docker Secrets настроены (не `.env`)
 - [ ] `DATABASE_URL` с `sslmode=require`
 - [ ] `REDIS_PASSWORD` установлен
 - [ ] Rate-limit настроен
@@ -64,7 +61,9 @@
 ### Scanner
 
 - [ ] **На хосте** (не в Docker)
-- [ ] Ключи `FINDINGS_*` совпадают с Manager
+- [ ] Ключи `FINDINGS_*` **ИДЕНТИЧНЫ** ключам Manager
+- [ ] `key_id` совпадает с Manager
+- [ ] Fail-fast включён (`DCAP_ALLOW_LEGACY_SCANNER=false`)
 - [ ] Tesseract + spaCy + Presidio установлены
 - [ ] Доступ к сканируемым путям
 - [ ] Запуск через systemd (Linux) / службу (Windows)
@@ -91,15 +90,49 @@
 
 ---
 
-## ✅ Безопасность находок
+## ✅ Безопасность находок (Findings)
 
-- [ ] Ключи `findings_encryption_key` / `findings_hmac_key` — в Docker Secrets
-- [ ] `key_id` актуален
+### Ключи (ENV-only)
+
+- [ ] Ключи Findings сгенерированы **один раз** на Manager-хосте (`generate_findings_keys.py`)
+- [ ] Manager имеет ENV: `FINDINGS_ENCRYPTION_KEY`, `FINDINGS_HMAC_KEY`, `FINDINGS_KEY_ID`
+- [ ] **Все** Scanner'ы имеют **ИДЕНТИЧНЫЕ** `FINDINGS_*` ENV
+- [ ] `key_id` **совпадает** на Manager и **всех** Scanner'ах
+- [ ] Fail-fast включён: `DCAP_ALLOW_LEGACY_SCANNER=false` (или переменная **отсутствует**)
+- [ ] **Инвентаризация** сканеров ведётся (Scanner ID → key_id → дата выдачи)
+- [ ] Резервная копия ключей — **ОТДЕЛЬНО** от БД (offline / Vault)
+- [ ] Доступ к ENV ограничен: `chmod 600` на systemd-файлы, ограничение `docker inspect`
+- [ ] Ключи **не коммитятся** в git (`secrets/` в `.gitignore`)
+- [ ] Ротация запланирована (90 дней)
+
+### Ключи Findings сгенерированы **один раз**
+
+- [ ] `scripts/generate_findings_keys.py` запущен на Manager-хосте
+- [ ] Значения переданы **всем** компонентам (Manager + N Scanner)
+- [ ] Старые ключи (если были) — сохранены в offline-хранилище
+- [ ] **Категорически нельзя** передавать ключи через email/chat
+
+### Ключи Findings передаются **только через ENV**
+
+- [ ] Manager: `.env` (Docker Compose) или `EnvironmentFile` (systemd)
+- [ ] Scanner: `EnvironmentFile` (systemd) или `AppEnvironmentExtra` (NSSM)
+- [ ] Docker Secrets / файлы ключей — **не используются** в v3.0.0
+
+### Шифрование и маскирование
+
 - [ ] Reveal доступен **только Auditor+**
-- [ ] Аудит reveal работает (`audit_logs`)
+- [ ] Аудит reveal работает (`audit_logs` → `finding_revealed`)
 - [ ] Маскирование работает (проверить API)
 - [ ] **MD5 не используется** (BACKLOG-066)
+- [ ] `line_text_encrypted` заполняется (BUG-057 fix: сканер без ключей не стартует)
 - [ ] Legacy-режим отключён (ключи заданы)
+
+### Ротация ключей
+
+- [ ] Процедура задокументирована (см. `docs/admin-guide/05-security.md` §3.8)
+- [ ] `scripts/reencrypt_findings.py` — доступен
+- [ ] Планируемое окно downtime согласовано
+- [ ] Тест ротации проведён на stage
 
 ---
 
@@ -136,6 +169,11 @@
 - [ ] Ротация JWT (refresh token)
 - [ ] Блокировка после N неудачных логинов
 
+**Cookie (JWT):**
+- [ ] `HttpOnly: True` — проверено (`curl -i` → `Set-Cookie`)
+- [ ] `SameSite=Lax` — проверено
+- [ ] `Secure: True` при HTTPS (env `COOKIE_SECURE=true` или авто)
+
 ---
 
 ## ✅ Аудит и логирование
@@ -155,7 +193,8 @@
 - [ ] Политики retention настроены
 - [ ] Celery Beat работает (расписание)
 - [ ] Backup БД (ежедневно)
-- [ ] Backup сертификатов и ключей (**отдельно** от БД!)
+- [ ] Backup **ключей Findings** — **ОТДЕЛЬНО** от БД!
+- [ ] Backup сертификатов — **ОТДЕЛЬНО** от БД!
 - [ ] Тест восстановления из backup
 - [ ] Экспорт находок (CSV/JSON)
 
@@ -169,6 +208,7 @@
 - [ ] `ROADMAP.md` актуален
 - [ ] `ARCHITECTURE.md` актуален
 - [ ] `SECURITY.md` актуален
+- [ ] `docs/admin-guide/05-security.md` актуален
 - [ ] `CHANGELOG.md` актуален
 - [ ] Документация админа готова (`docs/admin-guide/`)
 - [ ] LICENSE выбран
@@ -186,20 +226,22 @@
    ```bash
    grep "finding_revealed" audit_logs.log
    grep "auth_failed" audit_logs.log
-   ```
-6. **Уведомить** пользователей (если PII скомпрометированы)
-7. **Задокументировать** инцидент
+Уведомить пользователей (если PII скомпрометированы)
 
----
+Задокументировать инцидент
 
-## 📚 См. также
+Детали — в docs/admin-guide/05-security.md §9.
 
-- [SECURITY.md](../SECURITY.md) — политика безопасности
-- [ARCHITECTURE.md](../ARCHITECTURE.md) — архитектура
-- [docs/deployment.md](deployment.md) — развёртывание
-- [docs/monitoring.md](monitoring.md) — мониторинг
-- [docs/admin-guide/05-security.md](admin-guide/05-security.md) — руководство админа (в разработке)
+📚 См. также
+SECURITY.md — политика безопасности
 
----
+ARCHITECTURE.md — архитектура
 
-**Последнее обновление:** 12.09.2026
+docs/deployment.md — развёртывание
+
+docs/monitoring.md — мониторинг
+
+docs/admin-guide/05-security.md — руководство админа
+
+Последнее обновление: 19.09.2026
+Версия: v3.13.8

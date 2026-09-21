@@ -21,6 +21,8 @@ from pathlib import Path
 from datetime import datetime
 from typing import Optional, Dict, Any, List
 import requests
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
 
 # ============================================================
 # ПОДАВЛЕНИЕ ШУМНЫХ ЛОГОВ И ПРЕДУПРЕЖДЕНИЙ
@@ -100,6 +102,19 @@ class ManagerClient:
             'Content-Type': 'application/json',
             'Accept': 'application/json'
         })
+
+        # HTTP retry (TASK-026, BUG-061): ретраи при 5xx и сетевых сбоях.
+        # total=5, backoff=0.5, fire-and-forget (raise_on_status=False).
+        retry = Retry(
+            total=5,
+            backoff_factor=0.5,
+            status_forcelist=(500, 502, 503, 504),
+            allowed_methods=frozenset(['GET', 'POST']),
+            raise_on_status=False,
+        )
+        adapter = HTTPAdapter(max_retries=retry)
+        self.session.mount('http://', adapter)
+        self.session.mount('https://', adapter)
         
         if config and config.client:
             self.timeout = config.client.timeout

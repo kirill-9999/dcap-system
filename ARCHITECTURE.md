@@ -410,6 +410,226 @@ class Finding(Base):
 - `POST /api/scanner/heartbeat` с `{scanner_id, status, current_task_id, progress}`
 - Manager `_mark_stale_scanners` не трогает сканеры с активным заданием
 
+## 📤 SIEM-ИНТЕГРАЦИЯ (v3.1.0+)
+
+### Назначение
+
+Передача событий ИБ из DCAP в SIEM (Security Information and Event Management) для:
+
+- **Централизованного мониторинга** (SOC).
+- **Корреляции** с другими событиями ИБ.
+- **Compliance** (152-ФЗ, GDPR, PCI DSS).
+- **Алертинга** на критичные инциденты.
+
+### Форматы
+
+| Формат | Протокол | SIEM |
+|--------|----------|------|
+| **Syslog** (RFC 5424) | UDP / TCP / TLS | ArcSight, QRadar, MaxPatrol, Wazuh, rsyslog |
+| **JSON** | HTTP/HTTPS (webhook) | Splunk HEC, Elastic, Kibana, кастомные SIEM |
+
+### События ИБ
+
+| Источник | Событие | Severity |
+|----------|---------|----------|
+| Findings | `finding_detected` | по severity |
+| Findings | `finding_revealed` | high |
+| Findings | `finding_confirmed` | medium |
+| Findings | `finding_false_positive` | low |
+| Scanner | `scan_started` | info |
+| Scanner | `scan_completed` | info |
+| Scanner | `scan_failed` | high |
+| Scanner | `scanner_inactive` | warning |
+| Audit | `auth_login` / `auth_failed` | info / medium |
+| Audit | `user_created` / `role_changed` | medium |
+| Retention | `retention_run` | info |
+
+### Примеры событий
+
+**Syslog (RFC 5424):**
+<134>1 2026-09-20T15:45:23.456Z dcap-manager dcap 12345 finding_detected -
+[dcap@12345 finding_id="1237" category="email" severity="high"
+file_path="/path/to/file.txt" scanner_id="1" task_id="27"]
+
+text
+
+**JSON (HTTP webhook):**
+
+```json
+{
+  "timestamp": "2026-09-20T15:45:23.456Z",
+  "source": "dcap-manager",
+  "event_type": "finding_detected",
+  "severity": "high",
+  "finding_id": 1237,
+  "category": "email",
+  "finding_type": "pii",
+  "file_path": "/path/to/file.txt",
+  "line_number": 3,
+  "scanner_id": 1,
+  "task_id": 27,
+  "fingerprint": "abc123...",
+  "match_text_masked": "us***@ex***.com"
+}
+JSON (Splunk HEC-совместимый):
+
+json
+{
+  "time": 1789907123.456,
+  "host": "dcap-manager",
+  "source": "dcap",
+  "sourcetype": "dcap:finding",
+  "event": {
+    "event_type": "finding_detected",
+    "finding_id": 1237,
+    "category": "email",
+    "severity": "high",
+    "file_path": "/path/to/file.txt",
+    "match_text_masked": "us***@ex***.com"
+  }
+}
+Архитектура
+text
+┌─────────────┐
+│  Manager    │
+│  (события)  │
+└──────┬──────┘
+       │
+       ▼
+┌─────────────────────┐
+│  EventGenerator     │ ← findings/audit/scanner
+│  (manager/src/siem) │
+└──────┬──────────────┘
+       │
+       ▼
+┌─────────────────────┐
+│  SIEMConnector      │
+│  ├── SyslogSender   │ → UDP / TCP / TLS
+│  └── JSONSender     │ → HTTP / HTTPS
+└──────┬──────────────┘
+       │
+       ├─→ Dead-letter queue (Redis) при ошибке
+       └─→ Retry с backoff
+Модули
+text
+manager/src/siem/
+├── generator.py         # генерация событий из findings/audit
+├── config.py            # конфигурация (Syslog/JSON)
+├── senders/
+│   ├── syslog_sender.py # RFC 5424 (UDP/TCP/TLS)
+│   └── json_sender.py   # HTTP/HTTPS webhook
+└── queue.py             # dead-letter + retry
+Конфигурация
+manager/config/config.json:
+
+json
+{
+  "siem": {
+    "enabled": true,
+    "events": {
+      "finding_detected": true,
+      "finding_revealed": true,
+      "auth_login": true,
+      "scan_started": false
+    },
+    "syslog": {
+      "enabled": true,
+      "host": "siem.corp.local",
+      "port": 514,
+      "protocol": "udp",
+      "facility": 13,
+      "app_name": "dcap",
+      "tls_ca": "/app/certs/siem-ca.pem",
+      "tls_cert": "/app/certs/dcap-siem.pem",
+      "tls_key": "/app/certs/dcap-siem.key"
+    },
+    "json": {
+      "enabled": true,
+      "url": "https://splunk.corp.local:8088/services/collector/event",
+      "auth_token": "${SIEM_JSON_TOKEN}",
+      "timeout_sec": 10
+    },
+    "retry": {
+      "max_attempts": 5,
+      "backoff_sec": [1, 5, 30, 120, 600]
+    }
+  }
+}
+ENV:
+
+SIEM_ENABLED=true
+
+SIEM_SYSLOG_HOST, SIEM_SYSLOG_PORT
+
+SIEM_JSON_URL, SIEM_JSON_TOKEN
+
+Ключевые свойства
+Асинхронная отправка через Celery.
+
+Retry с экспоненциальным backoff.
+
+Dead-letter queue (Redis) при недоступности SIEM.
+
+Метрики: dcap_siem_events_sent_total, dcap_siem_events_failed_total.
+
+Маскирование — в SIEM идут только маскированные match_text (без reveal).
+
+Не отправляется match_text_encrypted (только masked).
+
+WebUI (BACKLOG-072)
+Страница /settings/siem:
+
+Формы: Syslog (host, port, protocol, TLS), JSON (URL, token).
+
+Выбор событий (чекбоксы).
+
+Кнопка «Test» — отправить тестовое событие.
+
+Метрики — отправлено/ошибок за 24ч.
+
+v4.0.0+
+Kafka / Kinesis — потоковая передача для enterprise.
+
+CEF / LEEF — если потребуется (пока покрыто Syslog).
+
+text
+
+---
+
+# 📄 4. `STATE_TEST_SESSION.md` — патч
+
+**Добавить в раздел «Открытые проблемы»:**
+
+```markdown
+### 📤 SIEM-интеграция — НЕ РЕАЛИЗОВАНО (v3.1.0)
+
+**Функционал:**
+- Генерация событий ИБ (Syslog RFC 5424 + JSON webhook).
+- Экспорт findings/audit_logs.
+- WebUI настройки коннекторов.
+
+**Приоритет:** 🔴 важно для enterprise.
+
+**Связано:** BACKLOG-069, 070, 072 (v3.1.0).
+
+**Обоснование:**
+- SOC требует единый поток событий.
+- Регуляторы (152-ФЗ, GDPR, PCI DSS) — аудит в SIEM.
+- DLP-стандарт: интеграция с ArcSight, QRadar, Splunk, MaxPatrol.
+Добавить в раздел «ИТОГ БЛОКА 3»:
+
+markdown
+### Не проверено (вне Блока 3)
+
+| Раздел | Причина |
+|--------|---------|
+| SIEM-интеграция | Не реализовано (v3.1.0) |
+| Агенты (Windows/Linux/S3) | Блок 6 |
+| Retention (глубоко) | Блок 7 |
+| Мониторинг (глубоко) | Блок 8 |
+| Безопасность (mTLS, rate-limit) | Блок 9 |
+| Отказоустойчивость | Блок 11 |
+
 ### Алерты
 
 | Алерт | Условие | Severity |

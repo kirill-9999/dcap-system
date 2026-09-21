@@ -596,8 +596,68 @@ class PiiClassifier(IClassifier):
                 if CATEGORY_PRIORITY.get(f.category, 0) > CATEGORY_PRIORITY.get(existing.category, 0):
                     by_pos[key] = f
         return list(by_pos.values())
+    
+    def _filter_url_over_email(self, findings: List[ClassificationFinding]) -> List[ClassificationFinding]:
+        """BUG-066 (день 46.3): url с email-доменом — отбрасываем url.
+
+        Presidio распознаёт в адресе `user@example.com` и EMAIL_ADDRESS,
+        и URL (домен `example.com`). URL-находка — дубликат email-домена:
+        отбрасываем её, чтобы не плодить ложные дубли.
+        """
+        email_spans = {
+            (f.start_pos, f.end_pos)
+            for f in findings
+            if f.subcategory in ("PII_EMAIL", "email")
+        }
+        if not email_spans:
+            return findings
+        
+        filtered = []
+        for f in findings:
+            if f.subcategory in ("PII_URL", "url"):
+                # url, полностью внутри email (домен) — выкидываем
+                if any(
+                    email_start <= f.start_pos < f.end_pos <= email_end
+                    for email_start, email_end in email_spans
+                ):
+                    continue
+            filtered.append(f)
+        return filtered
+
+    @staticmethod
+    def _is_valid_luhn(value: str) -> bool:
+        """TASK-024 (BUG-063, день 46.4): проверка Luhn для платёжных карт."""
+        digits = [int(ch) for ch in value if ch.isdigit()]
+        if len(digits) < 13 or len(digits) > 19:
+            return False
+        total = 0
+        for i, d in enumerate(reversed(digits)):
+            if i % 2 == 1:
+                d *= 2
+                if d > 9:
+                    d -= 9
+            total += d
+        return total % 10 == 0
+
+    def _filter_credit_cards_by_luhn(self, findings: List[ClassificationFinding]) -> List[ClassificationFinding]:
+        """TASK-024 (BUG-063, день 46.4): credit_card-finding без валидной
+        Luhn-суммы.
+
+        Presidio определяет `CREDIT_CARD` структурно (13-19 цифр) без проверки
+        Luhn — из-за этого даёт ложные кредитные карты на случайных
+        длинных цифровых строках (номера СНИЛС, телефоны и т.п.). Отбрасываем
+        карту, если она не проходит Luhn.
+        """
+        filtered = []
+        for f in findings:
+            if f.subcategory in ("credit_card", "PII_CREDIT_CARD", "CREDIT_CARD"):
+                if not self._is_valid_luhn(f.value):
+                    continue
+            filtered.append(f)
+        return filtered
 
     def _add_custom_recognizers(self, analyzer: Optional[AnalyzerEngine] = None):
+
         """Добавление кастомных распознавателей для РФ"""
         analyzer = analyzer or self._analyzer
         
@@ -769,6 +829,11 @@ class PiiClassifier(IClassifier):
         except Exception as e:
             print(f"[PII] Ошибка анализа: {e}")
         
+        # BUG-066 (день 46.3): url-finding, перекрывающий email-finding —
+        # отбрасываем url (это домен внутри адреса, а не самостоятельный URL).
+        findings = self._filter_url_over_email(findings)
+        findings = self._filter_credit_cards_by_luhn(findings)
+
         # Дедупликация
         unique_findings = {}
         for f in findings:

@@ -320,9 +320,12 @@ class FilesystemConnector:
                 return []
             return self._scan_text(text, classifiers, str(p))
 
-        # Изображения — не сканируем построчно (stub, день 40.2)
+        # Изображения — OCR (TASK-022, BUG-067): извлекаем текст через OCR
         if ext in _IMAGE_EXTENSIONS:
-            return []
+            text = self._extract_document(str(p), ext)
+            if not text:
+                return []
+            return self._scan_text(text, classifiers, str(p))
 
         return []
 
@@ -456,7 +459,7 @@ class FilesystemConnector:
                 content = f.read()
             extractor = DocumentExtractor(
                 temp_dir=Path(_tf.gettempdir()),
-                ocr_enabled=False,
+                ocr_enabled=self.config.get("ocr_enabled", False),
             )
             result, error = extractor.extract_text(
                 content, ext, Path(file_path).name
