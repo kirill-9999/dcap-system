@@ -1,5 +1,28 @@
 # CHANGELOG
 
+## v3.13.14 (2026-09-21)
+
+### Fix-спринт №5 (TZ_FIX_SPRINT_5.md) — url-over-email, OCR-markup, spaCy noise, credentials (v3.13.14)
+- **TASK-033** (BUG-066b) (`scanner/classifiers/pii_classifier.py`):
+  `_filter_url_over_email_finding` для модели `Finding` (по полям `start_pos`/`end_pos`,
+  категории `email`/`PII_EMAIL`, `url`/`PII_URL`) — вызывается в `scan_text` и `scan_line`
+  перед дедупликацией. Ранее фильтр работал только с `ClassificationFinding` в `classify()`,
+  а построчный конвейер пропускал url-дубликаты email
+- **TASK-034** (BUG-067d) (`scanner/connectors/filesystem.py`): findings из OCR-изображений
+  помечаются в `scan_file` для `_IMAGE_EXTENSIONS`: `fragment_type="image_region"`,
+  `detector="ocr"`, `bounding_box={x,y,width,height}` (раньше — text_line/presidio/None)
+- **TASK-035** (BUG-069/070) (`pii_classifier.py`): `_filter_spacy_noise` для `Finding` +
+  `_filter_spacy_noise_classification` для `ClassificationFinding` — отброс ложных
+  `person`/`organization`/`date_time` из `en`-прохода (значения с `_`/`=`/`:`/`://`,
+  >50% цифр, <3 символа, `card `) в `scan_text`/`scan_line`/`classify`
+- **TASK-036** (BUG-065) (`scanner/classifiers/credentials_classifier.py`) — 5 фиксов:
+  1) `_apply_filters`: значения со `SIGNATURE_PREFIXES` (AKIA/ghp_/xox/eyJ/sk-...) пропускаются
+  ДО placeholder-фильтров; 2) `PLACEHOLDER_PATTERNS`: убран `[0-9x]{8,}`, `password/admin/test/
+  sample/demo` — на полные совпадения `^...$`; 3) `BASIC_AUTH`: `\bBasic\s+[A-Za-z0-9+/=]{10,}`;
+  4) `SLACK_TOKEN`: `xox[baprs]-[A-Za-z0-9-]{10,}`; 5) `_is_placeholder`: `://` → не placeholder
+  (DATABASE_URL=postgresql://... не режется)
+- **Version**: bumped `docker-compose.yml`/`.env.example`/`VERSION` → **3.13.14**
+
 ## v3.13.13 (2026-09-21)
 
 ### Fix-спринт №4 (TZ_FIX_SPRINT_4.md) — OCR-секция + Presidio ru+en (v3.13.13)
