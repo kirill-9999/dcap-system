@@ -108,7 +108,7 @@ class PiiClassifier(IClassifier):
                 r'\b\d{4}\s+\d{6}\b',
                 r'\b\d{3}-\d{3}-\d{3}\s+\d{2}\b',
                 r'\b\d{6,12}\b',
-                r'\b\d{16}\b',
+                r'\b(?:\d[ -]?){13,19}\b',        # ← credit_card (BUG-063)
             ]
         ]
         self._quick_file_regex = re.compile(
@@ -398,7 +398,15 @@ class PiiClassifier(IClassifier):
         if analyzer is not None:
             try:
                 with analyzer_lock:
-                    results = analyzer.analyze(text=line, language="ru")
+                    # TASK-030 (BUG-063): двухпроходный ru+en — Presidio регистрирует
+                    # CREDIT_CARD и US-паттерны только для en; кредитки в ru-тексте
+                    # без en-пасса не детектируются.
+                    results_ru = analyzer.analyze(text=line, language="ru")
+                    results_en = analyzer.analyze(text=line, language="en")
+                    results = list({
+                        (r.entity_type, r.start, r.end): r
+                        for r in (results_ru + results_en)
+                    }.values())
                 min_confidence = self.config.get("min_confidence", 0.5)
                 for r in results:
                     if r.score < min_confidence:
@@ -474,7 +482,14 @@ class PiiClassifier(IClassifier):
         if analyzer is not None:
             try:
                 with analyzer_lock:
-                    results = analyzer.analyze(text=text, language="ru")
+                    # TASK-030 (BUG-063): двухпроходный ru+en — CREDIT_CARD и
+                    # US-сущности Presidio живут только в en-проходе.
+                    results_ru = analyzer.analyze(text=text, language="ru")
+                    results_en = analyzer.analyze(text=text, language="en")
+                    results = list({
+                        (r.entity_type, r.start, r.end): r
+                        for r in (results_ru + results_en)
+                    }.values())
                 min_confidence = self.config.get("min_confidence", 0.5)
                 for r in results:
                     if r.score < min_confidence:
@@ -778,13 +793,23 @@ class PiiClassifier(IClassifier):
             )
         
         try:
-            # Анализ текста через Presidio
-            results = self._analyzer.analyze(
-                text=text,
-                language="ru"
-            )
+            # Двухпроходный анализ (TASK-030, BUG-063): Presidio регистрирует
+            # CREDIT_CARD и US-паттерны (банки, водит. права, SSN) только для
+            # language="en", а телефон/паспорт/СНИЛС/ИНН — для "ru".
+            # Один проход (ru) теряет кредитки — делаем оба и дедуплицируем.
+            results = {}
+            for lang in ("ru", "en"):
+                with analyzer_lock:
+                    pass_results = self._analyzer.analyze(
+                        text=text,
+                        language=lang,
+                    )
+                for r in pass_results:
+                    key = (r.entity_type, r.start, r.end)
+                    if key not in results or r.score > results[key].score:
+                        results[key] = r
             
-            for result in results:
+            for result in results.values():
                 entity_type = result.entity_type
                 confidence = result.score
                 value = text[result.start:result.end]

@@ -598,6 +598,17 @@ class ManagedScanner:
         self._enc = get_encryption()
 
         connector_cfg = self._get_connector_config()
+        # TASK-029 (BUG-067c): OCR-ключ берём из classifiers.pii.ocr_enabled,
+        # потому что в connector-секции его нет (день 46.7).
+        pii_cfg = None
+        if self.config is not None and self.config.classifiers is not None:
+            pii_cfg = getattr(self.config.classifiers, "pii", None)
+        ocr_enabled = bool(
+            getattr(pii_cfg, "ocr_enabled", True)
+            if pii_cfg is not None
+            else True
+        )
+        connector_cfg["ocr_enabled"] = ocr_enabled
         self._connector = FilesystemConnector(connector_cfg)
 
         logger.info(
