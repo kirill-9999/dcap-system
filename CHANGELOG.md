@@ -1,5 +1,21 @@
 # CHANGELOG
 
+## v3.13.13 (2026-09-21)
+
+### Fix-спринт №4 (TZ_FIX_SPRINT_4.md) — OCR-секция + Presidio ru+en (v3.13.13)
+- **TASK-029** (BUG-067c) (`scanner/src/managed_scanner.py`): `ocr_enabled` берётся из
+  `classifiers.pii.ocr_enabled` (default `true`) и прокидывается в `connector_cfg` в
+  `_init_line_pipeline` — раньше `_get_connector_config()` не возвращал ключ и
+  `FilesystemConnector` всегда читал `self.config.get("ocr_enabled", False)`
+- **TASK-030** (BUG-063) (`scanner/classifiers/pii_classifier.py`): **двухпроходный
+  Presidio ru+en** во всех трёх путях (`scan_line`, `scan_text`, `classify`) + дедуп по
+  span `(entity_type, start, end)` со старшим `score`. Причина: Presidio регистрирует
+  `CREDIT_CARD`/US-сущности только для `language="en"`, а телефон/паспорт/СНИЛС/ИНН —
+  для `"ru"`; одиночный `ru`-проход кредитки не находил (Luhn-фильтр из №3 простаивал)
+- **TASK-031/032**: уже закрыты на день 46.5/46.7 (url-over-email единственный L600,
+  credentials-dedup с `CATEGORY_PRIORITY`) — изменений не потребовалось
+- **Version**: bumped `docker-compose.yml`/`.env.example`/`VERSION` → **3.13.13**
+
 ## v3.13.12 (2026-09-21)
 
 ### Fix-спринт №3 (TZ_FIX_SPRINT_3.md) — OCR, HTTP-retry, Luhn, dedup (v3.13.12)
