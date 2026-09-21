@@ -1,5 +1,26 @@
 # CHANGELOG
 
+## v3.13.12 (2026-09-21)
+
+### Fix-спринт №3 (TZ_FIX_SPRINT_3.md) — OCR, HTTP-retry, Luhn, dedup (v3.13.12)
+- **BUG-067** (`scanner/connectors/filesystem.py`):
+  - `_extract_document`: `ocr_enabled=False` (жёстко) → `ocr_enabled=self.config.get("ocr_enabled", False)`
+    — OCR управляется конфигом `scanner/config/scanner_config.json` (`ocr.ocr_enabled: true` по умолчанию);
+  - изображения (`_IMAGE_EXTENSIONS`): stub `return []` → OCR через `_extract_document`/DocumentExtractor
+- **BUG-063** (`scanner/classifiers/pii_classifier.py`): Presidio `CREDIT_CARD` без валидности →
+  `_is_valid_luhn` (L628) + `_filter_credit_cards_by_luhn` (L642), вызов после url-фильтра (L835) —
+  отсекаются номера, не прошедшие Luhn
+- **BUG-066** (`pii_classifier.py`): удалён ломаный legacy-дубль `_filter_url_over_email`
+  (`List[Finding]` с `category=="email"`/`start_pos`/`end_pos` → AttributeError);
+  остался единственный корректный (`List[ClassificationFinding]`, L600, поля
+  `subcategory`/`position`/`len(value)`) + один вызов (L834); url-over-email работает до dedup
+- **BUG-065** (`credentials_classifier.py`): дедупликация по `(subcategory, value)` с приоритетом
+  категорий (`CATEGORY_PRIORITY`) — ранее уже реализована, подтверждена тестами
+- **BUG-061** (`scanner/src/managed_scanner.py`): HTTP-retry — `HTTPAdapter` + `Retry`
+  (`total=5`, `backoff_factor=0.5`, `status_forcelist=(500,502,503,504)`,
+  `allowed_methods=("GET","POST")`, `raise_on_status=False`) для `self.session`
+- **Version**: bumped `docker-compose.yml`/`.env.example`/`VERSION` → **3.13.12**
+
 ## v3.13.11 (2026-09-20)
 
 ### Fix-спринт №2 (TZ_FIX_SPRINT_2.md) — ENV-ключи Findings + ротация (v3.0.0 blocker)
