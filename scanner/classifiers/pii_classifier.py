@@ -658,38 +658,59 @@ class PiiClassifier(IClassifier):
         return filtered
 
     def _filter_url_over_email_finding(self, findings: List[Finding]) -> List[Finding]:
-        """BUG-066b + BUG-071 + BUG-074 (TASK-033, расширено TASK-037, v3.13.15).
+        """BUG-066b + BUG-071 + BUG-074 + BUG-075 (TASK-033/037/040, v3.13.16).
 
-        Presidio обрезает url по '@' ('http://bob.new' для
-        'http://bob.new@test.example/x'), поэтому спаны url и email
-        НЕ пересекаются — фильтр по спанам не работает.
+        Покрывает 3 случая:
 
-        Работаем по line_text: если строка содержит URL-схему ('://')
-        И email-признак ('@' или email-паттерн) — отбрасываем все
-        url/email-findings этой строки. Покрывает:
-          - url-over-email:       http://user@host/path
-          - credentials-URL:      postgresql://user:pass@host:port/db
+        1. url-over-email: 'http://user@host/path'
+           → Presidio обрезает url по '@', спаны url/email не пересекаются.
+           Работаем по line_text: если строка содержит '://' И email-признак
+           ('@' или email-паттерн) — отбрасываем все url/email этой строки.
 
-        НЕ трогает обычные email-строки без '://':
-          - 'contact: user@example.com'  →  email сохраняется
+        2. credentials-URL: 'postgresql://user:pass@host:port/db'
+           → Presidio находит email в user:pass@host. Отбрасываем email
+           из строк с '://' (уже покрыто п.1).
+
+        3. BUG-075: Presidio URL recognizer ловит доменную часть email
+           ('company.example' для 'carol.new@company.example'). В таких
+           строках НЕТ '://', поэтому п.1 не срабатывает. Отбрасываем url,
+           чей match_text целиком входит в какой-либо email (по match_text
+           email-finding'ов или по email-паттернам из line_text).
         """
         EMAIL_RE = re.compile(r"[\w.+-]+@[\w.-]+\.\w+")
 
-        # Номера строк с URL-схемой + email-признаком
+        # 1. Строки с URL-схемой + email-признаком → все url/email отбросить
         skip_lines: set = set()
         for f in findings:
             line = f.line_text or ""
             if "://" in line and ("@" in line or EMAIL_RE.search(line)):
                 skip_lines.add((f.line_number, f.fragment_path))
 
-        if not skip_lines:
-            return findings
-
-        filtered = []
+        # 2. Собрать все email-значения (match_text email-finding'ов
+        #    + email-паттерны из line_text) — для BUG-075
+        email_values: set = set()
         for f in findings:
-            if f.category in ("url", "PII_URL", "email", "PII_EMAIL"):
+            if f.category in ("email", "PII_EMAIL"):
+                v = (f.match_text or "").strip().lower()
+                if v:
+                    email_values.add(v)
+            line = f.line_text or ""
+            for m in EMAIL_RE.finditer(line):
+                email_values.add(m.group(0).strip().lower())
+
+        # 3. Фильтрация
+        filtered: List[Finding] = []
+        for f in findings:
+            cat = f.category
+            if cat in ("url", "PII_URL", "email", "PII_EMAIL"):
+                # 3a. Строка с :// и email → пропустить (BUG-071/074)
                 if (f.line_number, f.fragment_path) in skip_lines:
                     continue
+                # 3b. url, входящий в email → пропустить (BUG-075)
+                if cat in ("url", "PII_URL"):
+                    url_val = (f.match_text or "").strip().lower()
+                    if url_val and any(url_val in em for em in email_values):
+                        continue
             filtered.append(f)
         return filtered
 
