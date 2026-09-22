@@ -1,5 +1,31 @@
 # CHANGELOG
 
+## v3.13.15 (2026-09-22)
+
+### Fix-спринт №6 (TZ_FIX_SPRINT_6.md) — BUG-071..074 (v3.13.15)
+- **TASK-037** (BUG-071 + BUG-074) (`scanner/classifiers/pii_classifier.py`):
+  `_filter_url_over_email_finding` полностью переписан — работает по `line_text`,
+  а не по спанам. Если строка содержит URL-схему (`://`) И email-признак
+  (`@` или email-паттерн) — все url/email-findings строки отбрасываются.
+  Покрывает url-over-email (`http://bob.new@test.example/x`, где Presidio режет
+  url по `@`, спаны не пересекались) и credentials-URL
+  (`postgresql://user:pass@host:port/db` — email из URL-логина).
+  Обычный email без `://` сохраняется.
+- **TASK-038** (BUG-072): в `_filter_spacy_noise` и `_filter_spacy_noise_classification`
+  добавлено условие отброса аббревиатур: `len(val) <= 5 and val.isupper()
+  and val.isascii() and val.isalpha()` (organization = "INN" — шум en-прохода).
+- **TASK-039** (BUG-073): новая `_filter_uk_nhs_with_phone` — отбрасывает `uk_nhs`,
+  если в той же строке (`line_number`/`fragment_path`) есть `phone`
+  (`UsNhsRecognizer` ловил 10 цифр US-телефона `+1 415 555 0199`). Подключена
+  в `scan_line` и `scan_text`.
+- **Tests**: новый `tests/unit/test_pii_filters_v31315.py` — 7 smoke-тестов
+  (url-over-email, credentials-URL email, plain email kept, INN, Apple Inc,
+  uk_nhs+phone, uk_nhs alone) — все зелёные; `tests/unit/` — 135 passed.
+- **Version**: `docker-compose.yml`/`.env.example` → **3.13.15**; стек пересобран,
+  `/api/health` → `{"status":"healthy","version":"3.13.15"}`.
+- **Docs**: `STATE.md` (Блок 3 — 100%), `ROADMAP.md` (BUG-071…074 → ✅),
+  `STATE_TEST_SESSION.md` (Блок 3 → ✅), отчёт `day_46.9_fix_sprint_6_report.md`.
+
 ## v3.13.14 (2026-09-21)
 
 ### Fix-спринт №5 (TZ_FIX_SPRINT_5.md) — url-over-email, OCR-markup, spaCy noise, credentials (v3.13.14)

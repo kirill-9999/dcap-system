@@ -2,10 +2,10 @@
 > Единственный источник правды о текущем состоянии проекта.
 > План и бэклог — в `ROADMAP.md`. Архитектура — в `ARCHITECTURE.md`.
 
-**Обновлено:** 21.09.2026
-**Текущая версия:** v3.13.14
+**Обновлено:** 22.09.2026
+**Текущая версия:** v3.13.15
 **Целевая версия:** v3.0.0 (релиз)
-**Статус:** 🟢 Fix-спринт №5 (TASK-033..036) ЗАКРЫТ v3.13.14; live-тест обеих частей (Manager+Scanner) → релиз v3.0.0
+**Статус:** 🟢 Fix-спринт №6 (TASK-037..039) ЗАКРЫТ v3.13.15; Блок 3 — 100% ✅; unit-тесты зелёные; live-прогон task 33 → релиз v3.0.0
 
 ---
 
@@ -13,10 +13,10 @@
 
 | Параметр | Значение |
 |----------|----------|
-| Текущий день | 46.8 — Fix-спринт №5 (ТЗ №5: url-over-email, OCR-markup, spaCy noise, credentials) |
+| Текущий день | 46.9 — Fix-спринт №6 (ТЗ №6: BUG-071..074) |
 | Статус дня | ✅ Выполнен |
-| Последний принятый отчёт | `day_46.8_fix_sprint_5_report.md` (v3.13.14) |
-| Следующий шаг | Live-прогон (emails.txt/screenshot.png/cards.txt/database.env) на тестовом стеке → релиз v3.0.0 |
+| Последний принятый отчёт | `day_46.9_fix_sprint_6_report.md` (v3.13.15) |
+| Следующий шаг | Live-прогон task 33 (C:\test\scanner_clean) → релиз v3.0.0 → Блок 8 (Мониторинг) |
 | Открытые вопросы к архитектору | — |
 
 ---
@@ -35,6 +35,7 @@
 | 46 (fix3.5) | Fix-спринт №3: OCR, HTTP-retry, Luhn, dedup | **v3.13.12** | `day_46.5_fix_sprint_3_report.md` |
 | 46.6-46.7 (fix4) | Fix-спринт №4: OCR-секция + Presidio ru+en | **v3.13.13** | `day_46.7_fix_sprint_4_report.md` |
 | 46.8 (fix5) | Fix-спринт №5: url-over-email, OCR-markup, spaCy noise, credentials | **v3.13.14** | `day_46.8_fix_sprint_5_report.md` |
+| 46.9 (fix6) | Fix-спринт №6: BUG-071..074 (url-over-email по line_text, INN-аббревиатуры, uk_nhs) | **v3.13.15** | `day_46.9_fix_sprint_6_report.md` |
 
 ---
 
@@ -68,6 +69,7 @@ BUG-061	Сканер не восстанавливает HTTP после пад�
 *(Закрытые в v3.13.12: BUG-067, BUG-063 (Luhn), BUG-066, BUG-065, BUG-061 — ТЗ №3)*
 *(Закрытые в v3.13.13: TASK-029 (OCR-секция), TASK-030 (Presidio ru+en) — ТЗ №4)*
 *(Закрытые в v3.13.14: TASK-033 (BUG-066b), TASK-034 (BUG-067d), TASK-035 (BUG-069/070), TASK-036 (BUG-065) — ТЗ №5)*
+*(Закрытые в v3.13.15: TASK-037 (BUG-071/074), TASK-038 (BUG-072), TASK-039 (BUG-073) — ТЗ №6)*
 
 ---
 
@@ -97,11 +99,10 @@ BUG-061	Сканер не восстанавливает HTTP после пад�
 
 ## 📁 Последние использованные файлы
 
-- `TZ_FIX_SPRINT_5.md` — ТЗ №5 (закрыто, v3.13.14)
-- `scanner/classifiers/pii_classifier.py` — url-over-email Finding + spaCy noise (TASK-033/035)
-- `scanner/connectors/filesystem.py` — image_region/ocr (TASK-034)
-- `scanner/classifiers/credentials_classifier.py` — 5 фиксов BUG-065 (TASK-036)
-- `docker-compose.yml`, `.env.example` — VERSION 3.13.14
+- `TZ_FIX_SPRINT_6.md` — ТЗ №6 (закрыто, v3.13.15)
+- `scanner/classifiers/pii_classifier.py` — url-over-email по line_text (TASK-037), INN-abbrevs (TASK-038), uk_nhs+phone (TASK-039)
+- `tests/unit/test_pii_filters_v31315.py` — smoke-тесты TASK-037..039
+- `docker-compose.yml`, `.env.example` — VERSION 3.13.15
 - `scripts/reencrypt_findings.py` — ротация ключей (TASK-016)
 - `scripts/generate_findings_keys.py` — генерация ключей (+ `--key-id`/`--output`)
 - `tests/e2e/test_key_rotation.py` — E2E ротации (TASK-020, offline)
@@ -112,6 +113,6 @@ BUG-061	Сканер не восстанавливает HTTP после пад�
 
 ---
 
-**Актуально на:** 21.09.2026
-**Версия:** v3.13.14
-**Следующий шаг:** Live-прогон (emails.txt/screenshot.png/cards.txt/database.env) → релиз v3.0.0
+**Актуально на:** 22.09.2026
+**Версия:** v3.13.15
+**Следующий шаг:** Live-прогон task 33 → релиз v3.0.0 → Блок 8 (Мониторинг)
