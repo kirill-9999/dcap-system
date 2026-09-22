@@ -38,6 +38,7 @@
 | 46.7 (fix4) | Fix-спринт №4: OCR-секция + двухпроходный Presidio | BUG-067c, 063 | ✅ **v3.13.13** |
 | 47 (fix5) | Fix-спринт №5: BUG-065, 066b, 067d, 069/070 | TASK-033…036 | ✅ **v3.13.14** |
 | 47 (fix6) | Fix-спринт №6: BUG-071…074 | TASK-037…039 | ✅ **v3.13.15** |
+| 47 (fix7) | Fix-спринт №7: BUG-075 (url = домен email) | TASK-040 | ✅ **v3.13.16** |
 | 47 (test) | Мастер-сессия: Блок 3 (Scanner deep) — финализация | — | 📋 |
 | 48 | Блок 8 (Мониторинг) | — | 📋 |
 | 49 | Блок 5 (WebUI) | — | 📋 |
@@ -56,6 +57,7 @@
 | **TASK-037** | BUG-071/074: url-over-email по line_text (TASK-033 расширено) | 🔴 | ✅ v3.13.15 |
 | **TASK-038** | BUG-072: аббревиатуры INN/SSN/DOB (spaCy noise) | 🟡 | ✅ v3.13.15 |
 | **TASK-039** | BUG-073: uk_nhs при phone в строке | 🟡 | ✅ v3.13.15 |
+| **TASK-040** | BUG-075: url = доменная часть email | 🔴 | ✅ v3.13.16 |
 | BACKLOG-028 | Публикация на GitHub | 🔴 | 📋 51 |
 | BACKLOG-039 | Аудит NOT NULL полей | 🟡 | 📋 |
 | BACKLOG-044 | Защита `/metrics` (JWT/basic_auth) | 🟡 | 📋 production |
@@ -154,6 +156,7 @@
 | BUG-072 | `organization = "INN"` (аббревиатура) | v3.13.15 |
 | BUG-073 | uk_nhs на US-телефоне | v3.13.15 |
 | BUG-074 | email из URL-логина (`postgresql://...@...`) | v3.13.15 |
+| BUG-075 | url = доменная часть email (task 34: 5 url) | v3.13.16 |
 
 ### 🟢 TEST-NOTE
 

@@ -3,9 +3,9 @@
 > План и бэклог — в `ROADMAP.md`. Архитектура — в `ARCHITECTURE.md`.
 
 **Обновлено:** 22.09.2026
-**Текущая версия:** v3.13.15
+**Текущая версия:** v3.13.16
 **Целевая версия:** v3.0.0 (релиз)
-**Статус:** 🟢 Fix-спринт №6 (TASK-037..039) ЗАКРЫТ v3.13.15; Блок 3 — 100% ✅; unit-тесты зелёные; live-прогон task 33 → релиз v3.0.0
+**Статус:** 🟢 Fix-спринт №7 (TASK-040) ЗАКРЫТ v3.13.16; Блок 3 — 100% ✅; unit-тесты зелёные (142 passed); live-прогон task 35 → релиз v3.0.0 → Блок 8 (Мониторинг)
 
 ---
 
@@ -13,10 +13,10 @@
 
 | Параметр | Значение |
 |----------|----------|
-| Текущий день | 46.9 — Fix-спринт №6 (ТЗ №6: BUG-071..074) |
+| Текущий день | 46.10 — Fix-спринт №7 (ТЗ №7: BUG-075 — url из домена email) |
 | Статус дня | ✅ Выполнен |
-| Последний принятый отчёт | `day_46.9_fix_sprint_6_report.md` (v3.13.15) |
-| Следующий шаг | Live-прогон task 33 (C:\test\scanner_clean) → релиз v3.0.0 → Блок 8 (Мониторинг) |
+| Последний принятый отчёт | `day_46.10_fix_sprint_7_report.md` (v3.13.16) |
+| Следующий шаг | Live-прогон task 35 (C:\test\scanner_clean, findings_count=29, url=0) → релиз v3.0.0 → Блок 8 (Мониторинг) |
 | Открытые вопросы к архитектору | — |
 
 ---
@@ -36,6 +36,7 @@
 | 46.6-46.7 (fix4) | Fix-спринт №4: OCR-секция + Presidio ru+en | **v3.13.13** | `day_46.7_fix_sprint_4_report.md` |
 | 46.8 (fix5) | Fix-спринт №5: url-over-email, OCR-markup, spaCy noise, credentials | **v3.13.14** | `day_46.8_fix_sprint_5_report.md` |
 | 46.9 (fix6) | Fix-спринт №6: BUG-071..074 (url-over-email по line_text, INN-аббревиатуры, uk_nhs) | **v3.13.15** | `day_46.9_fix_sprint_6_report.md` |
+| 46.10 (fix7) | Fix-спринт №7: BUG-075 (url = доменная часть email) | **v3.13.16** | `day_46.10_fix_sprint_7_report.md` |
 
 ---
 
@@ -70,6 +71,7 @@ BUG-061	Сканер не восстанавливает HTTP после пад�
 *(Закрытые в v3.13.13: TASK-029 (OCR-секция), TASK-030 (Presidio ru+en) — ТЗ №4)*
 *(Закрытые в v3.13.14: TASK-033 (BUG-066b), TASK-034 (BUG-067d), TASK-035 (BUG-069/070), TASK-036 (BUG-065) — ТЗ №5)*
 *(Закрытые в v3.13.15: TASK-037 (BUG-071/074), TASK-038 (BUG-072), TASK-039 (BUG-073) — ТЗ №6)*
+*(Закрытые в v3.13.16: TASK-040 (BUG-075) — ТЗ №7)*
 
 ---
 
@@ -99,10 +101,10 @@ BUG-061	Сканер не восстанавливает HTTP после пад�
 
 ## 📁 Последние использованные файлы
 
-- `TZ_FIX_SPRINT_6.md` — ТЗ №6 (закрыто, v3.13.15)
-- `scanner/classifiers/pii_classifier.py` — url-over-email по line_text (TASK-037), INN-abbrevs (TASK-038), uk_nhs+phone (TASK-039)
-- `tests/unit/test_pii_filters_v31315.py` — smoke-тесты TASK-037..039
-- `docker-compose.yml`, `.env.example` — VERSION 3.13.15
+- `TZ_FIX_SPRINT_7.md` — ТЗ №7 (закрыто, v3.13.16)
+- `scanner/classifiers/pii_classifier.py` — url-over-email 3 случая, BUG-075 (TASK-040)
+- `tests/unit/test_pii_filters_v31316.py` — smoke-тесты BUG-075 + регрессия
+- `docker-compose.yml`, `.env.example` — VERSION 3.13.16
 - `scripts/reencrypt_findings.py` — ротация ключей (TASK-016)
 - `scripts/generate_findings_keys.py` — генерация ключей (+ `--key-id`/`--output`)
 - `tests/e2e/test_key_rotation.py` — E2E ротации (TASK-020, offline)
@@ -114,5 +116,5 @@ BUG-061	Сканер не восстанавливает HTTP после пад�
 ---
 
 **Актуально на:** 22.09.2026
-**Версия:** v3.13.15
-**Следующий шаг:** Live-прогон task 33 → релиз v3.0.0 → Блок 8 (Мониторинг)
+**Версия:** v3.13.16
+**Следующий шаг:** Live-прогон task 35 (url=0, findings=29) → релиз v3.0.0 → Блок 8 (Мониторинг)

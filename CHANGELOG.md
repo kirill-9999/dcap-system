@@ -1,5 +1,25 @@
 # CHANGELOG
 
+## v3.13.16 (2026-09-22)
+
+### Fix-спринт №7 (TZ_FIX_SPRINT_7.md) — BUG-075 (v3.13.16)
+- **TASK-040** (BUG-075) (`scanner/classifiers/pii_classifier.py`):
+  `_filter_url_over_email_finding` расширен до 3 случаев:
+  1) строка с `://` + email-признак → url/email отбрасываются (BUG-071/074, как в ТЗ №6);
+  2) email из URL-логина (`postgresql://user:pass@host:port/db`) — покрыто п.1;
+  3) **BUG-075**: URL recognizer ловил доменную часть email (`company.example`
+  для `carol.new@company.example`) — нет `://`, п.1 не срабатывал, task 34 дал 5 url.
+  Теперь собираются все email-значения (match_text email-findings + email-паттерны
+  из line_text), url с match_text, целиком входящим в какое-либо email-значение,
+  отбрасывается (в т.ч. дубликаты в одной строке — ids 1338/1339).
+- **Tests**: новый `tests/unit/test_pii_filters_v31316.py` — 7 smoke-тестов
+  (domain url removed, multiple urls same line, real url kept, email kept +
+  регрессия ТЗ №6) — все зелёные; `tests/unit/` — **142 passed**.
+- **Version**: `docker-compose.yml`/`.env.example` → **3.13.16**; стек пересобран,
+  `/api/health` → `{"status":"healthy","version":"3.13.16"}`.
+- **Docs**: `STATE.md`, `ROADMAP.md` (BUG-075 → ✅), `STATE_TEST_SESSION.md`
+  (Блок 3 → ✅), отчёт `day_46.10_fix_sprint_7_report.md`.
+
 ## v3.13.15 (2026-09-22)
 
 ### Fix-спринт №6 (TZ_FIX_SPRINT_6.md) — BUG-071..074 (v3.13.15)
