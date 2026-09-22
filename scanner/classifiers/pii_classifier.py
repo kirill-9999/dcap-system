@@ -453,6 +453,9 @@ class PiiClassifier(IClassifier):
         # BUG-069/070 (TASK-035): фильтр spaCy noise (person/org/date_time)
         findings = self._filter_spacy_noise(findings)
 
+        # BUG-073 (TASK-039): uk_nhs при наличии phone в той же строке
+        findings = self._filter_uk_nhs_with_phone(findings)
+
         # Дедупликация внутри строки (по позиции)
         return self._deduplicate(findings)
 
@@ -543,6 +546,9 @@ class PiiClassifier(IClassifier):
 
         # BUG-069/070 (TASK-035): фильтр spaCy noise (person/org/date_time)
         findings = self._filter_spacy_noise(findings)
+
+        # BUG-073 (TASK-039): uk_nhs при наличии phone в той же строке
+        findings = self._filter_uk_nhs_with_phone(findings)
 
         # BUG-022.9: дедупликация по позиции с приоритетом категорий
         by_pos = {}
@@ -652,25 +658,37 @@ class PiiClassifier(IClassifier):
         return filtered
 
     def _filter_url_over_email_finding(self, findings: List[Finding]) -> List[Finding]:
-        """BUG-066b (TASK-033, день 46.8): url-over-email для модели Finding.
+        """BUG-066b + BUG-071 + BUG-074 (TASK-033, расширено TASK-037, v3.13.15).
 
-        В построчном/файловом конвейере (scan_line/scan_text) findings — это
-        Finding (поля start_pos/end_pos, category в нижнем регистре).
-        Отбрасываем url, который целиком лежит внутри email-спана.
+        Presidio обрезает url по '@' ('http://bob.new' для
+        'http://bob.new@test.example/x'), поэтому спаны url и email
+        НЕ пересекаются — фильтр по спанам не работает.
+
+        Работаем по line_text: если строка содержит URL-схему ('://')
+        И email-признак ('@' или email-паттерн) — отбрасываем все
+        url/email-findings этой строки. Покрывает:
+          - url-over-email:       http://user@host/path
+          - credentials-URL:      postgresql://user:pass@host:port/db
+
+        НЕ трогает обычные email-строки без '://':
+          - 'contact: user@example.com'  →  email сохраняется
         """
-        email_spans = {
-            (f.start_pos, f.end_pos)
-            for f in findings
-            if f.category in ("email", "PII_EMAIL")
-        }
-        if not email_spans:
+        EMAIL_RE = re.compile(r"[\w.+-]+@[\w.-]+\.\w+")
+
+        # Номера строк с URL-схемой + email-признаком
+        skip_lines: set = set()
+        for f in findings:
+            line = f.line_text or ""
+            if "://" in line and ("@" in line or EMAIL_RE.search(line)):
+                skip_lines.add((f.line_number, f.fragment_path))
+
+        if not skip_lines:
             return findings
 
         filtered = []
         for f in findings:
-            if f.category in ("url", "PII_URL"):
-                if any(e_start <= f.start_pos and f.end_pos <= e_end
-                       for e_start, e_end in email_spans):
+            if f.category in ("url", "PII_URL", "email", "PII_EMAIL"):
+                if (f.line_number, f.fragment_path) in skip_lines:
                     continue
             filtered.append(f)
         return filtered
@@ -697,7 +715,9 @@ class PiiClassifier(IClassifier):
                         or "://" in val
                         or sum(c.isdigit() for c in val) > len(val) / 2
                         or len(val) < 3
-                        or "card " in val.lower()):
+                        or "card " in val.lower()
+                        # BUG-072 (TASK-038, v3.13.15): аббревиатуры INN/SSN/DOB/URL/API
+                        or (len(val) <= 5 and val.isupper() and val.isascii() and val.isalpha())):
                     continue
             filtered.append(f)
         return filtered
@@ -721,7 +741,33 @@ class PiiClassifier(IClassifier):
                         or "://" in val
                         or sum(c.isdigit() for c in val) > len(val) / 2
                         or len(val) < 3
-                        or "card " in val.lower()):
+                        or "card " in val.lower()
+                        # BUG-072 (TASK-038, v3.13.15)
+                        or (len(val) <= 5 and val.isupper() and val.isascii() and val.isalpha())):
+                    continue
+            filtered.append(f)
+        return filtered
+
+    def _filter_uk_nhs_with_phone(self, findings: List[Finding]) -> List[Finding]:
+        """BUG-073 (TASK-039, v3.13.15): UK NHS — ложное срабатывание
+        на US-телефонах.
+
+        Presidio's UkNhsRecognizer ловит 10 цифр — US-телефон
+        '+1 415 555 0199' проходит как UK NHS. Отбрасываем uk_nhs,
+        если в той же строке уже есть phone.
+        """
+        phone_lines = {
+            (f.line_number, f.fragment_path)
+            for f in findings
+            if f.category in ("phone", "PII_PHONE")
+        }
+        if not phone_lines:
+            return findings
+
+        filtered = []
+        for f in findings:
+            if f.category in ("uk_nhs", "UK_NHS"):
+                if (f.line_number, f.fragment_path) in phone_lines:
                     continue
             filtered.append(f)
         return filtered
