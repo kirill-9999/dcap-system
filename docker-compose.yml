@@ -226,8 +226,8 @@ services:
   # ===== LINUX AGENT (РїСЂРѕС„РёР»СЊ agents) =====
   audit_agent_linux:
     build:
-      context: .
-      dockerfile: audit-agent-linux/Dockerfile
+      context: audit-agent-linux
+      dockerfile: Dockerfile
     image: dcap/linux-agent:${VERSION:-3.13.12}
     container_name: dcap-linux-agent
     environment:
