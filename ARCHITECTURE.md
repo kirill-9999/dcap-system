@@ -316,6 +316,12 @@ class Finding(Base):
 | `text_line` | Текстовые файлы | Строка с совпадением |
 | `text_context` | Текстовые файлы | Строка + N строк контекста |
 | `image_region` | Изображения, PDF-сканы | Вырезанный фрагмент (PNG) + bounding box |
+
+> **image_region до v3.1.0 (BUG-077, v3.13.17):** OCR-координаты не вычисляются
+> (Tesseract без tsv) → `bounding_box = NULL`. Endpoint `/api/findings/{id}/fragment`
+> для такого finding'а возвращает **весь PNG** с заголовком `X-Fragment-Mode: full-image`
+> (`has_fragment` = True, т.к. `fragment_path` заполнен). Полный OCR-пайплайн
+> с реальным bbox — **BACKLOG-085 (v3.1.0)**.
 | `byte_range` | Бинарные | Hex-дамп вокруг offset |
 
 ### Архивная таблица
@@ -338,7 +344,7 @@ class Finding(Base):
 | POST | `/api/findings/bulk` | Auditor+ | Массовое обновление |
 | GET | `/api/findings/stats` | Viewer+ | Статистика |
 | GET | `/api/findings/false-positives` | Auditor+ | Список FP |
-| GET | `/api/findings/{id}/fragment` | Viewer+ | Фрагмент (изображение/hex) |
+| GET | `/api/findings/{id}/fragment` | Viewer+ | Фрагмент (изображение/hex); image_region без bbox → весь PNG (`X-Fragment-Mode: full-image`) |
 | GET | `/api/findings/export` | Auditor+ | Экспорт (CSV/JSON) |
 | DELETE | `/api/findings/{id}` | Admin | Удалить |
 | POST | `/api/findings/check-fingerprints` | **публичный** | Проверка FP перед отправкой (machine) |

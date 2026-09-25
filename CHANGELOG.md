@@ -1,231 +1,277 @@
-# CHANGELOG
+# 📓 CHANGELOG.md — История версий DCAP
 
-## v3.13.16 (2026-09-22)
+> Формат — по мотивам [Keep a Changelog](https://keepachangelog.com/ru/1.1.0/).
+> Версионирование — SemVer.
 
-### Fix-спринт №7 (TZ_FIX_SPRINT_7.md) — BUG-075 (v3.13.16)
-- **TASK-040** (BUG-075) (`scanner/classifiers/pii_classifier.py`):
-  `_filter_url_over_email_finding` расширен до 3 случаев:
-  1) строка с `://` + email-признак → url/email отбрасываются (BUG-071/074, как в ТЗ №6);
-  2) email из URL-логина (`postgresql://user:pass@host:port/db`) — покрыто п.1;
-  3) **BUG-075**: URL recognizer ловил доменную часть email (`company.example`
-  для `carol.new@company.example`) — нет `://`, п.1 не срабатывал, task 34 дал 5 url.
-  Теперь собираются все email-значения (match_text email-findings + email-паттерны
-  из line_text), url с match_text, целиком входящим в какое-либо email-значение,
-  отбрасывается (в т.ч. дубликаты в одной строке — ids 1338/1339).
-- **Tests**: новый `tests/unit/test_pii_filters_v31316.py` — 7 smoke-тестов
-  (domain url removed, multiple urls same line, real url kept, email kept +
-  регрессия ТЗ №6) — все зелёные; `tests/unit/` — **142 passed**.
-- **Version**: `docker-compose.yml`/`.env.example` → **3.13.16**; стек пересобран,
-  `/api/health` → `{"status":"healthy","version":"3.13.16"}`.
-- **Docs**: `STATE.md`, `ROADMAP.md` (BUG-075 → ✅), `STATE_TEST_SESSION.md`
-  (Блок 3 → ✅), отчёт `day_46.10_fix_sprint_7_report.md`.
+---
 
-## v3.13.15 (2026-09-22)
+## [Unreleased] — v3.0.0 (release)
 
-### Fix-спринт №6 (TZ_FIX_SPRINT_6.md) — BUG-071..074 (v3.13.15)
-- **TASK-037** (BUG-071 + BUG-074) (`scanner/classifiers/pii_classifier.py`):
-  `_filter_url_over_email_finding` полностью переписан — работает по `line_text`,
-  а не по спанам. Если строка содержит URL-схему (`://`) И email-признак
-  (`@` или email-паттерн) — все url/email-findings строки отбрасываются.
-  Покрывает url-over-email (`http://bob.new@test.example/x`, где Presidio режет
-  url по `@`, спаны не пересекались) и credentials-URL
-  (`postgresql://user:pass@host:port/db` — email из URL-логина).
-  Обычный email без `://` сохраняется.
-- **TASK-038** (BUG-072): в `_filter_spacy_noise` и `_filter_spacy_noise_classification`
-  добавлено условие отброса аббревиатур: `len(val) <= 5 and val.isupper()
-  and val.isascii() and val.isalpha()` (organization = "INN" — шум en-прохода).
-- **TASK-039** (BUG-073): новая `_filter_uk_nhs_with_phone` — отбрасывает `uk_nhs`,
-  если в той же строке (`line_number`/`fragment_path`) есть `phone`
-  (`UsNhsRecognizer` ловил 10 цифр US-телефона `+1 415 555 0199`). Подключена
-  в `scan_line` и `scan_text`.
-- **Tests**: новый `tests/unit/test_pii_filters_v31315.py` — 7 smoke-тестов
-  (url-over-email, credentials-URL email, plain email kept, INN, Apple Inc,
-  uk_nhs+phone, uk_nhs alone) — все зелёные; `tests/unit/` — 135 passed.
-- **Version**: `docker-compose.yml`/`.env.example` → **3.13.15**; стек пересобран,
-  `/api/health` → `{"status":"healthy","version":"3.13.15"}`.
-- **Docs**: `STATE.md` (Блок 3 — 100%), `ROADMAP.md` (BUG-071…074 → ✅),
-  `STATE_TEST_SESSION.md` (Блок 3 → ✅), отчёт `day_46.9_fix_sprint_6_report.md`.
+**Осталось:** Блок 5 (WebUI), Блок 7 (Retention), Блок 6 (Агенты), GitHub-пакет.
 
-## v3.13.14 (2026-09-21)
+---
 
-### Fix-спринт №5 (TZ_FIX_SPRINT_5.md) — url-over-email, OCR-markup, spaCy noise, credentials (v3.13.14)
-- **TASK-033** (BUG-066b) (`scanner/classifiers/pii_classifier.py`):
-  `_filter_url_over_email_finding` для модели `Finding` (по полям `start_pos`/`end_pos`,
-  категории `email`/`PII_EMAIL`, `url`/`PII_URL`) — вызывается в `scan_text` и `scan_line`
-  перед дедупликацией. Ранее фильтр работал только с `ClassificationFinding` в `classify()`,
-  а построчный конвейер пропускал url-дубликаты email
-- **TASK-034** (BUG-067d) (`scanner/connectors/filesystem.py`): findings из OCR-изображений
-  помечаются в `scan_file` для `_IMAGE_EXTENSIONS`: `fragment_type="image_region"`,
-  `detector="ocr"`, `bounding_box={x,y,width,height}` (раньше — text_line/presidio/None)
-- **TASK-035** (BUG-069/070) (`pii_classifier.py`): `_filter_spacy_noise` для `Finding` +
-  `_filter_spacy_noise_classification` для `ClassificationFinding` — отброс ложных
-  `person`/`organization`/`date_time` из `en`-прохода (значения с `_`/`=`/`:`/`://`,
-  >50% цифр, <3 символа, `card `) в `scan_text`/`scan_line`/`classify`
-- **TASK-036** (BUG-065) (`scanner/classifiers/credentials_classifier.py`) — 5 фиксов:
-  1) `_apply_filters`: значения со `SIGNATURE_PREFIXES` (AKIA/ghp_/xox/eyJ/sk-...) пропускаются
-  ДО placeholder-фильтров; 2) `PLACEHOLDER_PATTERNS`: убран `[0-9x]{8,}`, `password/admin/test/
-  sample/demo` — на полные совпадения `^...$`; 3) `BASIC_AUTH`: `\bBasic\s+[A-Za-z0-9+/=]{10,}`;
-  4) `SLACK_TOKEN`: `xox[baprs]-[A-Za-z0-9-]{10,}`; 5) `_is_placeholder`: `://` → не placeholder
-  (DATABASE_URL=postgresql://... не режется)
-- **Version**: bumped `docker-compose.yml`/`.env.example`/`VERSION` → **3.13.14**
+## [3.13.17] — 2026-09-25 — BUG-077 (bbox=None для OCR + fallback full-image)
 
-## v3.13.13 (2026-09-21)
+### Fixed
+- **BUG-077** (TASK-041): OCR-finding'и получали захардкоженный `bounding_box = {x:0, y:0, width:0, height:0}`. Координаты не вычисляются (Tesseract вызывается без tsv) — теперь честно `None`, чтобы API/WebUI не пытались вырезать несуществующий регион.
+  - `scanner/connectors/filesystem.py` — OCR-блок `scan_file`.
+- **BUG-077** (TASK-042): endpoint `/api/findings/{id}/fragment` для `image_region` без bbox возвращает **весь PNG** с заголовком `X-Fragment-Mode: full-image` (Вариант 1). Файл недоступен → 404.
 
-### Fix-спринт №4 (TZ_FIX_SPRINT_4.md) — OCR-секция + Presidio ru+en (v3.13.13)
-- **TASK-029** (BUG-067c) (`scanner/src/managed_scanner.py`): `ocr_enabled` берётся из
-  `classifiers.pii.ocr_enabled` (default `true`) и прокидывается в `connector_cfg` в
-  `_init_line_pipeline` — раньше `_get_connector_config()` не возвращал ключ и
-  `FilesystemConnector` всегда читал `self.config.get("ocr_enabled", False)`
-- **TASK-030** (BUG-063) (`scanner/classifiers/pii_classifier.py`): **двухпроходный
-  Presidio ru+en** во всех трёх путях (`scan_line`, `scan_text`, `classify`) + дедуп по
-  span `(entity_type, start, end)` со старшим `score`. Причина: Presidio регистрирует
-  `CREDIT_CARD`/US-сущности только для `language="en"`, а телефон/паспорт/СНИЛС/ИНН —
-  для `"ru"`; одиночный `ru`-проход кредитки не находил (Luhn-фильтр из №3 простаивал)
-- **TASK-031/032**: уже закрыты на день 46.5/46.7 (url-over-email единственный L600,
-  credentials-dedup с `CATEGORY_PRIORITY`) — изменений не потребовалось
-- **Version**: bumped `docker-compose.yml`/`.env.example`/`VERSION` → **3.13.13**
+### Changed
+- `docker-compose.yml` — VERSION агентов синхронизирован: `s3_agent`, `audit_agent_linux` 3.13.12 → 3.13.16 (TASK-043); manager/webui → 3.13.17.
 
-## v3.13.12 (2026-09-21)
+### Tests
+- `tests/unit/test_ocr_bbox_v31317.py` — 2 теста (OCR bbox=None, text finds bbox=None).
+- `pytest tests/unit/` — 144 passed.
 
-### Fix-спринт №3 (TZ_FIX_SPRINT_3.md) — OCR, HTTP-retry, Luhn, dedup (v3.13.12)
-- **BUG-067** (`scanner/connectors/filesystem.py`):
-  - `_extract_document`: `ocr_enabled=False` (жёстко) → `ocr_enabled=self.config.get("ocr_enabled", False)`
-    — OCR управляется конфигом `scanner/config/scanner_config.json` (`ocr.ocr_enabled: true` по умолчанию);
-  - изображения (`_IMAGE_EXTENSIONS`): stub `return []` → OCR через `_extract_document`/DocumentExtractor
-- **BUG-063** (`scanner/classifiers/pii_classifier.py`): Presidio `CREDIT_CARD` без валидности →
-  `_is_valid_luhn` (L628) + `_filter_credit_cards_by_luhn` (L642), вызов после url-фильтра (L835) —
-  отсекаются номера, не прошедшие Luhn
-- **BUG-066** (`pii_classifier.py`): удалён ломаный legacy-дубль `_filter_url_over_email`
-  (`List[Finding]` с `category=="email"`/`start_pos`/`end_pos` → AttributeError);
-  остался единственный корректный (`List[ClassificationFinding]`, L600, поля
-  `subcategory`/`position`/`len(value)`) + один вызов (L834); url-over-email работает до dedup
-- **BUG-065** (`credentials_classifier.py`): дедупликация по `(subcategory, value)` с приоритетом
-  категорий (`CATEGORY_PRIORITY`) — ранее уже реализована, подтверждена тестами
-- **BUG-061** (`scanner/src/managed_scanner.py`): HTTP-retry — `HTTPAdapter` + `Retry`
-  (`total=5`, `backoff_factor=0.5`, `status_forcelist=(500,502,503,504)`,
-  `allowed_methods=("GET","POST")`, `raise_on_status=False`) для `self.session`
-- **Version**: bumped `docker-compose.yml`/`.env.example`/`VERSION` → **3.13.12**
+### Notes
+- Полный OCR-пайплайн с реальным bbox (tesseract tsv) — **BACKLOG-085 (v3.1.0)**.
+- BUG-078 не создавался: `has_fragment` в API считается по `fragment_path`, а не по bbox — кнопка фрагмента у OCR уже активна (fragment = сам PNG).
 
-## v3.13.11 (2026-09-20)
+---
 
-### Fix-спринт №2 (TZ_FIX_SPRINT_2.md) — ENV-ключи Findings + ротация (v3.0.0 blocker)
-- **TASK-018** ⚠️ BREAKING: ключи Findings — **только через ENV**; Docker Secrets для
-  findings убраны полностью (docker-compose manager без секции `secrets`, top-level
-  `secrets:` удалён, `FINDINGS_ENCRYPTION_KEY`/`FINDINGS_HMAC_KEY`/`FINDINGS_KEY_ID`
-  передаются через environment). Manager перестал читать `/run/secrets/`
-  (manager/src/core/encryption.py: `_read_secret` → `_read_env`, `from_secrets` → `from_env`),
-  сканер — тоже (scanner/src/encryption.py: `_read_optional_secret` → `_read_optional_env`)
-- **TASK-016**: `scripts/reencrypt_findings.py` — CLI-перешифровка находок старым ключом на
-  новый: `--old-key-file/--old-hmac-file/--new-key-file/--new-hmac-file/--new-key-id`
-  [+ `--dry-run`, `--batch-size 500`, `--filter-key-id`]; подключение к БД через
-  `manager.src.config.get_config()`; батчевая идемпотентная перешифровка
-  `match_text_encrypted`/`line_text_encrypted`; fingerprint НЕ пересчитывается;
-  decrypt-ошибка → skip + счётчик, encrypt-ошибка → rollback батча + abort;
-  отчёт `Total/Already new key/Reencrypted/Skipped/Batch size`
-- **TASK-020**: `tests/e2e/test_key_rotation.py` — E2E ротации (offline, маркер
-  `e2e_offline`): 100 findings key-test-01 → генерация key-test-02 → reencrypt →
-  все на key-test-02, данные целы, reveal новым ключом работает, старый ключ не нужен
-- **CLI**: `scripts/generate_findings_keys.py` — добавлены `--key-id` и `--output`
-- **Тесты**: `tests/unit/test_reencrypt.py` (4 теста: basic/skips_new_key_id/dry_run/
-  error_handling), `TestFindingEncryptionEnvOnly` в `test_encryption.py`
-  (env-only, без `/run/secrets`, ephemeral-fallback dev), env-only guard сканера
-- **Version**: v3.13.11 во всех контейнерах (12× в docker-compose), `.env`, `.env.example`,
-  `webui/config.py`
-- **Docs**: CHANGELOG; STATE.md; ROADMAP.md (TASK-016/018/020 закрыты)
+## [3.13.16] — 2026-09-22 — Fix-спринт №7 (BUG-075)
 
-## v3.13.10 (2026-09-20)
+### Fixed
+- **BUG-075**: Presidio URL recognizer ловил доменную часть email-адреса как отдельный url (`company.example` для `carol.new@company.example`). В таких строках нет `://`, поэтому фильтр ТЗ №6 не срабатывал.
+  - `_filter_url_over_email_finding` расширен: собирает все email-значения (match_text email-findings + email-паттерны из line_text, case-insensitive), отбрасывает url, чей match_text целиком входит в email.
+  - Покрыт дубль url в одной строке (разные start_pos/end_pos).
 
-### BUG-048b — middleware пропускал machine-API без извлечения JWT
-- **BUG-048b**: `_is_public` в `AuthMiddleware` преждевременно возвращал `True` для
-  `/api/scanner/*`, middleware выходил из `dispatch` без извлечения JWT → `request.state.user`
-  оставался пустым → защищённые `require_admin` scanner-эндпоинты (`DELETE /api/scanner/{id}`)
-  возвращали 401 вместо 403/404 (manager/src/auth/middleware.py)
-- Убрана ветка `/api/scanner*` из `_is_public` — запросы теперь идут через
-  `_is_machine_endpoint`, где JWT извлекается и `request.state.user` устанавливается
-- В machine-ветке `call_next` перенесён внутрь `try/finally` — сессия БД держится открытой,
-  пока хендлер читает `user.roles` (иначе DetachedInstanceError → 500)
-- Machine-API агентов (register/heartbeat/tasks/events) остаются публичными без JWT (by design)
-- **Тесты**: `tests/unit/test_scanner_middleware_rbac.py` — 9 регрессионных тестов
-  (viewer→403, admin→404, без JWT→401, garbage→401, heartbeat/register/список без JWT публичны,
-  mTLS relaxed не блокирует JWT); полный `tests/unit` — 118 passed
-- **Docs**: `docs/admin-guide/06-scanner.md` (раздел «Модель доступа к scanner-API»),
-  `docs/admin-guide/05-security.md` (§5.1 «Machine-API и JWT»)
+### Changed
+- `docker-compose.yml`, `.env.example` — VERSION 3.13.16.
 
-## v3.13.9 (2026-09-19)
+### Tests
+- `tests/unit/test_pii_filters_v31316.py` — 7 тестов (domain of email url removed, multiple urls same line, real url kept, email without url kept, + регрессия).
+- `pytest tests/unit/` — 142 passed.
 
-### Fix-спринт (TZ_FIX_SPRINT.md) — Auth/RBAC + стабильность
-- **BUG-039**: refresh-токен больше не валиден как access — `verify_token(token, expected_type)`
-  проверяет `payload["type"]`; `/api/auth/refresh` требует `"refresh"` (manager/src/auth/jwt.py, router.py)
-- **BUG-046**: RBAC на CRUD ресурсов: POST/DELETE `/api/resources`, PUT `/api/resources/{id}/config` —
-  только `admin`; POST `/api/resources/{id}/scan` — `admin/scanner` (manager/src/api/resources.py)
-- **BUG-047**: RBAC + транзакция на задачи: POST `/api/tasks/{id}/cancel` и DELETE `/api/tasks/{id}` —
-  только `admin`, DELETE возвращает 409 для `assigned/running`, rollback при ошибке (tasks.py)
-- **BUG-048**: DELETE `/api/scanner/{id}` — только `admin` (scanner.py)
-- **BUG-049..054**: RBAC на WebUI-эндпоинты: DELETE `/api/scanners/{id}` — admin; ping — scanner;
-  `/api/tasks/create` — scanner; `/api/resources/create` — admin; алерт-status и отчёты
-  (preview/excel/pdf) — auditor (webui.py)
-- **BUG-055**: DELETE `/api/audit/agents/{id}` — только admin; `/api/permissions` mode/sync — admin,
-  update/generate алертов — auditor (audit.py, permissions.py)
-- **BUG-037**: `group_mapping` в конфиге — множественное число (`DCAP_Admins/DCAP_Auditors/DCAP_Scanners`)
-- **BUG-043**: каталог `/api/catalog/tree` — `children` теперь всегда `list` (листья не ломали WebUI),
-  агрегация рекурсивная корректная (catalog.py)
-- **BUG-045**: `/api/scanner/heartbeat` — 400 при кривом JSON/`scanner_id`/`task_id` вместо 500
-- **BUG-057**: сканер fail-fast — без `FINDINGS_ENCRYPTION_KEY`/`FINDINGS_HMAC_KEY` не стартует;
-  legacy только при `DCAP_ALLOW_LEGACY_SCANNER=true` (run_scanner.py, scanner/src/encryption.py)
-- **BUG-058**: Manager fallback `line_text_encrypted` — если сканер не прислал шифрованную строку,
-  Manager шифрует сам (scanner.py submit_results)
-- **BUG-059**: POST `/api/tasks/create` — нормализация `resource_type` в lowercase + fallback поиска
-  без type при IntegrityError (больше не 500); уникальность ресурсов (path,type) — модель + Alembic 004
-  (webui.py, resources.py, models.py, migrations/004_resources_path_type_unique.py)
-- **BUG-038**: TTL JWT из env (`JWT_ACCESS_TTL_MINUTES`, `JWT_REFRESH_TTL_DAYS`) + bind-mount
-  `manager/config` в docker-compose
-- **BUG-041**: jti/iat во всех токенах; blacklist jti при logout и ротации refresh (Redis, fail-open)
-- **BUG-042**: HttpOnly-cookie `Secure`-флаг из `AUTH_COOKIE_SECURE` (default false для localhost)
-- **BUG-044**: маска email маскирует и домен (`us***@ex***.com`) — manager + scanner encryption
-- Тесты: `tests/unit/test_rbac_guard.py`, `test_jwt_type.py`, `test_catalog_tree.py`,
-  `test_tasks_create.py` + обновлены `test_encryption.py`, `test_scanner_findings.py`
-  (всего 109 unit-тестов, green)
+---
 
-## v3.13.1 (2026-09-13)
+## [3.13.15] — 2026-09-22 — Fix-спринт №6 (BUG-071…074)
 
-### Файловый PII-анализ + остановка по Ctrl+C (день 42.5+, по прямому ТЗ)
-- `PiiClassifier.scan_text(text)` — ОДИН вызов Presidio на весь файл (вместо построчного
-  `analyze(line)` на каждую прошедшую quick-check строку); номера строк находок
-  вычисляются из offset (`_line_starts` + bisect), позиции — относительно строки
-- `FilesystemConnector._scan_text`: классификаторы с `scan_text` обрабатываются один раз
-  на файл, остальные (Credentials/Code) — построчно `scan_line` как раньше
-- `FilesystemConnector.scan_path(..., stop_event)`: сканирование останавливается после
-  текущих файлов (seq — break, parallel — воркеры возвращают [])
-- `ManagedScanner._stop_event`: `stop()`/Ctrl+C устанавливает событие → задача прерывается,
-  результаты НЕ отправляются в Manager (task остаётся assigned, не искажается)
-- Итог: Presidio на файле 200 строк — в 1.64x быстрее при идентичных находках (1200=1200);
-  seq/par паритет сохранён (30/30, speedup 3.32x); контроль: 20/200 (seq) и 23/200 (par) файлов
+### Fixed
+- **BUG-071**: url-over-email не фильтровался — Presidio обрезает url по `@`, спаны url/email не пересекались.
+- **BUG-072**: `organization = "INN"` (аббревиатура) — spaCy en-проход.
+- **BUG-073**: `uk_nhs` на US-телефоне `+1 415 555 0199`.
+- **BUG-074**: email из URL-логина `postgresql://user:pass@host/db`.
 
-## v3.13.0 (2026-09-13)
+### Changed
+- `_filter_url_over_email_finding` — работа по `line_text` (не по спанам): если строка содержит `://` И email-признак — отбрасываются все url/email этой строки.
+- `_filter_spacy_noise` + `_filter_spacy_noise_classification` — добавлено условие: `len(val) <= 5 and val.isupper() and val.isascii() and val.isalpha()` (INN/SSN/DOB/URL/API).
+- Новая `_filter_uk_nhs_with_phone` — отбрасывает `uk_nhs`, если в строке уже есть `phone`.
 
-### Сканер-оптимизация (день 42.5, по прямому ТЗ)
-- file-level prefilter: `_file_pass_prefilter` в `FilesystemConnector` — файл пропускается
-  целиком, если ни один классификатор не видит признаков (`file_prefilter` у Credentials/PII)
-- precompile всех regex: `CredentialsClassifier._compile_all()` (`prefilter_regex`,
-  `compiled_patterns`, `_entropy_patterns`), `PiiClassifier` `_quick_line_patterns` + `_quick_file_regex`;
-  убран `re.compile` из горячих циклов `scan_line`/`classify`
-- ThreadPoolExecutor в `scan_path` (ex.map, монотонный прогресс) —
-  `ConnectorConfig.max_parallel_files` (default 1 = seq; конфиг 4)
-- `_analyzer_lock` у PiiClassifier (Presidio AnalyzerEngine не потокобезопасен)
-- Синтетика: seq vs parallel идентичны (30/30), speedup 3.81x;
-  реальный каталог: 27–43 файл/мин (было <25)
+### Tests
+- `tests/unit/test_pii_filters_v31315.py` — 7 тестов.
+- `pytest tests/unit/` — 135 passed.
 
-## v3.12.0 (2026-09-12)
+---
 
-### Findings Refactor — Этап 4 (финал)
-- BACKLOG-058: фрагменты изображений — `GET /api/findings/{id}/fragment` → PNG
-  (вырезанный из `fragment_path` или crop по `bounding_box` через Pillow, кэширование)
-- BACKLOG-059: hex-дамп бинарных фрагментов — `?format=hex` вокруг `byte_offset`
-  (окно ±64 байта, `manager/src/core/hex_dump.py`)
-- BACKLOG-060: экспорт CSV/JSON с маскированием + reveal (Auditor+),
-  аудит `findings_exported`, CSV injection protection (`csv_utils.py`), BOM для Excel
-- BACKLOG-067: `X-Total-Count` в `GET /api/findings`; пагинация с номерами страниц в WebUI
-- WebUI: `<img>` для image_region, `<pre>` для byte_range (finding_detail.js),
-  кнопка «Экспорт» с диалогом формата/reveal (findings.js), `api.getWithMeta`
-- Тесты: `tests/e2e/test_finding_fragments.py`, `tests/e2e/test_findings_export.py`,
-  `tests/unit/test_hex_dump.py`, `tests/unit/test_csv_utils.py`
+## [3.13.14] — 2026-09-21 — Fix-спринт №5 (BUG-065, 066b, 067d, 069/070)
+
+### Fixed
+- **BUG-066b**: `scan_text`/`scan_line` не фильтровали url-over-email (модель `Finding`, поля `start_pos/end_pos`).
+- **BUG-067d**: OCR-изображения не помечались `fragment_type=image_region`, `detector=ocr`, `bounding_box`.
+- **BUG-069**: ложные `date_time` из en-прохода Presidio.
+- **BUG-070**: ложные `person`/`organization` из en-прохода Presidio.
+- **BUG-065**: credentials-паттерны (`database_url`, `github_token`, `slack_token`, `basic_auth`).
+
+### Changed
+- `_filter_url_over_email_finding` — добавлен для модели `Finding`.
+- `filesystem.py` — для `_IMAGE_EXTENSIONS` findings помечаются `image_region`/`ocr`/`bounding_box`.
+- `_filter_spacy_noise` — добавлен для `scan_text`/`scan_line`.
+- `credentials_classifier` — 5 фиксов (signature prefixes, placeholder patterns, BASIC_AUTH, SLACK_TOKEN, `_is_placeholder` для URL).
+
+### Tests
+- Smoke-тесты credentials — 4 кейса зелёные.
+
+---
+
+## [3.13.13] — 2026-09-21 — Fix-спринт №4 (BUG-067c, 063)
+
+### Fixed
+- **BUG-067c**: `ocr_enabled` брался из неверной секции конфига.
+- **BUG-063**: `credit_card` не детектировался — Presidio `ru`-проход не находил US-сущности.
+
+### Changed
+- `ocr_enabled` — из `classifiers.pii` (TASK-029).
+- Двухпроходный Presidio `ru`+`en` (TASK-030).
+
+---
+
+## [3.13.12] — 2026-09-21 — Fix-спринт №3 (BUG-061, 063, 067)
+
+### Fixed
+- **BUG-061**: сканер не восстанавливал HTTP после падения Manager.
+- **BUG-063** (Luhn): credit_card без валидной Luhn-суммы.
+- **BUG-067** (OCR): OCR не работал.
+- **BUG-066** (url): SQL-очистка 607 url.
+
+### Added
+- HTTP retry в `ManagerClient` (total=5, backoff=0.5).
+- `_is_valid_luhn` в `pii_classifier`.
+
+---
+
+## [3.13.11] — 2026-09-21 — Fix-спринт №2 (ENV-ключи)
+
+### Changed
+- Docker Secrets убраны для Findings (TASK-018).
+- Ключи Findings — только через ENV: `FINDINGS_ENCRYPTION_KEY`, `FINDINGS_HMAC_KEY`, `FINDINGS_KEY_ID`.
+- `scripts/reencrypt_findings.py` — ротация ключей (TASK-016).
+- Scanner fail-fast без ключей (TASK-017).
+- Документация обновлена (TASK-019).
+
+### Tests
+- `tests/unit/test_reencrypt.py`, `tests/unit/test_encryption.py`.
+- `tests/e2e/test_key_rotation.py` — offline.
+
+---
+
+## [3.13.10] — 2026-09-21 — Fix-спринт №2 (BUG-048b)
+
+### Fixed
+- **BUG-048b**: middleware пропускал JWT для machine-API (scanner endpoints).
+
+---
+
+## [3.13.9] — 2026-09-21 — Fix-спринт №1 (Auth/RBAC, 15 багов)
+
+### Fixed
+- **BUG-037**: `_defaults.group_mapping` — ед.ч. vs мн.ч.
+- **BUG-038**: TTL JWT не в env.
+- **BUG-039**: refresh как access.
+- **BUG-041**: reuse старого refresh.
+- **BUG-042**: `secure=False` hardcoded.
+- **BUG-043**: `/api/catalog/tree` → 500.
+- **BUG-044**: `context_before` не маскировал домен.
+- **BUG-045**: `/api/scanner/*` → 500.
+- **BUG-046**: DELETE resources без RBAC.
+- **BUG-047**: DELETE tasks без auth.
+- **BUG-048**: DELETE scanner без auth + 500.
+- **BUG-049…055**: 7 unprotected write-эндпоинтов.
+- **BUG-057**: Scanner legacy mode by default.
+- **BUG-058**: Manager fallback `line_text_encrypted`.
+- **BUG-059**: `POST /api/tasks/create` 500.
+
+### Changed
+- `verify_token(token, expected_type)` — access ≠ refresh.
+- RBAC системно — `Depends(require_role(...))` во все write-эндпоинты.
+- Cookie `Secure` — env `AUTH_COOKIE_SECURE`.
+- `jti` + `iat` + Redis blacklist.
+
+---
+
+## [3.13.8] — 2026-09-20 — AD-упаковка
+
+### Added
+- `docker-compose.ad.yml.example` — samba-ad-dc profile `ad`.
+- `scripts/init_ad_test_data.py`.
+
+---
+
+## [3.13.7] — 2026-09-19 — BUG-034 (зависшие задачи)
+
+### Fixed
+- **BUG-034**: зависшие задачи сканера.
+
+---
+
+## [3.13.3-3.13.6] — 2026-09-19 — Блок 1 (Smoke + Findings)
+
+### Fixed
+- **BUG-034/035/027/022**.
+- **BUG-022.9**: приоритизация категорий при дедупликации.
+
+### Changed
+- Deploy/Config/WebUI.
+
+---
+
+## [3.12.0] — 2026-09-18 — Findings: фрагменты и экспорт
+
+### Added
+- **BACKLOG-058**: фрагменты изображений (bounding box).
+- **BACKLOG-059**: бинарные — hex-дамп.
+- **BACKLOG-060**: экспорт с маскированием.
+- **BACKLOG-067**: `X-Total-Count` в `/api/findings`.
+
+---
+
+## [3.11.0] — 2026-09-17 — WebUI Findings + MD5→SHA-256
+
+### Added
+- **BACKLOG-056**: WebUI — находки + каталог (строки).
+- **BACKLOG-057**: WebUI — reveal + FP.
+- **BACKLOG-061**: WebUI v3.8 — legacy Findings (деградация).
+
+### Fixed
+- **BACKLOG-066**: MD5 → SHA-256 в `_legacy_fingerprint`.
+
+---
+
+## [3.10.0] — 2026-09-16 — Scanner: построчное сканирование + FP
+
+### Added
+- **BACKLOG-053**: сканер — построчное сканирование.
+- **BACKLOG-054**: fingerprint + дедупликация.
+- **BACKLOG-055**: FP-фильтр перед отправкой.
+
+---
+
+## [3.9.0] — 2026-09-15 — Findings Refactor
+
+### Added
+- **BACKLOG-050**: модель Findings (строка/фрагмент).
+- **BACKLOG-051**: шифрование находок (AES-256-GCM).
+- **BACKLOG-052**: API находок + reveal + аудит.
+
+---
+
+## [3.7.0] — 2026-09-12 — Мониторинг + Heartbeat
+
+### Added
+- **BACKLOG-021**: расширенный мониторинг.
+- **BACKLOG-037**: heartbeat-thread для сканера.
+- **BACKLOG-038**: прогресс-пинг в heartbeat.
+- **BACKLOG-041**: Prometheus/Grafana мониторинг.
+- **BACKLOG-042**: Alertmanager + алерты.
+
+---
+
+## [3.6.0] — 2026-09-10 — Контейнеризация
+
+### Added
+- **BACKLOG-027**: контейнеризация и деплой.
+
+---
+
+## [3.4.0] — 2026-09-08 — Secret Scanner
+
+### Added
+- **BACKLOG-034**: Secret Scanner интеграция.
+
+---
+
+## [3.0.0] — 2026-09-01 — Enterprise Ready (начало)
+
+### Added
+- **BACKLOG-010**: S3/MinIO аудит-агент.
+- **BACKLOG-013**: безопасность (mTLS, секреты).
+- **BACKLOG-014**: масштабирование (PG, Redis, Celery).
+- **BACKLOG-015**: WebUI редизайн.
+- **BACKLOG-016**: гибридная аутентификация.
+- **BACKLOG-026**: стандартизация структуры.
+- **BACKLOG-029**: AD интеграция + RBAC.
+- **BACKLOG-030**: архивация данных.
+
+---
+
+## [1.0.0-2.1.0] — до 2026-09-01
+
+- Обнаружение, классификация, WebUI, Linux-агент.
+
+---
+
+**Актуально на:** 22.09.2026
+**Текущая версия:** v3.13.16
+**Следующая цель:** v3.0.0 (release)

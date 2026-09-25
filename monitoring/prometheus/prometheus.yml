@@ -13,6 +13,12 @@ global:
 rule_files:
   - /etc/prometheus/alerts.yml
 
+# BACKLOG-084 fix: Prometheus → Alertmanager (была пропущена секция alerting).
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets: ['alertmanager:9093']
+
 scrape_configs:
   - job_name: 'manager'
     static_configs:
@@ -24,9 +30,12 @@ scrape_configs:
       - targets: ['host.docker.internal:9101']
     # ВАЖНО: сканер на хосте (v3.6.2) — host.docker.internal
 
-  - job_name: 'linux-agent'
-    static_configs:
-      - targets: ['audit_agent_linux:9102']
+  # BACKLOG-079: Linux-агент работает ВНЕ Docker (на Linux-сервере, как systemd-служба).
+  # На Windows-хосте агента нет → target был бы down. Раскомментировать при развёртывании
+  # Linux-агента (указать реальный host:port вместо audit_agent_linux:9102).
+  #- job_name: 'linux-agent'
+  #  static_configs:
+  #    - targets: ['audit_agent_linux:9102']
 
   - job_name: 's3-agent'
     static_configs:
