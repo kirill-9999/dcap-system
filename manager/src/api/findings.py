@@ -475,6 +475,19 @@ def _get_image_fragment(finding: Finding) -> Response:
     path = finding.fragment_path if finding.fragment_path else None
 
     if path and os.path.isfile(path):
+        # BUG-077 (TASK-042, v3.13.17): OCR-координаты не вычисляются
+        # (Tesseract без tsv) → bbox=None. Отдаём весь файл (Вариант 1).
+        if finding.fragment_type == "image_region" and not finding.bounding_box:
+            with open(path, "rb") as f:
+                data = f.read()
+            return Response(
+                content=data,
+                media_type="image/png",
+                headers={
+                    "Content-Disposition": f'inline; filename="finding_{finding.id}.png"',
+                    "X-Fragment-Mode": "full-image",
+                },
+            )
         # A: файл уже вырезанного фрагмента (нет box / это PNG) — отдать напрямую
         if not finding.bounding_box or path.lower().endswith(".png"):
             with open(path, "rb") as f:
