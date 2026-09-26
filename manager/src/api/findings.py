@@ -442,14 +442,23 @@ def _is_auditor(user: User) -> bool:
 @router.get("/{finding_id}/fragment")
 async def get_finding_fragment(
     finding_id: int,
+    request: Request,
     format: str = Query("png", pattern="^(png|hex)$"),
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_viewer),
+    # BACKLOG-086 (TASK-048, v3.13.19): RBAC ужесточён — фрагменты содержат PII,
+    # доступ к /fragment теперь только Auditor+ (было Viewer+, BUG-079).
+    current_user: User = Depends(require_auditor),
 ):
     """
     Вернуть фрагмент находки.
 
-    - image_region → PNG (вырезанный или crop по bounding_box)
+    TASK-048 (BACKLOG-086): приоритеты —
+      1) fragment_data в БД → embedded (устойчив к удалению исходника);
+      2) bounding_box → crop;
+      3) bbox=None + fragment_path на хосте → full-image;
+      4) иначе 404.
+
+    - image_region → PNG
     - byte_range   → hex-дамп (format=hex)
     - text_line/text_context → 400 (текст отдаётся в /api/findings/{id})
     """
@@ -457,21 +466,97 @@ async def get_finding_fragment(
     if not finding:
         raise HTTPException(404, "Finding not found")
 
-    # PII без маски (person) — только Auditor+
-    if finding.category == "person" and not _is_auditor(current_user):
-        raise HTTPException(403, "Reveal required for this fragment")
-
     if finding.fragment_type == "image_region":
-        return _get_image_fragment(finding)
+        resp = _get_image_fragment(finding)
+        _log_fragment_access(db, current_user, finding, _mode_of(resp), request)
+        return resp
 
     if finding.fragment_type == "byte_range":
-        return _get_hex_fragment(finding)
+        resp = _get_hex_fragment(finding)
+        _log_fragment_access(db, current_user, finding, "hex", request)
+        return resp
 
     raise HTTPException(400, f"Fragment not available for type: {finding.fragment_type}")
 
 
+def _mode_of(resp: Response) -> str:
+    """BACKLOG-086 (TASK-048): mode для аудита из ответа."""
+    return resp.headers.get("X-Fragment-Mode") or "bbox-crop"
+
+
+def _log_fragment_access(db, user, finding, mode: str, request) -> None:
+    """BACKLOG-086 (TASK-048): аудит доступа к фрагменту (action=fragment_accessed).
+
+    Каждый GET /fragment и /fragment/hash логируется. Metadata содержит
+    finding_id и mode (embedded|full-image|bbox-crop|hex).
+    """
+    try:
+        from manager.src.db.models import AuditLog
+        log = AuditLog(
+            event_type="fragment_accessed",
+            event_source="api",
+            user=user.username if user else None,
+            file_path=finding.fragment_path or f"finding:{finding.id}",
+            source_host=request.client.host if request.client else None,
+            metadata_json={
+                "action": "fragment_accessed",
+                "finding_id": finding.id,
+                "mode": mode,
+            },
+        )
+        db.add(log)
+        db.commit()
+    except Exception as e:
+        logger.warning("Failed to log fragment access: %s", e)
+        db.rollback()
+
+
+@router.get("/{finding_id}/fragment/hash")
+async def get_fragment_hash(
+    finding_id: int,
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_auditor),
+):
+    """BACKLOG-086 (TASK-048): метаданные встроенного фрагмента (для аудита)."""
+    finding = db.query(Finding).filter(Finding.id == finding_id).first()
+    if not finding:
+        raise HTTPException(404, "Finding not found")
+    if not finding.fragment_data:
+        raise HTTPException(404, "No embedded fragment")
+    _log_fragment_access(db, current_user, finding, "hash", request)
+    return {
+        "finding_id": finding.id,
+        "hash": finding.fragment_hash,
+        "size": finding.fragment_size,
+        "mime": finding.fragment_mime,
+        "embedded_at": finding.fragment_embedded_at,
+    }
+
+
 def _get_image_fragment(finding: Finding) -> Response:
-    """Отдать PNG-фрагмент (уже вырезанный или crop на лету)."""
+    """Отдать PNG-фрагмент.
+
+    TASK-048 (BACKLOG-086): приоритеты —
+      1) fragment_data в БД (embedded) → отдаём байты из БД с X-Fragment-Mode:
+         embedded + X-Fragment-Hash. Работает даже если исходный файл удалён;
+      2) фрагмент/исходник на хосте Manager (full-image / crop);
+      3) иначе 404.
+    """
+    # 1) Встроенный фрагмент (BACKLOG-086): неизменяемое доказательство в БД.
+    if finding.fragment_data:
+        headers = {
+            "Content-Disposition": f'inline; filename="finding_{finding.id}.png"',
+            "X-Fragment-Mode": "embedded",
+        }
+        if finding.fragment_hash:
+            headers["X-Fragment-Hash"] = finding.fragment_hash
+        return Response(
+            content=finding.fragment_data,
+            media_type=finding.fragment_mime or "image/png",
+            headers=headers,
+        )
+
     path = finding.fragment_path if finding.fragment_path else None
 
     if path and os.path.isfile(path):

@@ -71,6 +71,10 @@ class TestFragmentFallback:
             bounding_box=None,
             detector="ocr",
             fragment_path=str(png),
+            # BACKLOG-086 (v3.13.19): колонки встроенного фрагмента
+            fragment_data=None,
+            fragment_mime=None,
+            fragment_hash=None,
         )
 
     def test_fragment_full_image_for_bbox_none(self, tmp_path):

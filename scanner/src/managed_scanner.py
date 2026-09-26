@@ -9,6 +9,8 @@ import sys
 import json
 import time
 import math
+import base64
+import hashlib
 import uuid
 
 math_isfinite = math.isfinite
@@ -55,6 +57,70 @@ from scanner.src.encryption import get_encryption, mask, mask_line, mask_context
 from scanner.src.finding import Finding
 
 logger = logging.getLogger("dcap-scanner")
+
+
+# BACKLOG-086 (TASK-046/050, v3.13.19): встраивание OCR-фрагментов в payload.
+# MAX_FRAGMENT_EMBED_SIZE — файл больше лимита не встраиваем (остаётся fragment_path).
+# MAX_BATCH_SIZE_BYTES — разбивка POST результатов по размеру (фрагменты 2 МБ).
+MAX_FRAGMENT_EMBED_SIZE = int(os.environ.get("MAX_FRAGMENT_EMBED_SIZE", 2 * 1024 * 1024))
+MAX_BATCH_SIZE_BYTES = int(os.environ.get("MAX_BATCH_SIZE_BYTES", 20 * 1024 * 1024))
+_MAX_BATCH_COUNT = 500  # прежний лимит количества finding на POST
+_IMAGE_MIME = {
+    ".png": "image/png",
+    ".jpg": "image/jpeg",
+    ".jpeg": "image/jpeg",
+    ".gif": "image/gif",
+    ".bmp": "image/bmp",
+    ".tif": "image/tiff",
+    ".tiff": "image/tiff",
+    ".webp": "image/webp",
+}
+
+
+def _embed_fragment(finding: "Finding") -> dict:
+    """BACKLOG-086 (TASK-046): встроить OCR-фрагмент в payload.
+
+    Только для image_region (OCR). text_line — данные в line_text_encrypted,
+    byte_range — отложено до v3.1.0. Если файл отсутствует или больше
+    MAX_FRAGMENT_EMBED_SIZE — ничего не встраиваем (остаётся fragment_path).
+    """
+    if finding.fragment_type != "image_region":
+        return {}
+    if not finding.fragment_path or not os.path.exists(finding.fragment_path):
+        return {}
+    size = os.path.getsize(finding.fragment_path)
+    if size > MAX_FRAGMENT_EMBED_SIZE:
+        return {}
+    with open(finding.fragment_path, "rb") as f:
+        data = f.read()
+    ext = os.path.splitext(finding.fragment_path)[1].lower()
+    return {
+        "fragment_base64": base64.b64encode(data).decode("ascii"),
+        "fragment_mime": _IMAGE_MIME.get(ext, "image/png"),
+        "fragment_hash": hashlib.sha256(data).hexdigest(),
+        "fragment_size": len(data),
+    }
+
+
+def _split_by_size(findings: List[Dict[str, Any]], max_bytes: int) -> List[List[Dict[str, Any]]]:
+    """BACKLOG-086 (TASK-050): разбивка findings на батчи по общему размеру.
+
+    Счётный чанк (500) может всё ещё содержать 500 × 2 МБ base64-фрагментов —
+    разбиваем ещё и по общему размеру payload (оценка по fragment_size).
+    """
+    batches: List[List[Dict[str, Any]]] = []
+    cur: List[Dict[str, Any]] = []
+    cur_size = 0
+    for item in findings:
+        fbytes = item.get("fragment_size") or 0
+        if cur and (len(cur) >= _MAX_BATCH_COUNT or cur_size + fbytes > max_bytes):
+            batches.append(cur)
+            cur, cur_size = [], 0
+        cur.append(item)
+        cur_size += fbytes
+    if cur:
+        batches.append(cur)
+    return batches or [[]]
 
 
 class ProgressPoller(threading.Thread):
@@ -253,8 +319,9 @@ class ManagerClient:
             return False
             
         url = f"{self.base_url}/api/scanner/tasks/{task_id}/results"
-        batch_size = 500
-        chunks = [findings[i:i + batch_size] for i in range(0, len(findings), batch_size)] or [[]]
+        # BACKLOG-086 (TASK-050): разбивка по размеру payload, а не только по
+        # счётчику — встроенные фрагменты (до 2 МБ каждый) могут набрать мегабайты.
+        chunks = _split_by_size(findings, MAX_BATCH_SIZE_BYTES)
         total_batches = len(chunks)
 
         try:
@@ -674,6 +741,7 @@ class ManagedScanner:
             "byte_offset": finding.byte_offset,
             "byte_length": finding.byte_length,
             "hex_preview": finding.hex_preview,
+            **_embed_fragment(finding),  # BACKLOG-086 (TASK-046)
         }
 
         if enc is not None:

@@ -1,6 +1,6 @@
 # manager/src/db/models.py
 
-from sqlalchemy import Column, Integer, String, DateTime, Boolean, ForeignKey, Text, JSON, Float, Index, UniqueConstraint
+from sqlalchemy import Column, Integer, String, DateTime, Boolean, ForeignKey, Text, JSON, Float, Index, UniqueConstraint, LargeBinary
 from sqlalchemy.orm import relationship
 from sqlalchemy.ext.declarative import declarative_base
 from datetime import datetime
@@ -144,6 +144,15 @@ class Finding(Base):
     byte_offset = Column(Integer, nullable=True)
     byte_length = Column(Integer, nullable=True)
     hex_preview = Column(Text, nullable=True)
+
+    # BACKLOG-086 (TASK-045, v3.13.19): встроенный фрагмент (доказательная база).
+    # Только для image_region. text_line — данные в line_text_encrypted.
+    # byte_range — отложено до v3.1.0.
+    fragment_data = Column(LargeBinary, nullable=True)      # base64-decoded bytes
+    fragment_mime = Column(String(50), nullable=True)       # image/png, image/jpeg
+    fragment_hash = Column(String(64), nullable=True)       # SHA-256 (целостность)
+    fragment_size = Column(Integer, nullable=True)          # bytes
+    fragment_embedded_at = Column(DateTime, nullable=True)  # когда встроен
 
     # Дедупликация
     fingerprint = Column(String(64), nullable=False, index=True)   # HMAC-SHA256

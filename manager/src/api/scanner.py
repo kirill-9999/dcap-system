@@ -7,6 +7,7 @@ from pydantic import BaseModel
 from typing import List, Optional, Any, Dict
 from datetime import datetime, timedelta
 import logging
+import base64
 
 from ..db import models, session
 from .resources import get_default_config, deep_merge
@@ -472,6 +473,17 @@ async def submit_results(
         if not line_enc and line_text:
             line_enc = _enc.encrypt(line_text)
 
+        # BACKLOG-086 (TASK-047): встроенный фрагмент (доказательная база).
+        # Сканер шлёт base64 для image_region ≤ MAX_FRAGMENT_EMBED_SIZE; здесь декодируем
+        # и кладём байты в findings.fragment_data. text_line — не встраивается.
+        fragment_b64 = finding_data.get("fragment_base64")
+        fragment_data = None
+        if fragment_b64:
+            try:
+                fragment_data = base64.b64decode(fragment_b64)
+            except Exception as e:
+                logger.warning("Failed to decode fragment for %s: %s", file_path, e)
+
         finding = models.Finding(
             task_id=task_id,
             resource_id=task.resource_id,
@@ -500,6 +512,12 @@ async def submit_results(
             status="new",
             confidence=float(confidence) if confidence else None,
             detector=finding_data.get("detector") or "legacy",
+            # BACKLOG-086 (TASK-047): встроенный фрагмент
+            fragment_data=fragment_data,
+            fragment_mime=finding_data.get("fragment_mime"),
+            fragment_hash=finding_data.get("fragment_hash"),
+            fragment_size=len(fragment_data) if fragment_data else None,
+            fragment_embedded_at=datetime.utcnow() if fragment_data else None,
         )
         db.add(finding)
         _bug35_cnt_06045225 += 1
