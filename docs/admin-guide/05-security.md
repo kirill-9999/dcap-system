@@ -588,9 +588,32 @@ json
   "revealed_at": "2026-09-19T14:29:10.136318",
   "revealed_by": "auditor"
 }
-⚠️ Важно: context_before / context_after не расшифровываются — они хранятся только в masked-виде. Это by design.
+⚠️ Важно: context_before / context_after не расшифровываются — они хранятся только в masked-виде. Это by design (см. 4.1).
 
-### 4.1 Неизменяемые доказательства (фрагменты, с v3.13.19)
+### 4.1 Маскирование контекстов (BUG-086, v3.13.21)
+
+`mask_context` (`scanner/src/encryption.py`) маскирует контекст находки (строки до/после).
+До v3.13.20 он покрывал всего 6 паттернов из 19 категорий `MASK_RULES` — критический
+**BUG-086**: в `context_before_masked`/`context_after_masked` утекали сырые credentials
+(github_token `ghp_…`, `basic_auth` `Basic base64`, `api_key`, `database_url`) и US-телефоны
+(`+1…`), и Viewer+ видел их через API.
+
+С v3.13.21 маскирование контекста — конвейер `_CONTEXT_PATTERNS` (21 паттерн на все
+категории `MASK_RULES`):
+
+- **Credentials:** `ghp_`/`github_pat_`→github_token, `xoxb-`→slack_token, `AKIA…`→aws_key,
+  `sk-`/`sk_live_`→api_key, `discord…`→discord_token, JWT `eyJ…`, PEM→ssh_key,
+  `Basic …`→basic_auth, `scheme://`→database_url, generic `password`/`api_key`/`token` в KEY=VALUE
+  (маскируется **только значение** — 2 capture-группы);
+- **PII:** email, телефоны `+7`/`+1`/международные, паспорт, СНИЛС, ИНН, кредитные карты;
+- порядок паттернов важен — специфичные категории раньше generic;
+- `person` и `high_entropy` в контексте **не маскируются** (high_entropy — до v3.1.0).
+
+Проверка: единственная гарантия отсутствия секретов в контексте через API —
+`GET /api/findings/{id}` (поля `context_before`/`context_after` уже masked). E2E-тест
+`tests/e2e/test_mask_context_e2e.py` проверяет это по последнему скану.
+
+### 4.2 Неизменяемые доказательства (фрагменты, с v3.13.19)
 
 OCR-находки (`image_region`) встраивают PNG **в базу данных** при создании finding
 (BACKLOG-086). Это гарантирует доказательную базу: даже если исходный файл удалён

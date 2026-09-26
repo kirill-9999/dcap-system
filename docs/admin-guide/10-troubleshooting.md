@@ -142,6 +142,30 @@ Get-CimInstance Win32_Process -Filter "name like 'python%'" | Where-Object { $_.
 
 ---
 
+## 3.4 В контекстах находок видны сырые credentials (+1-телефоны)
+
+**Симптом:** через API (`GET /api/findings/{id}`, поля `context_before`/`context_after`)
+видны сырые секреты: `GITHUB_TOKEN=ghp_…`, `BASIC_AUTH=Basic base64`, `SLACK_TOKEN=xoxb-…`,
+`us: +1 415 …` (BAG-086, критический блокер v3.0.0 — утекали находки категорий
+slack_token/basic_auth/database_url/phone и др.).
+
+**Решение (исправлено в v3.13.21):** `mask_context` в `scanner/src/encryption.py`
+переписан на конвейер `_CONTEXT_PATTERNS` (21 паттерн на все категории `MASK_RULES`;
+специфичные токены раньше generic; generic `KEY=VALUE` маскирует только значение).
+**Важно:** старые findings (сканированные до v3.13.21) сохраняют старые контексты —
+нужен перескан ресурса. Признак устаревших данных — низкий `task_id` в findings.
+
+Проверка себя:
+```sql
+-- В БД (dev-SQLite manager/dcap.db; prod — PostgreSQL)
+SELECT id, category FROM findings
+WHERE context_before_masked ~ 'ghp_[a-zA-Z0-9]{20,}|Basic [A-Za-z0-9+/=]{10,}|xox[baprs]-[a-zA-Z0-9-]{10,}|\+1[\s\-\.]?\(?\d{3}\)?';
+```
+Ожидание: 0 строк у findings **последнего скана**; старые строки — пересканировать
+(задание → DELETE старых findings или экспорт/архивация).
+
+---
+
 ## 4. Manager/WebUI отвечают старой версией
 
 **Симптом:** `GET /api/health` показывает старую версию после правок.

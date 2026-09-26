@@ -3,9 +3,9 @@
 > План и бэклог — в `ROADMAP.md`. Архитектура — в `ARCHITECTURE.md`.
 
 **Обновлено:** 26.09.2026
-**Текущая версия:** v3.13.20
+**Текущая версия:** v3.13.21
 **Целевая версия:** v3.0.0 (релиз)
-**Статус:** 🟢 Блок 3 (Scanner deep) ✅; Блок 8 (Мониторинг) ✅; BACKLOG-086 (встроенные фрагменты) ✅; BUG-080/081 (reliability сканера) ✅; следующий шаг — Блок 5 (WebUI)
+**Статус:** 🟢 Блок 3 (Scanner deep) ✅; Блок 8 (Мониторинг) ✅; BACKLOG-086 (встроенные фрагменты) ✅; BUG-080/081 (reliability сканера) ✅; BUG-086 (masking контекстов) ✅; следующий шаг — Блок 5 (WebUI)
 
 ---
 
@@ -13,9 +13,9 @@
 
 | Параметр | Значение |
 |----------|----------|
-| Текущий день | 47.6 — BUG-080/081 (v3.13.20): heartbeat backoff + graceful shutdown (Ctrl+C) |
+| Текущий день | 47.7 — BUG-086 (v3.13.21): mask_context конвейером _CONTEXT_PATTERNS |
 | Статус дня | ✅ Выполнен |
-| Последний принятый отчёт | `day_47.6_backlog080_081_scanner_reliability_report.md` (v3.13.20) |
+| Последний принятый отчёт | `day_47.7_fix_bug086_mask_context_report.md` (v3.13.21) |
 | Следующий шаг | Блок 5 (WebUI) — продолжить с п.2.3 (фильтры) |
 | Открытые вопросы к архитектору | — |
 
@@ -43,6 +43,7 @@
 | 47.4 (bug077 diag) | BUG-077 diag: причина H3 (Manager дефолтил bbox при сохранении) — TASK-044; live task 38: bbox=NULL | **v3.13.18** | `day_47.4_bug077_diag_report.md` |
 | 47.5 (BACKLOG-086) | Встроенные OCR-фрагменты: фрагмент в БД (TASK-045-049), /fragment RBAC Auditor+, батчинг по размеру (TASK-050), live task 39: «после удаления исходника — 200 embedded» | **v3.13.19** | `day_47.5_backlog086_embed_fragments_report.md` |
 | 47.6 (BUG-080/081) | Reliability сканера: heartbeat backoff 5→10→30→60→120 с без спама лога (TASK-051); graceful shutdown по SIGINT/SIGBREAK — OCRWorker завершается штатно (TASK-052); live: «restored after 4 failures», Ctrl+C → rc=0 | **v3.13.20** | `day_47.6_backlog080_081_scanner_reliability_report.md` |
+| 47.7 (BUG-086) | masking контекстов — критический блокер v3.0.0: mask_context покрывал 6 паттернов из 19 в MASK_RULES (в context_* утекали ghp_/Basic/xoxb-/AKIA/+1); новая реализация — конвейер `_CONTEXT_PATTERNS` (TASK-053, 21 паттерн: специфичные токены раньше generic, только значение KEY=VALUE); live task 40/41 — в контекстах 0 сырых паттернов (SQL + API viewer); тесты: 20 unit (187 passed) + E2E | **v3.13.21** | `day_47.7_fix_bug086_mask_context_report.md` |
 
 ---
 
@@ -90,6 +91,7 @@
 *(Закрытые в v3.13.18: TASK-044 (BUG-077 diag — Manager дефолтил bbox); BUG-077 ✅ live task 38 — ТЗ №8 diag)*
 *(Закрытые в v3.13.19: TASK-045..050 (BACKLOG-086 — встроенные фрагменты); BUG-079 исправлен (TASK-048 → /fragment только Auditor+) — ТЗ BACKLOG-086)*
 *(Закрытые в v3.13.20: TASK-051 (BUG-080 — heartbeat backoff); TASK-052 (BUG-081 — graceful shutdown SIGINT/SIGBREAK) — ТЗ BUG-080/081)*
+*(Закрытые в v3.13.21: TASK-053 (BUG-086 — masking контекстов: mask_context конвейером _CONTEXT_PATTERNS, 21 паттерн вместо 6) — ТЗ BUG-086)*
 *(Отложено до v3.1.0: BACKLOG-085 (OCR bbox), BACKLOG-087 (дедупликация фрагментов), BACKLOG-088 (шифрование fragment_data, AES-256-GCM))*
 *(Минорные: BUG-060 (BOM email) 📋 v3.1.0; BUG-061 (восстановление HTTP после падения Manager) 📋 v3.1.0; BUG-076 (dcap_scanner_current_task) 📋 v3.1.0; BACKLOG-076 (last_seen_at/findings_count) 📋 v3.1.0; BACKLOG-077 (heartbeat после инициализации классификаторов) 📋 v3.1.0)*
 
@@ -124,6 +126,7 @@
 - Фильтры PII: `_filter_url_over_email_finding`, `_filter_spacy_noise`, `_filter_uk_nhs_with_phone`
 - Luhn-валидация для `credit_card`
 - **Reliability (BUG-080/081, v3.13.20):** heartbeat backoff 5→10→30→60→120 с (TASK-051): `_next_sleep`/`_send_heartbeat`, DEBUG на каждый фейл без спама, WARNING только на 1-м и каждые 5 попыток, `_stop.wait()` вместо `time.sleep()` (мгновенный выход при stop), INFO «Heartbeat restored after N failure(s)»; graceful shutdown (TASK-052): SIGINT (и SIGBREAK на Windows) → `_handle_sigint` ставит `_should_exit`/`_stop_event`, `stop()` = heartbeat stop + `_shutdown_classifiers()`, OCRWorker завершается штатно (None в request_queue → join(5) → terminate → join(2) → kill) — live Ctrl+C → rc=0
+- **Masking контекстов (BUG-086, v3.13.21):** `mask_context` — конвейер `_CONTEXT_PATTERNS`: список `(regex, category)` на все категории MASK_RULES (21 паттерн: ghp_/github_pat_→github_token, xoxb→slack_token, AKIA→aws_key, sk-→api_key, discord, JWT eyJ, PEM→ssh_key, Basic→basic_auth, scheme://→database_url, generic password/api_key/token в KEY=VALUE — маскируется ТОЛЬКО значение (2 capture-группы), email, телефоны +7/+1/международные, паспорт/СНИЛС/ИНН/cards); специфичные категории раньше generic; `person` и `high_entropy` в контексте НЕ маскируются (high_entropy — до v3.1.0); BUG-086 был критическим блокером v3.0.0 (Viewer+ видел сырые credentials в context_* через API)
 
 **Мониторинг (Блок 8):**
 - Prometheus + Grafana + Alertmanager — работают
@@ -143,11 +146,14 @@
 - `scanner/src/managed_scanner.py` — TASK-052: `_handle_sigint` (SIGINT+SIGBREAK), `stop()` (heartbeat + `_shutdown_classifiers`), хуки SIGBREAK
 - `scanner/classifiers/ocr_worker.py` — TASK-052: graceful `stop_ocr_worker` — None → join(5) → terminate → join(2) → kill
 - `tests/unit/test_heartbeat_backoff.py` (4), `tests/unit/test_scanner_shutdown.py` (3) — 167 unit passed
-- `docker-compose.yml` — manager/webui/celery → 3.13.20
-- `docs/admin-guide/10-troubleshooting.md` — раздел по BUG-080/081 (backoff/graceful shutdown)
+- `scanner/src/encryption.py` — TASK-053 (BUG-086): `_CONTEXT_PATTERNS` + `mask_context` конвейером (21 паттерн, только значение KEY=VALUE)
+- `tests/unit/test_mask_context_v31321.py` (20) — 187 unit passed
+- `tests/e2e/test_mask_context_e2e.py` (1) — E2E против живого стека: контексты последнего скана без сырых credentials
+- `docker-compose.yml` — manager/webui/celery → 3.13.21
+- `docs/admin-guide/05-security.md`, `docs/admin-guide/10-troubleshooting.md` — секция по masking контекстов
 
 ---
 
 **Актуально на:** 26.09.2026
-**Версия:** v3.13.20
+**Версия:** v3.13.21
 **Следующий шаг:** Блок 5 (WebUI) — продолжить с п.2.3 (фильтры)

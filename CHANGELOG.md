@@ -11,6 +11,44 @@
 
 ---
 
+## [3.13.21] — 2026-09-26 — BUG-086: masking контекстов (критический блокер v3.0.0)
+
+### Fixed
+- **BUG-086** (TASK-053, `scanner/src/encryption.py`): `mask_context` маскировал только 6 паттернов
+  из 19 в `MASK_RULES` — в `context_before_masked`/`context_after_masked` утекали сырые
+  credentials/US-phone (Finding 1439: `GITHUB_TOKEN=ghp_…`, `BASIC_AUTH=Basic …`;
+  Finding 1461: `us: +1 415 555 0199`). Viewer+ видел секреты через API.
+  Новая реализация — конвейер `_CONTEXT_PATTERNS`: список `(regex, category)` на ВСЕ категории
+  (21 паттерн: ghp_/github_pat_→github_token, xoxb→slack_token, AKIA→aws_key, sk-/sk_live_→api_key,
+  discord→discord_token, JWT eyJ…, PEM→ssh_key, Basic→basic_auth, scheme://→database_url,
+  generic password/api_key/token в KEY=VALUE — маскируется только значение (2 capture-группы),
+  email, +7/+1/международные телефоны, паспорт/СНИЛС/ИНН/кредитные карты).
+  Специфичные категории — раньше generic. `person` и `high_entropy` в контексте НЕ маскируются
+  (high_entropy — до v3.1.0).
+
+### Changed
+- `scanner/src/encryption.py` — `mask_context` полностью переписан (стали специфичными,
+  generic-паттерны KEY=VALUE маскируют только значение).
+- `docker-compose.yml` — manager/webui/celery → 3.13.21.
+
+### Tests
+- `tests/unit/test_mask_context_v31321.py` (20): github/slack/aws/api_key/basic_auth/database_url/
+  jwt/password/generic token (9), телефоны RU/US/US-скобки (3), регрессии PII
+  email/inn/passport/credit_card/person-not-masked (5), edge empty/no_secrets/multiple (3).
+- Итого **187 passed** (167 + 20), в т.ч. регрессия `test_encryption`, `test_finding_fragments`.
+- `tests/e2e/test_mask_context_e2e.py` (1): контексты последнего скана не содержат сырых
+  credentials/US-phone (проверка через API Manager, viewer-роль).
+
+### Verified (live)
+- БД: findings task 39 → удалены; новый task (id 41) → 29 findings; SQL-проверка
+  `context_before_masked ~ ghp_…|Basic …|xoxb-…|+1…|AKIA…|sk-…` → **0 совпадений**.
+- API (viewer/viewer123): findings 1496/1500/1503/1521/1522 — `raw_in_contexts=False`:
+  `GITHUB_TOKEN=ghp_*****`, `BASIC_AUTH=Basic ***`, `DATABASE_URL=postgresql://***@cleandb.local…`,
+  `us: 14***199`.
+- `/api/health` → `{"status":"healthy","version":"3.13.21"}`.
+
+---
+
 ## [3.13.20] — 2026-09-26 — BUG-080/081: reliability сканера (heartbeat backoff + graceful shutdown)
 
 ### Fixed
