@@ -590,6 +590,48 @@ json
 }
 ⚠️ Важно: context_before / context_after не расшифровываются — они хранятся только в masked-виде. Это by design.
 
+### 4.1 Неизменяемые доказательства (фрагменты, с v3.13.19)
+
+OCR-находки (`image_region`) встраивают PNG **в базу данных** при создании finding
+(BACKLOG-086). Это гарантирует доказательную базу: даже если исходный файл удалён
+или Manager не видит хостовый путь — фрагмент доступен.
+
+Ключевые факты:
+- Параметры: `MAX_FRAGMENT_EMBED_SIZE` (max размер фрагмента, default **2097152** = 2 МБ),
+  `MAX_BATCH_SIZE_BYTES` (max размер батча отправки сканера, default 20971520 = 20 МБ).
+- `text_line`/`byte_range` **не** встраиваются: текст хранится в `line_text_encrypted`,
+  hex-дампы — отдельно (день v3.1.0).
+- Целостность: `fragment_hash` = SHA-256, возвращается заголовком `X-Fragment-Hash`.
+- RBAC: `GET /api/findings/{id}/fragment` и `/fragment/hash` — только **Auditor/Admin**
+  (BUG-079; Viewer получает 403).
+- Аудит: каждый доступ к фрагменту → `audit_logs` (`event_type="fragment_accessed"`,
+  `metadata.action`, `finding_id`, `mode`).
+- Проверка: удалите исходный файл после сканирования → фрагмент всё равно доступен
+  из БД (`X-Fragment-Mode: embedded`).
+- Отложено: дедупликация фрагментов (BACKLOG-087) и шифрование `fragment_data`
+  AES-256-GCM (BACKLOG-088) — v3.1.0.
+
+HTTP:
+
+GET /api/findings/{id}/fragment
+GET /api/findings/{id}/fragment/hash
+
+Ответ `/fragment`:
+- `X-Fragment-Mode: embedded` — PNG отдан из БД;
+- `X-Fragment-Hash: <sha256>` — контрольная сумма;
+- 404 — фрагмент не встроен и файл по пути недоступен.
+
+Ответ `/fragment/hash`:
+
+json
+{
+  "finding_id": 1444,
+  "hash": "9ecadc...e928701",
+  "size": 8255,
+  "mime": "image/png",
+  "embedded_at": "2026-09-26T..."
+}
+
 5. Аутентификация и RBAC
 Режимы
 Режим	Описание

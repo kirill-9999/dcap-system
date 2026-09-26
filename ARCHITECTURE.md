@@ -224,6 +224,8 @@ dcap-system/
 **Аудит расшифровок:**
 - Каждый `POST /api/findings/{id}/reveal` → запись в `audit_logs`
 - Поля: `action="finding_revealed"`, `finding_id`, `user`, `timestamp`
+- Каждый GET `/api/findings/{id}/fragment` и `/fragment/hash` → `event_type="fragment_accessed"`,
+  `metadata_json = {"action":"fragment_accessed","finding_id":...,"mode":"embedded|full-image|crop|...|hash"}`
 
 ---
 
@@ -274,6 +276,13 @@ class Finding(Base):
     byte_length = Column(Integer, nullable=True)
     hex_preview = Column(Text, nullable=True)
 
+    # BACKLOG-086 (TASK-045, v3.13.19): встроенный фрагмент (доказательная база)
+    fragment_data = Column(LargeBinary, nullable=True)      # байты (PNG/JPEG)
+    fragment_mime = Column(String(50), nullable=True)       # image/png, image/jpeg
+    fragment_hash = Column(String(64), nullable=True)       # SHA-256 (целостность)
+    fragment_size = Column(Integer, nullable=True)          # bytes
+    fragment_embedded_at = Column(DateTime, nullable=True)  # когда встроен
+
     # Дедупликация
     fingerprint = Column(String(64), nullable=False, index=True)   # HMAC-SHA256
     encryption_key_id = Column(String(50), nullable=False)
@@ -322,6 +331,12 @@ class Finding(Base):
 > для такого finding'а возвращает **весь PNG** с заголовком `X-Fragment-Mode: full-image`
 > (`has_fragment` = True, т.к. `fragment_path` заполнен). Полный OCR-пайплайн
 > с реальным bbox — **BACKLOG-085 (v3.1.0)**.
+> **Встроенные фрагменты (BACKLOG-086, v3.13.19):** сканер встраивает PNG в payload
+> base64 (размер ≤ `MAX_FRAGMENT_EMBED_SIZE`, default 2 МБ) → Manager кладёт в
+> `findings.fragment_data` → `/fragment` отдаёт **из БД** (`X-Fragment-Mode: embedded`,
+> `X-Fragment-Hash` = SHA-256). Доказательство immutable даже после удаления исходного
+> файла/недоступности хостового пути. Дедуп фрагментов — BACKLOG-087, шифрование
+> fragment_data — BACKLOG-088 (оба v3.1.0).
 | `byte_range` | Бинарные | Hex-дамп вокруг offset |
 
 ### Архивная таблица
@@ -344,7 +359,8 @@ class Finding(Base):
 | POST | `/api/findings/bulk` | Auditor+ | Массовое обновление |
 | GET | `/api/findings/stats` | Viewer+ | Статистика |
 | GET | `/api/findings/false-positives` | Auditor+ | Список FP |
-| GET | `/api/findings/{id}/fragment` | Viewer+ | Фрагмент (изображение/hex); image_region без bbox → весь PNG (`X-Fragment-Mode: full-image`) |
+| GET | `/api/findings/{id}/fragment` | **Auditor+** | Фрагмент из БД (`X-Fragment-Mode: embedded` + `X-Fragment-Hash`) или full-image по пути (v3.13.19: RBAC ужесточён — BUG-079) |
+| GET | `/api/findings/{id}/fragment/hash` | **Auditor+** | Метаданные встроенного фрагмента: `{finding_id, hash, size, mime, embedded_at}` (404, если фрагмент не встроен) |
 | GET | `/api/findings/export` | Auditor+ | Экспорт (CSV/JSON) |
 | DELETE | `/api/findings/{id}` | Admin | Удалить |
 | POST | `/api/findings/check-fingerprints` | **публичный** | Проверка FP перед отправкой (machine) |
@@ -440,6 +456,7 @@ class Finding(Base):
 |----------|---------|----------|
 | Findings | `finding_detected` | по severity |
 | Findings | `finding_revealed` | high |
+| Findings | `fragment_accessed` | medium |
 | Findings | `finding_confirmed` | medium |
 | Findings | `finding_false_positive` | low |
 | Scanner | `scan_started` | info |

@@ -83,6 +83,29 @@ bounding_box=finding_data.get("bounding_box") or (
 
 ---
 
+## 3.1 Фрагмент недоступен, хотя файл был просканирован
+
+**Симптом:** `/api/findings/{id}/fragment` → 404, либо viewer впервые видит находку и получает 403.
+
+**Причины:**
+
+- **RBAC (с v3.13.19):** `/fragment` и `/fragment/hash` — только **Auditor/Admin** (BUG-079).
+  Viewer получает 403 by design.
+- **Фрагмент не встроен:** третий вариант — файл удалён/Manager не видит путь (Docker),
+  а `fragment_data` в БД отсутствует (например, файл на момент сканирования был > 2 МБ
+  — лимит `MAX_FRAGMENT_EMBED_SIZE`, default 2097152). Проверить:
+  ```sql
+  SELECT id, fragment_type, fragment_size, fragment_mime, fragment_embedded_at
+  FROM findings WHERE id = <id>;
+  ```
+  Если `fragment_size IS NULL` — фрагмент не встраивался.
+
+**Решение:** при сканировании в БД сохраняется PNG (`X-Fragment-Mode: embedded`). Для
+увеличения покрытия поднимите `MAX_FRAGMENT_EMBED_SIZE` (env + docker-compose, пересборка
+не нужна — переменная pass-through). Дедуп фрагментов и их шифрование — BACKLOG-087/088 (v3.1.0).
+
+---
+
 ## 4. Manager/WebUI отвечают старой версией
 
 **Симптом:** `GET /api/health` показывает старую версию после правок.

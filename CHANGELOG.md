@@ -11,6 +11,55 @@
 
 ---
 
+## [3.13.19] — 2026-09-26 — BACKLOG-086: встроенные OCR-фрагменты («Файл удалили — доказательство осталось»)
+
+### Added
+- **BACKLOG-086** (TASK-045): модель `Finding` + 5 колонок — `fragment_data` (LargeBinary),
+  `fragment_mime`, `fragment_hash` (SHA-256), `fragment_size`, `fragment_embedded_at`.
+- **TASK-049**: миграция `005_add_fragment_columns` (идемпотентная, inspect); применена к live PG.
+- **TASK-046/050** (`scanner/src/managed_scanner.py`): `_embed_fragment` — для `image_region`
+  с существующим файлом и размером ≤ `MAX_FRAGMENT_EMBED_SIZE` (env, default 2 МБ) встраивает
+  весь PNG (base64 + SHA-256 + mime); `_split_by_size` — батчинг результатов по
+  `MAX_BATCH_SIZE_BYTES` (env, default 20 МБ, до 500 finding'ов), применён в `submit_results`.
+  `text_line`/`byte_range` не встраиваются (текст — в `line_text_encrypted`; byte_range — v3.1.0).
+- **TASK-047** (`manager/src/api/scanner.py`): декодирование `fragment_base64` → `fragment_data`
+  + метаданные при создании Finding.
+- **TASK-048** (`manager/src/api/findings.py`):
+  - `/api/findings/{id}/fragment` — **embedded-first**: при `fragment_data` отдаёт PNG из БД
+    с `X-Fragment-Mode: embedded` + `X-Fragment-Hash`; без данных — падение на full-image (по пути);
+    RBAC ужесточён Viewer+ → **Auditor+** (BUG-079);
+  - новый `GET /api/findings/{id}/fragment/hash` (Auditor+) — метаданные `{finding_id, hash, size, mime, embedded_at}`;
+  - аудит доступа: `AuditLog(event_type="fragment_accessed", metadata={"action","finding_id","mode"})`.
+- `docker-compose.yml` — manager/webui/celery → 3.13.19; env `MAX_FRAGMENT_EMBED_SIZE` /
+  `MAX_BATCH_SIZE_BYTES` (pass-through, дефолты 2097152 / 20971520).
+- `.env.example` — переменные фрагментов.
+
+### Tests
+- `tests/unit/test_fragment_embed_v31319.py` (8) — Manager: сохранение fragment из payload,
+  text_line не встраивается, embedded-ответ с hash, fallback full-image, 404, RBAC (viewer 403),
+  `/fragment/hash`, аудит `fragment_accessed`.
+- `tests/unit/test_scanner_fragment_embed.py` (6) — Scanner: встраивание малого PNG, лимит 2 МБ,
+  text_line {}, hash = SHA-256 данных, кастомный лимит (env), `_split_by_size`.
+- `tests/unit/test_ocr_bbox_v31317.py` — фикс `_make_entity` (SimpleNamespace: `fragment_* = None`).
+- `pytest tests/unit/` — **160 passed** (146 + 14).
+- `tests/e2e/test_fragment_e2e.py` — **passed live**: удаление исходного PNG → `/fragment` всё ещё 200 embedded.
+
+### Confirmed live (task 39)
+- `C:\test\scanner_clean` → 29 findings, 7 файлов, 0 failed.
+- `image_region` (ids 1444/1445): `fragment_size=8255`, `fragment_mime=image/png`, `fragment_data=8255 B`,
+  hash `SHA-256` совпадает с `X-Fragment-Hash` ответа; текст-findings — fragment_* = NULL.
+- Исходник `screenshot_clean.png` удалён с диска → `GET /api/findings/1444/fragment` (auditor) → 200,
+  `Content-Length: 8255` — фрагмент из БД; viewer → 403; `/fragment/hash` → корректный JSON;
+  audit_logs: `fragment_accessed` (mode embedded/hash).
+
+### Docs
+- `ARCHITECTURE.md` — модель + фрагменты/API (`/fragment` Auditor+, `/fragment/hash`, аудит),
+  событие ИБ `fragment_accessed`.
+- `docs/admin-guide/05-security.md` — раздел «Неизменяемые доказательства».
+- `ROADMAP.md`, `STATE.md` — v3.13.19; отложено: BACKLOG-087 (дедуп фрагментов), BACKLOG-088 (шифрование).
+
+---
+
 ## [3.13.18] — 2026-09-26 — BUG-077 diag (причина H3: Manager дефолтил bbox) + live-подтверждение
 
 ### Fixed

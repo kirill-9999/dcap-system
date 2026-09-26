@@ -3,9 +3,9 @@
 > План и бэклог — в `ROADMAP.md`. Архитектура — в `ARCHITECTURE.md`.
 
 **Обновлено:** 26.09.2026
-**Текущая версия:** v3.13.18
+**Текущая версия:** v3.13.19
 **Целевая версия:** v3.0.0 (релиз)
-**Статус:** 🟢 Блок 3 (Scanner deep) ✅; Блок 8 (Мониторинг) ✅; BUG-077 ✅ live-подтверждён (v3.13.18); следующий шаг — Блок 5 (WebUI)
+**Статус:** 🟢 Блок 3 (Scanner deep) ✅; Блок 8 (Мониторинг) ✅; BACKLOG-086 (встроенные фрагменты) ✅; следующий шаг — Блок 5 (WebUI)
 
 ---
 
@@ -13,9 +13,9 @@
 
 | Параметр | Значение |
 |----------|----------|
-| Текущий день | 47.4 — BUG-077 diag (v3.13.18): причина — Manager дефолтил bbox; live-подтверждение task 38 |
+| Текущий день | 47.5 — BACKLOG-086 (v3.13.19): встроенные OCR-фрагменты («Файл удалили — доказательство осталось») |
 | Статус дня | ✅ Выполнен |
-| Последний принятый отчёт | `day_47.4_bug077_diag_report.md` (v3.13.18) |
+| Последний принятый отчёт | `day_47.5_backlog086_embed_fragments_report.md` (v3.13.19) |
 | Следующий шаг | Блок 5 (WebUI) — продолжить с п.2.3 (фильтры) |
 | Открытые вопросы к архитектору | — |
 
@@ -41,6 +41,7 @@
 | 47.2 (test) | Мастер-сессия: **Блок 8 (Мониторинг) — ЗАКРЫТ** | v3.13.16 | ✅ |
 | 47.3 (bug077) | BUG-077: bounding_box=None для OCR + fallback full-image в /fragment; VERSION агентов синхронизирован (TASK-041..043) | **v3.13.17** | `day_47.3_fix_bug077_report.md` |
 | 47.4 (bug077 diag) | BUG-077 diag: причина H3 (Manager дефолтил bbox при сохранении) — TASK-044; live task 38: bbox=NULL | **v3.13.18** | `day_47.4_bug077_diag_report.md` |
+| 47.5 (BACKLOG-086) | Встроенные OCR-фрагменты: фрагмент в БД (TASK-045-049), /fragment RBAC Auditor+, батчинг по размеру (TASK-050), live task 39: «после удаления исходника — 200 embedded» | **v3.13.19** | `day_47.5_backlog086_embed_fragments_report.md` |
 
 ---
 
@@ -86,6 +87,8 @@
 *(Закрытые в v3.13.16: TASK-040 (BUG-075) — ТЗ №7)*
 *(Закрытые в v3.13.17: TASK-041/042 (BUG-077), TASK-043 (VERSION агентов) — ТЗ №8)*
 *(Закрытые в v3.13.18: TASK-044 (BUG-077 diag — Manager дефолтил bbox); BUG-077 ✅ live task 38 — ТЗ №8 diag)*
+*(Закрытые в v3.13.19: TASK-045..050 (BACKLOG-086 — встроенные фрагменты); BUG-079 исправлен (TASK-048 → /fragment только Auditor+) — ТЗ BACKLOG-086)*
+*(Отложено до v3.1.0: BACKLOG-085 (OCR bbox), BACKLOG-087 (дедупликация фрагментов), BACKLOG-088 (шифрование fragment_data, AES-256-GCM))*
 
 ---
 
@@ -114,6 +117,7 @@
 - spaCy `sm` (ru + en, двухпроходный Presidio)
 - OCR: Tesseract (rus+eng), изолированный OCRWorker
 - **OCR bbox: до v3.1.0 = None** (координаты не вычисляются, Tesseract без tsv); `/fragment` для image_region без bbox отдаёт весь PNG (`X-Fragment-Mode: full-image`); полный OCR-пайплайн — BACKLOG-085 (v3.1.0); v3.13.18: Manager больше не дефолтит bbox при сохранении findings
+- **Встроенные фрагменты (BACKLOG-086, v3.13.19):** сканер встраивает OCR-PNG (≤ MAX_FRAGMENT_EMBED_SIZE, default 2 МБ) base64+SHA-256 в payload → Manager хранит `fragment_data` в findings → `/fragment` отдаёт из БД (`X-Fragment-Mode: embedded`, `X-Fragment-Hash`); `/fragment/hash` — метаданные; RBAC `/fragment` и `/fragment/hash` — только Auditor+ (BUG-079); аудит `event_type=fragment_accessed` (metadata.action, finding_id, mode); батчинг результатов по размеру (MAX_BATCH_SIZE_BYTES=20 МБ, TASK-050); дедупликация фрагментов — BACKLOG-087 (v3.1.0), шифрование — BACKLOG-088 (v3.1.0)
 - Фильтры PII: `_filter_url_over_email_finding`, `_filter_spacy_noise`, `_filter_uk_nhs_with_phone`
 - Luhn-валидация для `credit_card`
 
@@ -131,17 +135,20 @@
 
 ## 📁 Последние использованные файлы
 
-- `manager/src/api/scanner.py` — TASK-044 (v3.13.18): убран дефолт bounding_box {0,0,0,0} при сохранении findings
-- `tests/unit/test_ocr_bbox_v31317.py` — +TestFragmentFallback (4 теста, 146 passed всего)
-- `docker-compose.yml` — manager/webui/celery → 3.13.18
-- `docs/admin-guide/10-troubleshooting.md` — создан (код сканера не влияет, bbox={0,0,0,0}, версии, зависшие контейнеры)
-- `scanner/connectors/filesystem.py` — BUG-077 (TASK-041): bounding_box=None для OCR
-- `manager/src/api/findings.py` — BUG-077 (TASK-042): `/fragment` fallback full-image
-- `monitoring/prometheus/prometheus.yml` — BACKLOG-084 fix (секция `alerting`)
-- `STATE.md`, `ROADMAP.md`, `STATE_TEST_SESSION.md`, `CHANGELOG.md` — обновлены
+- `manager/src/db/models.py` — TASK-045: +5 колонок fragment_* в Finding
+- `scanner/src/managed_scanner.py` — TASK-046/050: `_embed_fragment` (base64+SHA-256), `_split_by_size` (MAX_BATCH_SIZE_BYTES)
+- `manager/src/api/scanner.py` — TASK-047: декодирование fragment_base64 → fragment_data
+- `manager/src/api/findings.py` — TASK-048: /fragment (embedded-first) + /fragment/hash, RBAC Auditor+, аудит fragment_accessed
+- `manager/src/db/migrations/versions/005_add_fragment_columns.py` — TASK-049 (применена: PG head)
+- `tests/unit/test_fragment_embed_v31319.py` (8), `tests/unit/test_scanner_fragment_embed.py` (6), `tests/e2e/test_fragment_e2e.py` — 160+1 unit/e2e
+- `docker-compose.yml` — manager/webui/celery → 3.13.19, ENV MAX_FRAGMENT_EMBED_SIZE/MAX_BATCH_SIZE_BYTES
+- `.env.example` — +макросы фрагментов
+- `docs/admin-guide/05-security.md` — раздел «Неизменяемые доказательства»
+- `docs/admin-guide/10-troubleshooting.md` — обновлён (раздел диагностики фрагментов)
+- `STATE.md`, `ROADMAP.md`, `ARCHITECTURE.md`, `CHANGELOG.md`, `STATE_TEST_SESSION.md` — обновлены
 
 ---
 
 **Актуально на:** 26.09.2026
-**Версия:** v3.13.18
+**Версия:** v3.13.19
 **Следующий шаг:** Блок 5 (WebUI) — продолжить с п.2.3 (фильтры)
