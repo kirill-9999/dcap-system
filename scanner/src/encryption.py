@@ -110,28 +110,63 @@ def mask_line(line: str, matches: list) -> str:
     return result
 
 
-def mask_context(context: str, category: str = None) -> str:
-    """
-    Маскирует контекст (строки до/после).
-    Простая эвристика: маскирует всё, что похоже на секрет.
+# BUG-086 (TASK-053, v3.13.21): универсальные regex для каждой категории
+# MASK_RULES. Порядок важен — специфичные токены (ghp_, AKIA, xoxb-) раньше
+# generic (token/api_key). high_entropy и person НЕ маскируются в контексте
+# (high_entropy — сложный расчёт энтропии, отложено до v3.1.0).
+_CONTEXT_PATTERNS = [
+    # Credentials — специфичные токены (порядок важен: специфичные раньше generic)
+    (r"ghp_[a-zA-Z0-9]{20,}",              "github_token"),
+    (r"github_pat_[a-zA-Z0-9_]{20,}",      "github_token"),
+    (r"xox[baprs]-[a-zA-Z0-9-]{10,}",      "slack_token"),
+    (r"AKIA[A-Z0-9]{16}",                  "aws_key"),        # AWS Access Key ID
+    (r"sk-[a-zA-Z0-9-]{20,}",              "api_key"),        # OpenAI-style
+    (r"sk_live_[a-zA-Z0-9]{20,}",          "api_key"),        # Stripe
+    (r"discord[a-zA-Z0-9_-]{20,}",         "discord_token"),  # Discord — упрощённо
+    (r"eyJ[A-Za-z0-9_-]+\.eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+", "jwt_token"),
+    (r"-----BEGIN [A-Z ]+PRIVATE KEY-----[\s\S]+?-----END [A-Z ]+PRIVATE KEY-----", "ssh_key"),
+    (r"Basic [A-Za-z0-9+/=]{10,}",         "basic_auth"),
+    (r"[a-z][a-z0-9+.\-]*://[^\s\"']+",    "database_url"),   # postgresql://..., mysql://...
+    # Generic password/token в форме KEY=VALUE — две capture-группы:
+    # (1) префикс (ключ + разделитель), (2) значение. Маскируется ТОЛЬКО значение.
+    (r"(?i)((?:password|passwd|pwd)\s*[:=]\s*)(\S+)",  "password"),
+    (r"(?i)((?:api[_-]?key|apikey)\s*[:=]\s*)(\S+)",   "api_key"),
+    (r"(?i)((?:token|secret|access[_-]?key)\s*[:=]\s*)(\S+)", "token"),
+    # PII
+    (r"\S+@\S+\.\S+",                       "email"),
+    # Phone: RU + международные
+    (r"\+?7[\s\-\(\)]*\d{3}[\s\-\(\)]*\d{3}[\s\-]*\d{2}[\s\-]*\d{2}", "phone"),  # RU
+    (r"\+1[\s\-\.]?\(?\d{3}\)?[\s\-\.]?\d{3}[\s\-\.]?\d{4}", "phone"),            # US
+    (r"\+\d{1,3}[\s\-]?\d{2,4}[\s\-]?\d{2,4}[\s\-]?\d{2,4}", "phone"),            # generic intl
+    # Passport / SNILS / INN / CC
+    (r"\d{4}\s?\d{6}",                       "passport"),
+    (r"\d{3}[\-\s]\d{3}[\-\s]\d{3}[\-\s]\d{2}", "snils"),
+    (r"\d{12}",                              "inn"),
+    (r"\d{4}[\s\-]?\d{4}[\s\-]?\d{4}[\s\-]?\d{4}", "credit_card"),
+]
 
-    BUG-022.2: расширена набором PII-паттернов (паспорт/СНИЛС/ИНН/карты),
-    помимо телефонов и email. Передача positions находок соседних строк
-    (точный пересчёт смещений) — отдельная задача, отложена.
+
+def mask_context(context: str, category: str = None) -> str:
+    """Маскирует контекст (строки до/после).
+
+    BUG-086 (TASK-053, v3.13.21): покрывает все категории из MASK_RULES
+    (конвейер _CONTEXT_PATTERNS). Порядок паттернов важен — специфичные
+    (github_token, aws_key) раньше generic (token/api_key). Параметр
+    `category` сохранён для обратной совместимости (managed_scanner.py).
+    high_entropy/person в контексте не маскируются (по решению).
     """
     if not context:
         return context
     result = context
-    # Телефоны
-    result = re.sub(r"\+?7[\s\-\(\)]*\d{3}[\s\-\(\)]*\d{3}[\s\-]*\d{2}[\s\-]*\d{2}",
-                    lambda m: mask(m.group(), "phone"), result)
-    # Email
-    result = re.sub(r"\S+@\S+\.\S+", lambda m: mask(m.group(), "email"), result)
-    # BUG-022.2: паспорт, СНИЛС, ИНН, кредитные карты — тоже PII
-    result = re.sub(r"\d{4}\s?\d{6}", lambda m: mask(m.group(), "passport"), result)
-    result = re.sub(r"\d{3}[\-\s]\d{3}[\-\s]\d{3}[\-\s]\d{2}", lambda m: mask(m.group(), "snils"), result)
-    result = re.sub(r"\d{12}", lambda m: mask(m.group(), "inn"), result)
-    result = re.sub(r"\d{4}[\s\-]?\d{4}[\s\-]?\d{4}[\s\-]?\d{4}", lambda m: mask(m.group(), "credit_card"), result)
+    for pattern, cat in _CONTEXT_PATTERNS:
+        def _sub(m, c=cat):
+            # BUG-086: generic KEY=VALUE (2 capture-группы) маскирует только
+            # значение; для одиночных паттернов маскируется весь match.
+            if m.lastindex and m.lastindex >= 2:
+                return m.group(1) + mask(m.group(2), c)
+            return mask(m.group(), c)
+
+        result = re.sub(pattern, _sub, result)
     return result
 
 

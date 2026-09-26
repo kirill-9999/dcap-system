@@ -69,7 +69,7 @@ services:
     build:
       context: .
       dockerfile: manager/Dockerfile
-    image: dcap/manager:${VERSION:-3.13.20}
+    image: dcap/manager:${VERSION:-3.13.21}
     container_name: dcap-manager
     environment:
       DATABASE_URL: postgresql://${POSTGRES_USER:-dcap}:${POSTGRES_PASSWORD:-dcap123}@postgres:5432/${POSTGRES_DB:-dcap}
@@ -107,7 +107,7 @@ services:
     build:
       context: .
       dockerfile: manager/Dockerfile
-    image: dcap/manager:${VERSION:-3.13.20}
+    image: dcap/manager:${VERSION:-3.13.21}
     environment:
       DATABASE_URL: postgresql://${POSTGRES_USER:-dcap}:${POSTGRES_PASSWORD:-dcap123}@postgres:5432/${POSTGRES_DB:-dcap}
       REDIS_URL: redis://:${REDIS_PASSWORD:-redis123}@redis:6379/0
@@ -137,7 +137,7 @@ services:
     build:
       context: .
       dockerfile: manager/Dockerfile
-    image: dcap/manager:${VERSION:-3.13.20}
+    image: dcap/manager:${VERSION:-3.13.21}
     container_name: dcap-celery-beat
     environment:
       REDIS_URL: redis://:${REDIS_PASSWORD:-redis123}@redis:6379/0
@@ -182,7 +182,7 @@ services:
     build:
       context: ./webui
       dockerfile: Dockerfile
-    image: dcap/webui:${VERSION:-3.13.20}
+    image: dcap/webui:${VERSION:-3.13.21}
     container_name: dcap-webui
     environment:
       MANAGER_URL: http://manager:8000
