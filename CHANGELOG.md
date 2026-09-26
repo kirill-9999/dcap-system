@@ -11,6 +11,37 @@
 
 ---
 
+## [3.13.20] — 2026-09-26 — BUG-080/081: reliability сканера (heartbeat backoff + graceful shutdown)
+
+### Fixed
+- **BUG-080** (TASK-051, `scanner/src/heartbeat.py`): heartbeat при недоступном Manager больше
+  не спамит лог. Backoff 5→10→30→60→120 с (`BACKOFF_STEPS`), фейлы — на DEBUG,
+  WARNING только на 1-й попытке и далее каждые 5, INFO «Heartbeat restored after N failure(s)».
+  Пауза — `_stop.wait()` вместо `time.sleep()`: stop()/SIGINT мгновенно прерывает ожидание.
+- **BUG-081** (TASK-052): Ctrl+C больше не оставляет осиротевший OCRWorker на Windows.
+  `ManagedScanner._handle_sigint` (SIGINT + SIGBREAK) ставит флаги остановки;
+  `stop()` = остановка heartbeat + `_shutdown_classifiers()`; `ocr_worker.stop_ocr_worker` —
+  graceful: None в request_queue → join(5) → terminate → join(2) → kill.
+
+### Changed
+- `scanner/classifiers/ocr_worker.py` — порядок завершения процесса (было terminate → join).
+- `docker-compose.yml` — manager/webui/celery → 3.13.20.
+
+### Tests
+- `tests/unit/test_heartbeat_backoff.py` (4): backoff_steps, resets_on_success,
+  warning_not_spam (WARNING на 1/5/10), stop_event_interrupts_sleep (мгновенный выход).
+- `tests/unit/test_scanner_shutdown.py` (3): sigint_sets_stop_event, stop_sends_none_to_ocr_queue,
+  stop_terminates_stubborn_process (real mp.Process, terminate/kill).
+- Итого **167 passed** (160 + 7), в т.ч. регрессия `test_stale_tasks`, `test_scanner_middleware_rbac`.
+
+### Verified (live)
+- BUG-080: docker stop manager → единственный `Heartbeat failing (1 attempts), next retry in 5s`,
+  тишина далее; docker start → `Heartbeat restored after 4 failure(s)`.
+- BUG-081: CTRL+C (эмуляция CTRL_BREAK в группе) → `[Scanner] SIGINT received`,
+  graceful reенте: HeartbeatThread stopped → OCRWorker остановлен → `[X] Сканер остановлен`, rc=0.
+
+---
+
 ## [3.13.19] — 2026-09-26 — BACKLOG-086: встроенные OCR-фрагменты («Файл удалили — доказательство осталось»)
 
 ### Added

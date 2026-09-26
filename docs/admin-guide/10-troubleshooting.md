@@ -106,6 +106,42 @@ bounding_box=finding_data.get("bounding_box") or (
 
 ---
 
+## 3.2 Сканер: лог завален heartbeat-сообщениями при недоступном Manager
+
+**Симптом:** при остановленном/недоступном Manager (BUG-080, до v3.13.20) в логе сканера каждые
+несколько секунд: `Heartbeat failed: ...` + `Retrying...`, лишняя нагрузка на CPU/диск.
+
+**Решение (исправлено в v3.13.20):** heartbeat больше не спамит:
+- фейлы пишутся на **DEBUG**, WARNING — только на 1-й попытке и далее каждые 5;
+- backoff 5 → 10 → 30 → 60 → 120 с (`scanner/src/heartbeat.py`, `BACKOFF_STEPS`);
+- при восстановлении Manager — INFO `Heartbeat restored after N failure(s)`.
+
+Наблюдение с v3.13.20:
+```text
+2026-09-26 12:30:00,539 - scanner.src.heartbeat - WARNING - Heartbeat failing (1 attempts), next retry in 5s
+2026-09-26 12:33:58,020 - scanner.src.heartbeat - INFO - Heartbeat restored after 4 failure(s)
+```
+Для диагностики можно поднять уровень до DEBUG (logging.level в `scanner_config.json`).
+
+---
+
+## 3.3 Сканер не завершается по Ctrl+C (остаётся OCRWorker)
+
+**Симптом:** после Ctrl+C процесс сканера висит, OCRWorker остаётся «осиротевшим»;
+перезапуск сканера невозможен до ручного `taskkill` (BUG-081, до v3.13.20).
+
+**Решение (исправлено в v3.13.20):** Ctrl+C (и Ctrl+Break/SIGBREAK) → graceful shutdown:
+`[Scanner] SIGINT received` → останавливается heartbeat → классификаторам уходит
+None в request_queue → OCRWorker завершает обработку штатно (`[PII] OCRWorker остановлен`,
+`[X] Сканер остановлен`), процесс выходит с кодом 0.
+
+Если после обновления всё ещё виден зависший OCRWorker:
+```powershell
+Get-CimInstance Win32_Process -Filter "name like 'python%'" | Where-Object { $_.CommandLine -match 'spawn_main|ocr_worker' } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force }
+```
+
+---
+
 ## 4. Manager/WebUI отвечают старой версией
 
 **Симптом:** `GET /api/health` показывает старую версию после правок.
