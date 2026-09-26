@@ -439,6 +439,15 @@ class ManagedScanner:
         # Событие остановки (день 42.5+): устанавливается из stop()/Ctrl+C,
         # проверяется параллельным scan_path для немедленной остановки.
         self._stop_event = threading.Event()
+        # BUG-081 (TASK-052, v3.13.20): SIGINT → graceful shutdown.
+        # Обработчик ставит флаги; цикл выходит корректно, stop() завершает
+        # heartbeat и OCRWorker (Windows-совместимо — только SIGINT/SIGBREAK).
+        try:
+            signal.signal(signal.SIGINT, self._handle_sigint)
+            if hasattr(signal, "SIGBREAK"):
+                signal.signal(signal.SIGBREAK, self._handle_sigint)
+        except (ValueError, OSError) as e:
+            logger.debug("SIGINT handler not installed: %s", e)
         
         self.client = None
         self.classifiers = []
@@ -1385,8 +1394,14 @@ class ManagedScanner:
         self.client.heartbeat(status="offline")
         if self.heartbeat_thread is not None:
             self.heartbeat_thread.stop()
-        # Корректное завершение классификаторов (OCRWorker и др. процессы) —
-        # иначе после остановки сканера остаются осиротевшие дочерние процессы.
+        self._shutdown_classifiers()
+        logger.info("[X] Сканер остановлен")
+
+    def _shutdown_classifiers(self):
+        """Корректное завершение классификаторов (OCRWorker и др. процессы) —
+        иначе после остановки сканера остаются осиротевшие дочерние процессы.
+        Идемпотентно (PiiClassifier._stop_ocr_worker имеет guard _ocr_started).
+        """
         for clf in self.classifiers:
             shutdown = getattr(clf, "shutdown", None)
             if callable(shutdown):
@@ -1394,11 +1409,34 @@ class ManagedScanner:
                     shutdown()
                 except Exception as e:
                     logger.debug("Classifier shutdown error %s: %s", getattr(clf, "classifier_name", clf), e)
-        logger.info("[X] Сканер остановлен")
-    
-    def stop(self):
+
+    def _handle_sigint(self, signum, frame):
+        """BUG-081 (TASK-052): SIGINT → graceful shutdown (Windows-совместимо)."""
+        logger.warning("[Scanner] SIGINT received, stopping...")
         self._should_exit = True
         self._stop_event.set()
+
+    def stop(self):
+        """Graceful shutdown — вызывается из SIGINT-handler, KeyboardInterrupt или извне.
+
+        BUG-081 (TASK-052): останавливает heartbeat, затем классификаторы
+        (OCRWorker): None в request_queue → join(5) → terminate → join(2) → kill.
+        """
+        logger.info("[Scanner] Stopping...")
+        self._should_exit = True
+        self._stop_event.set()
+
+        logger.info("[Scanner] Stopping heartbeat...")
+        if self.heartbeat_thread is not None:
+            try:
+                self.heartbeat_thread.stop()
+            except Exception as e:
+                logger.debug("Heartbeat stop error: %s", e)
+
+        logger.info("[Scanner] Stopping OCRWorker/classifiers...")
+        self._shutdown_classifiers()
+
+        logger.info("[Scanner] Stopped")
 
 
 def main():

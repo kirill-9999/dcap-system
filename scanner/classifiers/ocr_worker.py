@@ -319,15 +319,22 @@ def start_ocr_worker(models_cache: str = "models", max_cache_size: int = 500) ->
 
 
 def stop_ocr_worker(process: Process, request_queue: Queue, response_queue: Queue):
-    """Остановка OCR рабочего процесса"""
+    """Остановка OCR рабочего процесса.
+
+    BUG-081 (TASK-052, v3.13.20): graceful shutdown — сначала штатный выход через
+    None в request_queue (процесс печатает «Завершение. Обработано запросов: N»),
+    затем join(5) → terminate → join(2) → kill.
+    """
     try:
         request_queue.put(None, timeout=1)
-    except:
+    except Exception:
         pass
-    
+
     if process and process.is_alive():
-        process.terminate()
         process.join(timeout=5)
+        if process.is_alive():
+            process.terminate()
+            process.join(timeout=2)
         if process.is_alive():
             process.kill()
 
