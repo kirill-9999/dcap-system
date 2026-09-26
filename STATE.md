@@ -2,10 +2,10 @@
 > Единственный источник правды о текущем состоянии проекта.
 > План и бэклог — в `ROADMAP.md`. Архитектура — в `ARCHITECTURE.md`.
 
-**Обновлено:** 25.09.2026
-**Текущая версия:** v3.13.17
+**Обновлено:** 26.09.2026
+**Текущая версия:** v3.13.18
 **Целевая версия:** v3.0.0 (релиз)
-**Статус:** 🟢 Блок 3 (Scanner deep) ✅; Блок 8 (Мониторинг) ✅; BUG-077 ✅ (v3.13.17); следующий шаг — Блок 5 (WebUI)
+**Статус:** 🟢 Блок 3 (Scanner deep) ✅; Блок 8 (Мониторинг) ✅; BUG-077 ✅ live-подтверждён (v3.13.18); следующий шаг — Блок 5 (WebUI)
 
 ---
 
@@ -13,9 +13,9 @@
 
 | Параметр | Значение |
 |----------|----------|
-| Текущий день | 47.3 — BUG-077 (v3.13.17): bounding_box=None для OCR + fallback full-image |
+| Текущий день | 47.4 — BUG-077 diag (v3.13.18): причина — Manager дефолтил bbox; live-подтверждение task 38 |
 | Статус дня | ✅ Выполнен |
-| Последний принятый отчёт | `day_47.3_fix_bug077_report.md` (v3.13.17) |
+| Последний принятый отчёт | `day_47.4_bug077_diag_report.md` (v3.13.18) |
 | Следующий шаг | Блок 5 (WebUI) — продолжить с п.2.3 (фильтры) |
 | Открытые вопросы к архитектору | — |
 
@@ -40,6 +40,7 @@
 | 47 (test) | Мастер-сессия: Блок 3 (Scanner deep) — **ЗАКРЫТ** | — | ✅ |
 | 47.2 (test) | Мастер-сессия: **Блок 8 (Мониторинг) — ЗАКРЫТ** | v3.13.16 | ✅ |
 | 47.3 (bug077) | BUG-077: bounding_box=None для OCR + fallback full-image в /fragment; VERSION агентов синхронизирован (TASK-041..043) | **v3.13.17** | `day_47.3_fix_bug077_report.md` |
+| 47.4 (bug077 diag) | BUG-077 diag: причина H3 (Manager дефолтил bbox при сохранении) — TASK-044; live task 38: bbox=NULL | **v3.13.18** | `day_47.4_bug077_diag_report.md` |
 
 ---
 
@@ -84,6 +85,7 @@
 *(Закрытые в v3.13.15: TASK-037 (BUG-071/074), TASK-038 (BUG-072), TASK-039 (BUG-073) — ТЗ №6)*
 *(Закрытые в v3.13.16: TASK-040 (BUG-075) — ТЗ №7)*
 *(Закрытые в v3.13.17: TASK-041/042 (BUG-077), TASK-043 (VERSION агентов) — ТЗ №8)*
+*(Закрытые в v3.13.18: TASK-044 (BUG-077 diag — Manager дефолтил bbox); BUG-077 ✅ live task 38 — ТЗ №8 diag)*
 
 ---
 
@@ -111,7 +113,7 @@
 - Heartbeat-thread (30 с), fail-open
 - spaCy `sm` (ru + en, двухпроходный Presidio)
 - OCR: Tesseract (rus+eng), изолированный OCRWorker
-- **OCR bbox: до v3.1.0 = None** (координаты не вычисляются, Tesseract без tsv); `/fragment` для image_region без bbox отдаёт весь PNG (`X-Fragment-Mode: full-image`); полный OCR-пайплайн — BACKLOG-085 (v3.1.0)
+- **OCR bbox: до v3.1.0 = None** (координаты не вычисляются, Tesseract без tsv); `/fragment` для image_region без bbox отдаёт весь PNG (`X-Fragment-Mode: full-image`); полный OCR-пайплайн — BACKLOG-085 (v3.1.0); v3.13.18: Manager больше не дефолтит bbox при сохранении findings
 - Фильтры PII: `_filter_url_over_email_finding`, `_filter_spacy_noise`, `_filter_uk_nhs_with_phone`
 - Luhn-валидация для `credit_card`
 
@@ -129,17 +131,17 @@
 
 ## 📁 Последние использованные файлы
 
+- `manager/src/api/scanner.py` — TASK-044 (v3.13.18): убран дефолт bounding_box {0,0,0,0} при сохранении findings
+- `tests/unit/test_ocr_bbox_v31317.py` — +TestFragmentFallback (4 теста, 146 passed всего)
+- `docker-compose.yml` — manager/webui/celery → 3.13.18
+- `docs/admin-guide/10-troubleshooting.md` — создан (код сканера не влияет, bbox={0,0,0,0}, версии, зависшие контейнеры)
 - `scanner/connectors/filesystem.py` — BUG-077 (TASK-041): bounding_box=None для OCR
 - `manager/src/api/findings.py` — BUG-077 (TASK-042): `/fragment` fallback full-image
-- `docker-compose.yml` — TASK-043: VERSION агентов 3.13.16, manager/webui 3.13.17
-- `tests/unit/test_ocr_bbox_v31317.py` — 2 теста (144 passed всего)
 - `monitoring/prometheus/prometheus.yml` — BACKLOG-084 fix (секция `alerting`)
-- `manager/src/api/*.py` — проверка endpoint `/api/alerts/webhook` (отсутствует)
-- `monitoring/grafana/provisioning/` — datasource + 2 dashboard
 - `STATE.md`, `ROADMAP.md`, `STATE_TEST_SESSION.md`, `CHANGELOG.md` — обновлены
 
 ---
 
-**Актуально на:** 25.09.2026
-**Версия:** v3.13.17
+**Актуально на:** 26.09.2026
+**Версия:** v3.13.18
 **Следующий шаг:** Блок 5 (WebUI) — продолжить с п.2.3 (фильтры)

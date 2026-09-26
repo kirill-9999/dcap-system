@@ -11,6 +11,38 @@
 
 ---
 
+## [3.13.18] — 2026-09-26 — BUG-077 diag (причина H3: Manager дефолтил bbox) + live-подтверждение
+
+### Fixed
+- **BUG-077 (live-диагностика, TASK-044)**: фикс TASK-041 не отражался в БД — после task 36
+  `bounding_box` по-прежнему `{0,0,0,0}`. Исключены гипотезы H1/H2/H4/H5/H6/H7 (pyc свежий,
+  единственный filesystem.py, процесс сканера = `run_scanner.py`, `"x": 0` в сканере нет).
+  **Причина — H3**: сканер шлёт `bounding_box: null` (managed_scanner.py:673), но Manager
+  при сохранении применял `finding_data.get("bounding_box") or ({"x":0,...} if image_region)`:
+  `None or default` → в БД уходил `{0,0,0,0}`.
+  - `manager/src/api/scanner.py` — убран дефолт, теперь `bounding_box=finding_data.get("bounding_box")`
+    (честный `NULL` для OCR до BACKLOG-085, v3.1.0).
+
+### Changed
+- `docker-compose.yml` — manager/webui/celery → 3.13.18.
+
+### Tests
+- `tests/unit/test_ocr_bbox_v31317.py` — +`TestFragmentFallback` (2 теста):
+  image_region + bbox=None → 200 + весь PNG + `X-Fragment-Mode: full-image`;
+  файл отсутствует → 404.
+- `pytest tests/unit/` — 146 passed (144 + 2).
+
+### Confirmed live (task 38)
+- SQL: `bounding_box = NULL` для обоих `image_region` (ids 1415/1416), 29 findings,
+  разбивка = task 35 (15 категорий, без регрессий).
+- API: `bounding_box` пусто, `has_fragment = True`, `file_path` → PNG.
+
+### Docs
+- `docs/admin-guide/10-troubleshooting.md` — создан (раздел «Код сканера не влияет»,
+  bbox={0,0,0,0}, устаревшая версия, зависшие контейнеры).
+
+---
+
 ## [3.13.17] — 2026-09-25 — BUG-077 (bbox=None для OCR + fallback full-image)
 
 ### Fixed

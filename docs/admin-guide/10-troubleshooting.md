@@ -1,0 +1,118 @@
+# 10. Troubleshooting
+
+> **Руководство администратора DCAP.**
+> Раздел «Поиск и устранение неисправностей»: частые проблемы и решения.
+
+**Обновлено:** 26.09.2026
+**Версия:** v3.13.18
+
+---
+
+## 📖 Содержание
+
+1. [Общие принципы](#1-общие-принципы)
+2. [Код сканера не влияет на новые findings](#2-код-сканера-не-влияет-на-новые-findings)
+3. [OCR-findings сохраняются с bounding_box = {0,0,0,0}](#3-ocr-findings-сохраняются-с-bounding_box--000)
+4. [Manager/WebUI отвечают старой версией](#4-managerwebui-отвечают-старой-версией)
+5. [Контейнеры зависают при пересоздании](#5-контейнеры-зависают-при-пересоздании)
+
+---
+
+## 1. Общие принципы
+
+- **Сканер работает на хосте** (не в Docker) — его код не пересобирается контейнером.
+  Перезапуск сканера — Ctrl+C в окне `start_scanner.bat` → запуск снова.
+- **Manager/WebUI в Docker** — после правки их кода нужны `docker compose build` + `up -d`.
+- Проверка актуальной версии — `GET /api/health` (ожидаем `"version": "x.y.z"`).
+- Проверка процесса сканера:
+  ```powershell
+  Get-CimInstance Win32_Process -Filter "name like 'python%'" | Select ProcessId, CommandLine
+  ```
+  Ожидание для рабочего сканера: `python -X utf8 run_scanner.py scanner\config\scanner_config.json`
+  (запуск из корня репо; на PID смотришь атрибут `CommandLine`).
+
+---
+
+## 2. Код сканера не влияет на новые findings
+
+**Симптом:** поправил `scanner/**/*.py`, перезапустил сканер, но результаты не изменились.
+
+**Причины и решения (по убыванию вероятности):**
+
+1. **Сканер не перезапущен.** Решение: Ctrl+C в окне `start_scanner.bat` →
+   `.\start_scanner.bat`. Проверить: `[OK] Manager: healthy, version X.X.X`.
+2. **Stale `__pycache__`** (устаревший байткод). Решение:
+   ```powershell
+   Get-ChildItem E:\projects\dcap-system\scanner -Recurse -Directory -Filter __pycache__ |
+     Remove-Item -Recurse -Force
+   .\start_scanner.bat
+   ```
+   Быстрая проверка свежести: `.pyc` должен быть новее `.py`:
+   ```powershell
+   Get-ChildItem scanner\connectors\__pycache__ -Filter "filesystem*.pyc" |
+     Select Name, LastWriteTime
+   Get-Item scanner\connectors\filesystem.py | Select LastWriteTime
+   ```
+3. **Дедупликация по fingerprint.** Если пути/строки не менялись, повторный скан
+   того же ресурса не создаёт новые записи (для существующих `new`-findings обновляется
+   `last_seen_at`). Для контрольного прогона очистить тестовые findings:
+   ```powershell
+   docker exec dcap-postgres psql -U dcap -d dcap -c "DELETE FROM findings WHERE task_id = <id>;"
+   ```
+
+---
+
+## 3. OCR-findings сохраняются с bounding_box = {0,0,0,0}
+
+**Симптом (BUG-077, исправлен в v3.13.18):** у `image_region`-findings в БД
+`bounding_box = {"x":0,"y":0,"width":0,"height":0}`, хотя в `filesystem.py` стоит `None`.
+
+**Причина:** сканер шлёт `bounding_box: null` (координаты OCR не вычисляются — Tesseract
+вызывается без tsv). Но Manager при сохранении имел fallback:
+```python
+bounding_box=finding_data.get("bounding_box") or (
+    {"x": 0, "y": 0, "width": 0, "height": 0} if fragment_type == "image_region" else None
+)
+```
+`None or default` → в БД уходил `{0,0,0,0}`.
+
+**Решение (v3.13.18):** fallback убран — `bounding_box=finding_data.get("bounding_box")`.
+Теперь для OCR хранится честный `NULL`, а endpoint `/api/findings/{id}/fragment` для
+`image_region` без bbox возвращает весь PNG с заголовком `X-Fragment-Mode: full-image`.
+Полный OCR-пайплайн с реальным bbox — **BACKLOG-085 (v3.1.0)**.
+
+---
+
+## 4. Manager/WebUI отвечают старой версией
+
+**Симптом:** `GET /api/health` показывает старую версию после правок.
+
+**Решение:**
+```powershell
+$env:VERSION="X.Y.Z"          # обязательно задать, иначе компоузер возьмёт default из .env/yml
+docker compose build manager webui
+docker compose up -d manager webui
+# celery при необходимости:
+docker compose build celery_worker celery_beat
+docker compose up -d celery_worker celery_beat
+Invoke-RestMethod http://127.0.0.1:8000/api/health   # → "version":"X.Y.Z"
+```
+⚠️ Если не задать `VERSION`, может собран `<имя>:<старый default>` и контейнер
+останется на прежнем образе.
+
+---
+
+## 5. Контейнеры зависают при пересоздании
+
+**Симптом:** `docker compose up -d` пишет `cannot stop container ... did not receive an exit event`.
+
+**Решение:** принудительно остановить и удалить зависший контейнер, затем повторить:
+```powershell
+docker stop $(docker ps -aqf "name=celery_worker")
+docker rm $(docker ps -aqf "name=celery_worker")
+docker compose up -d
+```
+
+---
+
+**Актуально на:** 26.09.2026
