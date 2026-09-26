@@ -487,9 +487,11 @@ async def submit_results(
             line_text_encrypted=line_enc,
             context_before_masked=finding_data.get("context_before_masked") or context or None,
             context_after_masked=finding_data.get("context_after_masked") or None,
-            bounding_box=finding_data.get("bounding_box") or (
-                {"x": 0, "y": 0, "width": 0, "height": 0} if finding_data.get("fragment_type") == "image_region" else None
-            ),
+            # BUG-077 (TASK-044, v3.13.18): сканер шлёт bounding_box=None для OCR
+            # (координаты не вычисляются, Tesseract без tsv). Раньше здесь стоял
+            # `or {...default {0,0,0,0}...}`, который перезаписывал None и вводил в
+            # заблуждение API/WebUI. Теперь — честный None (до BACKLOG-085, v3.1.0).
+            bounding_box=finding_data.get("bounding_box"),
             byte_offset=finding_data.get("byte_offset"),
             byte_length=finding_data.get("byte_length"),
             hex_preview=finding_data.get("hex_preview"),

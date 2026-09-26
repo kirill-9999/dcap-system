@@ -55,3 +55,44 @@ class TestOcrBoundingBox:
         assert len(findings) == 1
         assert findings[0].fragment_type == "text_line"
         assert findings[0].bounding_box is None
+
+
+class TestFragmentFallback:
+    """BUG-077 (TASK-042, v3.13.17): /fragment для image_region без bbox → весь PNG."""
+
+    def _make_entity(self, tmp_path, filename="dummy.png"):
+        from types import SimpleNamespace
+
+        png = tmp_path / filename
+        png.write_bytes(b"\x89PNG\r\n\x1a\nfake-png-content")
+        return SimpleNamespace(
+            id=1415,
+            fragment_type="image_region",
+            bounding_box=None,
+            detector="ocr",
+            fragment_path=str(png),
+        )
+
+    def test_fragment_full_image_for_bbox_none(self, tmp_path):
+        """image_region + bbox=None → 200, весь файл, X-Fragment-Mode=full-image."""
+        from manager.src.api.findings import _get_image_fragment
+
+        finding = self._make_entity(tmp_path)
+        resp = _get_image_fragment(finding)
+        assert resp.status_code == 200
+        assert resp.headers["X-Fragment-Mode"] == "full-image"
+        assert resp.body == b"\x89PNG\r\n\x1a\nfake-png-content"
+
+    def test_fragment_404_when_file_missing(self, tmp_path):
+        """image_region + bbox=None, но файла нет → 404."""
+        from fastapi import HTTPException
+        from manager.src.api.findings import _get_image_fragment
+
+        finding = self._make_entity(tmp_path, filename="missing.png")
+        finding.fragment_path = str(tmp_path / "not_exists.png")
+        try:
+            _get_image_fragment(finding)
+        except HTTPException as exc:
+            assert exc.status_code == 404
+        else:
+            raise AssertionError("ожидался HTTPException 404")
