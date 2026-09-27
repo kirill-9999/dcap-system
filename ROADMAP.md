@@ -46,6 +46,7 @@
 | 47.2 (test) | Мастер-сессия: Блок 8 (Мониторинг) | — | ✅ **ЗАКРЫТ** |
 | 48 (Блок 5, п.2.3) | Фильтры/пагинация/аудит/экспорт WebUI: прокси headers, fragment+export с Bearer, CSV-категории, event_source | TASK-054…059 | ✅ **v3.13.22** |
 | 48.1 (диагностика) | «BUG-087» аудит reveal: 🔴 **ложное срабатывание** — `user` без кавычек = `CURRENT_USER`; код корректен, закрыто регрессией | TASK-060 | ✅ **v3.13.23** |
+| 48.2 (BUG-095) | Аудит входов и управления пользователями: `auth_login`/`auth_failed`/`auth_logout`/`user_*`/`role_*` в `audit_logs` (152-ФЗ / GDPR / PCI DSS 10.2) | TASK-061/062 | ✅ **v3.13.24** |
 | 48.5 (Блок 5, п.2.4) | Отчёты/архив в WebUI | — | 📋 **следующий** |
 | 49 | Блок 7 (Retention) | — | 📋 |
 | 50 | Блок 6 (Агенты — тестирование) | BACKLOG-080…082 | 📋 |
@@ -121,7 +122,12 @@
 | TASK-058 (BUG-091) | `/api/audit` игнорировал `event_source`; фильтры WebUI со статическими опциями вместо данных `/api/audit/stats` | v3.13.22 |
 | TASK-059 (BUG-093) | Экспорт findings из WebUI 401: `window.location.href` без Bearer → fetch+blob | v3.13.22 |
 | TASK-060 (BUG-094) | «BUG-087» аудит reveal: 🔴 **ложное срабатывание** — `audit_logs.user` пишет реального пользователя, `dcap` = `CURRENT_USER` (в PG `user` — keyword, нужен `"user"`). Фикс кода не требуется; 7 unit + 3 E2E, раздел 6 в troubleshooting. ⚠️ ТЗ обозначило как BUG-087, но ID занят TASK-054 → зафиксировано как BUG-094 | v3.13.23 |
-| BACKLOG-095 (кандидат) | Аудит входа: `auth_login` / `user_created` / `change_password` не пишутся в `audit_logs` (вне ТЗ 48.1) | 📋 |
+| BACKLOG-095 (кандидат) | ~~Аудит входа не пишется~~ | ✅ закрыто в v3.13.24 |
+| TASK-061 (BUG-095) | Аудит аутентификации: `auth_login` / `auth_failed` (reason: `invalid_credentials`/`user_not_found`/`user_inactive`) / `auth_logout` — хелпер `log_auth_event()` в `manager/src/auth/audit.py`, fail-open, `_sanitize()` вырезает пароли/токены; `auth_refresh` не пишется (шум, решение из ТЗ) | v3.13.24 |
+| TASK-062 (BUG-095) | Аудит управления пользователями: `user_created` / `user_updated` / `user_deleted` / `user_password_changed` (self + admin reset) / `role_assigned` / `role_revoked` (дифф ролей) | v3.13.24 |
+| TASK-063 (BUG-095) | Алерт на N неудачных входов | 📋 v3.1.0 (SIEM) |
+| BUG-096 (новый, 27.09) | `GET /api/findings/false-positives` → **500**: `manager/src/api/findings.py:324` использует `_m.User`, а `User` определён в `manager.src.auth.models`. Найден на полном E2E-прогоне дня 48.2, вне ТЗ BUG-095 | 📋 v3.13.25 |
+| BUG-096b (новый, 27.09) | Устаревшие E2E-тесты `test_full_scan_cycle`, `test_real_scanner_end_to_end`: ждут `finding_type in {pii, credentials}` после рефакторинта v3.13.22 (теперь granular `category`: email/person/phone/aws_key) | 📋 v3.13.25 |
 
 ---
 
@@ -296,7 +302,7 @@
 | Версия | Задач | Выполнено | Прогресс |
 |--------|-------|-----------|----------|
 | v1.0.0-v2.1.0 | 27 | 27 | 100% ✅ |
-| **v3.0.0** | **87 + 9 (Блок 8) + 3 (BUG-077) + 1 (BACKLOG-086) + 1 (BUG-086) + 8 (BUG-087…094)** | **78 + 3 испр. + 3 (v3.13.17) + 1 (v3.13.18) + 1 (v3.13.19) + 2 (v3.13.20) + 1 (v3.13.21) + 6 (v3.13.22) + 1 (v3.13.23)** | **~89% 🔄** |
+| **v3.0.0** | **87 + 9 (Блок 8) + 3 (BUG-077) + 1 (BACKLOG-086) + 1 (BUG-086) + 8 (BUG-087…094) + 3 (TASK-061/062/063 — BUG-095)** | **78 + 3 испр. + 3 (v3.13.17) + 1 (v3.13.18) + 1 (v3.13.19) + 2 (v3.13.20) + 1 (v3.13.21) + 6 (v3.13.22) + 1 (v3.13.23) + 2 (v3.13.24)** | **~89% 🔄** |
 | v3.1.0 | 26 | 0 | 0% 📋 |
 | v4.0.0 | 9 | 0 | 0% 📋 |
 | **ИТОГО** | **~157** | **~116** | **~74%** |
@@ -335,5 +341,5 @@
 ---
 
 **Актуально на:** 27.09.2026
-**Версия:** v3.13.23
+**Версия:** v3.13.24
 **Следующая цель:** v3.0.0 (релиз) — осталось Блок 5 (WebUI, п.2.4 отчёты/архив), Блок 7 (Retention), Блок 6 (Агенты), GitHub

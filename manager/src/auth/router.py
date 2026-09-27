@@ -24,6 +24,7 @@ from .schemas import (
     ChangePasswordRequest,
 )
 from .manager import AuthManager
+from .audit import classify_login_failure, log_auth_event, role_diff
 from .rate_limit import login_limiter
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
@@ -73,6 +74,19 @@ async def login(
     )
 
     if not user:
+        # BUG-095 (TASK-061): неудачная попытка входа. Пароль/хеш не пишутся.
+        log_auth_event(
+            db,
+            "auth_failed",
+            login_data.username,
+            request,
+            metadata={
+                "action": "login_failed",
+                "reason": classify_login_failure(db, login_data.username),
+                "attempted_username": login_data.username,
+                "auth_mode": auth_manager.get_current_mode(),
+            },
+        )
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid credentials",
@@ -97,6 +111,21 @@ async def login(
         secure=cookie_secure(),  # BUG-042
         samesite="lax",
         max_age=60 * 60 * 24 * 7,  # 7 дней
+    )
+
+    # BUG-095 (TASK-061): успешный вход — кто, когда, откуда, каким способом.
+    log_auth_event(
+        db,
+        "auth_login",
+        user,
+        request,
+        metadata={
+            "action": "login_success",
+            "auth_source": user.auth_source,
+            "auth_method": method,
+            "auth_mode": auth_manager.get_current_mode(),
+            "roles": [r.name for r in user.roles],
+        },
     )
 
     return LoginResponse(
@@ -180,6 +209,7 @@ async def logout(
     request: Request,
     response: Response,
     current_user: User = Depends(require_auth),
+    db: Session = Depends(get_db),
 ):
     """Выход из системы. TASK-013 (BUG-041): access/refresh jti → blacklist."""
     token = request.cookies.get("access_token")
@@ -190,15 +220,27 @@ async def logout(
     from .rate_limit import login_limiter as _limiter
 
     jm = get_auth_manager().jwt
+    jti = None
     if token:
         try:
             payload = jm.verify_token(token, "access")
             if payload:
+                jti = payload.get("jti")
                 jm.blacklist_jti(payload)
         except Exception:  # noqa: BLE001
             pass
 
     _limiter.reset(f"login:user:{current_user.username}")
+
+    # BUG-095 (TASK-061): выход из системы. Пишем только jti, не сам токен.
+    log_auth_event(
+        db,
+        "auth_logout",
+        current_user,
+        request,
+        metadata={"action": "logout", "jti": jti},
+    )
+
     response.delete_cookie("access_token")
     response.delete_cookie("refresh_token")
     return {"status": "ok", "message": "Logged out successfully"}
@@ -215,6 +257,7 @@ async def get_me(current_user: User = Depends(require_auth)):
 
 @router.post("/change-password")
 async def change_password(
+    request: Request,
     request_data: ChangePasswordRequest,
     current_user: User = Depends(require_auth),
     db: Session = Depends(get_db),
@@ -234,6 +277,21 @@ async def change_password(
 
     current_user.set_password(request_data.new_password)
     db.commit()
+
+    # BUG-095 (TASK-062): факт смены пароля. Ни старый, ни новый пароль не пишутся.
+    log_auth_event(
+        db,
+        "user_password_changed",
+        current_user,
+        request,
+        metadata={
+            "action": "password_changed",
+            "target_user_id": current_user.id,
+            "target_username": current_user.username,
+            "by_admin": False,
+            "self_service": True,
+        },
+    )
 
     return {"status": "ok", "message": "Password changed"}
 
@@ -275,6 +333,7 @@ async def list_users(
 
 @router.post("/users", response_model=dict)
 async def create_user(
+    request: Request,
     user_data: UserCreate,
     admin: User = Depends(require_admin),
     db: Session = Depends(get_db),
@@ -309,6 +368,22 @@ async def create_user(
     db.commit()
     db.refresh(user)
 
+    # BUG-095 (TASK-062): создание пользователя. Пароль не пишется.
+    log_auth_event(
+        db,
+        "user_created",
+        admin,
+        request,
+        metadata={
+            "action": "user_created",
+            "target_user_id": user.id,
+            "target_username": user.username,
+            "auth_source": user.auth_source,
+            "is_active": user.is_active,
+            "roles": [r.name for r in user.roles],
+        },
+    )
+
     return user.to_dict()
 
 
@@ -327,6 +402,7 @@ async def get_user(
 
 @router.put("/users/{user_id}", response_model=dict)
 async def update_user(
+    request: Request,
     user_id: int,
     user_data: UserUpdate,
     admin: User = Depends(require_admin),
@@ -337,20 +413,29 @@ async def update_user(
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
 
-    if user_data.email is not None:
+    roles_before = [r.name for r in user.roles]
+    changes: dict = {}
+
+    if user_data.email is not None and user_data.email != user.email:
         user.email = user_data.email
-    if user_data.full_name is not None:
+        changes["email"] = "changed"  # PII: без значения
+    if user_data.full_name is not None and user_data.full_name != user.full_name:
         user.full_name = user_data.full_name
-    if user_data.auth_source is not None:
+        changes["full_name"] = "changed"  # PII: без значения
+    if user_data.auth_source is not None and user_data.auth_source != user.auth_source:
         user.auth_source = user_data.auth_source
+        changes["auth_source"] = user_data.auth_source
     if user_data.is_active is not None:
         if user.id == admin.id and user_data.is_active is False:
             raise HTTPException(status_code=400, detail="Cannot disable yourself")
+        if user_data.is_active != user.is_active:
+            changes["is_active"] = user_data.is_active
         user.is_active = user_data.is_active
     if user_data.password:
         if user.auth_source != "local":
             raise HTTPException(status_code=400, detail="Cannot set password for AD user")
         user.set_password(user_data.password)
+        changes["password"] = "changed"  # значение не пишется (и вырезается sanitize)
     if user_data.roles is not None:
         user.roles = []
         for role_name in user_data.roles:
@@ -360,11 +445,76 @@ async def update_user(
 
     db.commit()
     db.refresh(user)
+    roles_after = [r.name for r in user.roles]
+
+    # BUG-095 (TASK-062): изменение пользователя + смена ролей
+    if changes or roles_before != roles_after:
+        log_auth_event(
+            db,
+            "user_updated",
+            admin,
+            request,
+            metadata={
+                "action": "user_updated",
+                "target_user_id": user.id,
+                "target_username": user.username,
+                "changes": changes,
+            },
+        )
+    if user_data.password:
+        # Смена пароля админом — отдельным событием (в user_updated пароль вырезается)
+        log_auth_event(
+            db,
+            "user_password_changed",
+            admin,
+            request,
+            metadata={
+                "action": "password_changed",
+                "target_user_id": user.id,
+                "target_username": user.username,
+                "by_admin": admin.id != user.id,
+                "self_service": False,
+            },
+        )
+    _log_role_changes(db, admin, request, user, roles_before, roles_after)
+
     return user.to_dict()
+
+
+def _log_role_changes(db, admin, request, target, roles_before, roles_after):
+    """BUG-095 (TASK-062): role_assigned / role_revoked по разнице ролей."""
+    assigned, revoked = role_diff(roles_before, roles_after)
+    for role_name in assigned:
+        log_auth_event(
+            db,
+            "role_assigned",
+            admin,
+            request,
+            metadata={
+                "action": "role_assigned",
+                "target_user_id": target.id,
+                "target_username": target.username,
+                "role": role_name,
+            },
+        )
+    for role_name in revoked:
+        log_auth_event(
+            db,
+            "role_revoked",
+            admin,
+            request,
+            metadata={
+                "action": "role_revoked",
+                "target_user_id": target.id,
+                "target_username": target.username,
+                "role": role_name,
+            },
+        )
 
 
 @router.delete("/users/{user_id}")
 async def delete_user(
+    request: Request,
     user_id: int,
     admin: User = Depends(require_admin),
     db: Session = Depends(get_db),
@@ -376,14 +526,32 @@ async def delete_user(
     if user.id == admin.id:
         raise HTTPException(status_code=400, detail="Cannot delete yourself")
 
+    target_username = user.username
+    roles_before = [r.name for r in user.roles]
+
     user.roles = []
     db.delete(user)
     db.commit()
+
+    # BUG-095 (TASK-062): удаление пользователя
+    log_auth_event(
+        db,
+        "user_deleted",
+        admin,
+        request,
+        metadata={
+            "action": "user_deleted",
+            "target_user_id": user_id,
+            "target_username": target_username,
+            "roles": roles_before,
+        },
+    )
     return {"status": "ok", "detail": "User deleted"}
 
 
 @router.put("/users/{user_id}/status", response_model=dict)
 async def update_user_status(
+    request: Request,
     user_id: int,
     request_data: UserStatusUpdate,
     admin: User = Depends(require_admin),
@@ -397,13 +565,29 @@ async def update_user_status(
     if user.id == admin.id and not request_data.is_active:
         raise HTTPException(status_code=400, detail="Cannot disable yourself")
 
+    target_username = user.username
     user.is_active = request_data.is_active
     db.commit()
+
+    # BUG-095 (TASK-062): блокировка/разблокировка учётки
+    log_auth_event(
+        db,
+        "user_updated",
+        admin,
+        request,
+        metadata={
+            "action": "status_changed",
+            "target_user_id": user_id,
+            "target_username": target_username,
+            "changes": {"is_active": request_data.is_active},
+        },
+    )
     return {"status": "ok", "user_id": user_id, "is_active": user.is_active}
 
 
 @router.put("/users/{user_id}/roles", response_model=dict)
 async def update_user_roles(
+    request: Request,
     user_id: int,
     request_data: UserRoleUpdate,
     admin: User = Depends(require_admin),
@@ -414,6 +598,8 @@ async def update_user_roles(
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
 
+    roles_before = [r.name for r in user.roles]
+
     user.roles = []
     for role_name in request_data.roles:
         role = db.query(Role).filter(Role.name == role_name).first()
@@ -422,6 +608,11 @@ async def update_user_roles(
 
     db.commit()
     db.refresh(user)
+    roles_after = [r.name for r in user.roles]
+
+    # BUG-095 (TASK-062): role_assigned / role_revoked
+    _log_role_changes(db, admin, request, user, roles_before, roles_after)
+
     return {"status": "ok", "user_id": user_id, "roles": [r.name for r in user.roles]}
 
 

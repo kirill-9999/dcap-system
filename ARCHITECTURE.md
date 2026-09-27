@@ -463,9 +463,39 @@ class Finding(Base):
 | Scanner | `scan_completed` | info |
 | Scanner | `scan_failed` | high |
 | Scanner | `scanner_inactive` | warning |
-| Audit | `auth_login` / `auth_failed` | info / medium |
-| Audit | `user_created` / `role_changed` | medium |
+| Audit | `auth_login` / `auth_logout` | info |
+| Audit | `auth_failed` | medium |
+| Audit | `user_created` / `user_updated` / `user_deleted` | medium |
+| Audit | `user_password_changed` | high |
+| Audit | `role_assigned` / `role_revoked` | medium |
 | Retention | `retention_run` | info |
+
+#### Аудит аутентификации (BUG-095, v3.13.24)
+
+События пишутся хелпером `log_auth_event()` из `manager/src/auth/audit.py`
+(fail-open: сбой аудита не ломает аутентификацию). Писатели — `manager/src/auth/router.py`.
+
+| `event_type` | Эндпоинт | `metadata` |
+|--------------|----------|------------|
+| `auth_login` | `POST /api/auth/login` (успех) | `action`, `auth_source`, `auth_method`, `auth_mode`, `roles` |
+| `auth_failed` | `POST /api/auth/login` (неудача) | `action`, `reason` (`invalid_credentials` / `user_not_found` / `user_inactive`), `attempted_username`, `auth_mode` |
+| `auth_logout` | `POST /api/auth/logout` | `action`, `jti` (не сам токен) |
+| `user_created` | `POST /api/auth/users` | `target_user_id`, `target_username`, `auth_source`, `is_active`, `roles` |
+| `user_updated` | `PUT /api/auth/users/{id}`, `PUT /api/auth/users/{id}/status` | `action`, `target_user_id`, `target_username`, `changes` |
+| `user_deleted` | `DELETE /api/auth/users/{id}` | `target_user_id`, `target_username`, `roles` |
+| `user_password_changed` | `POST /api/auth/change-password`, `PUT /api/auth/users/{id}` (сброс админом) | `target_user_id`, `target_username`, `by_admin`, `self_service` |
+| `role_assigned` / `role_revoked` | `PUT /api/auth/users/{id}/roles`, `PUT /api/auth/users/{id}` (смена ролей) | `role`, `target_user_id`, `target_username` |
+
+Особенности:
+- `user` = **имя пользователя, выполнившего действие** (для `auth_failed` —
+  предпринятый логин); `file_path` = точный URL эндпоинта; `source_host` = IP клиента;
+  `event_source` = `api`.
+- **Пароли, хеши, токены и секреты в `metadata` не пишутся** — `_sanitize()`
+  рекурсивно вырезает такие ключи (`password`, `*_token`, `*_secret`, `*_hash`).
+  PII-поля (`email`, `full_name`) пишутся как `"changed"`, без значений.
+- `auth_refresh` намеренно **не** логируется (refresh каждые 15 мин → шум).
+- Причина неудачи (`user_not_found` / `user_inactive`) видна только в аудите:
+  HTTP-ответ остаётся общим «Invalid credentials» (нет перечисления учёток).
 
 ### Примеры событий
 

@@ -4,7 +4,7 @@
 > Раздел «Поиск и устранение неисправностей»: частые проблемы и решения.
 
 **Обновлено:** 26.09.2026
-**Версия:** v3.13.18
+**Версия:** v3.13.24
 
 ---
 
@@ -240,4 +240,84 @@ FROM audit_logs GROUP BY event_type, "user" ORDER BY event_type, COUNT(*) DESC;
 
 ---
 
+## 7. Не видно событий входа/управления пользователями в `audit_logs` (BUG-095, v3.13.24)
+
+**Симптом:** `auth_login`, `auth_failed`, `user_created`, `role_assigned` не появляются
+в `audit_logs` (или в UI/SIEM).
+
+**Проверить по шагам:**
+
+1. **Версия Manager.** Аудит аутентификации появился только в v3.13.24:
+   ```bash
+   curl -s http://127.0.0.1:8000/api/health     # ожидается version 3.13.24
+   docker compose up -d --build manager        # пересобрать образ
+   ```
+2. **Правильный SQL** (см. раздел 6 — колонка `"user"` в кавычках!):
+   ```sql
+   SELECT created_at, event_type, "user", source_host, metadata
+   FROM audit_logs
+   WHERE event_type LIKE 'auth_%' OR event_type LIKE 'user_%' OR event_type LIKE 'role_%'
+   ORDER BY created_at DESC LIMIT 50;
+   ```
+3. **`auth_refresh` не пишется по design** (см. ниже) — не ищите его.
+4. **События не пишутся при 500/401 на самом эндпоинте** — аудит вызывается после
+   успешной операции (кроме `auth_failed`).
+5. **Аудит fail-open.** Если `audit_logs` недоступна, логин всё равно работает;
+   ошибка видна в логах Manager:
+   ```bash
+   docker compose logs manager | grep -i "audit"
+   ```
+   Сообщение вида `audit: failed to write auth audit event` = проблема в БД/миграциях,
+   а не в аутентификации.
+
+**Ожидаемые `event_type` (v3.13.24+):**
+
+| Где | `event_type` |
+|-----|--------------|
+| Логин успешен | `auth_login` |
+| Логин неудачен | `auth_failed` (`reason`: `invalid_credentials` / `user_not_found` / `user_inactive`) |
+| Выход | `auth_logout` |
+| Пользователь создан/изменён/удалён | `user_created` / `user_updated` / `user_deleted` |
+| Пароль изменён (self или админом) | `user_password_changed` (`by_admin: true/false`) |
+| Роль назначена/снята | `role_assigned` / `role_revoked` |
+| Обновление JWT | `auth_refresh` — **намеренно не пишется** (шум: refresh каждые 15 мин) |
+
+**Причина неудачи входа (`user_not_found` / `user_inactive`) доступна только
+в аудите** — HTTP-ответ намеренно общий («Invalid credentials»), чтобы нельзя было
+перебирать существующие учётки.
+
+**Паролей в аудите нет и не будет.** Проверка:
+```sql
+SELECT COUNT(*) FROM audit_logs
+WHERE metadata::text LIKE '%SuperSecret%' OR metadata::text LIKE '%password_hash%';
+-- ожидается 0
+```
+
+**Быстрая проверка живым запросом** (2-я сессия нужна, т.к. `logout` добавляет `jti`
+в чёрный список и «убивает» основной токен):
+
+```bash
+# 1) логин
+TOKEN=$(curl -s -X POST http://127.0.0.1:8000/api/auth/login \
+  -H 'Content-Type: application/json' \
+  -d '{"username":"admin","password":"admin123"}' | python -c 'import sys,json;print(json.load(sys.stdin)["access_token"])')
+
+# 2) создать пользователя
+curl -s -X POST http://127.0.0.1:8000/api/auth/users \
+  -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+  -d '{"username":"audit_demo","password":"demo12345","roles":["viewer"]}'
+
+# 3) неудачный вход (ожидаем 401 + auth_failed)
+curl -s -X POST http://127.0.0.1:8000/api/auth/login \
+  -H 'Content-Type: application/json' \
+  -d '{"username":"audit_demo","password":"wrong"}'
+```
+
+**Лимит входа 5 попыток/мин на IP** (`AUTH_LOGIN_MAX_ATTEMPTS`) — при частых проверках
+или прогоне E2E получаете 429; для тестового стенда временно поднимите лимит
+через `docker-compose.override.yml` (и **удалите** его после проверки).
+
+---
+
 **Актуально на:** 27.09.2026
+**Версия:** v3.13.24

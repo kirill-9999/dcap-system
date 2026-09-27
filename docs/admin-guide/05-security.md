@@ -766,32 +766,54 @@ secrets/
 .env
 *.key
 *.crt
-8. Аудит и логирование
-Что логируется:
+## 8. Аудит и логирование
 
-Вход/выход пользователей (auth_login, auth_logout)
+**Что логируется:**
 
-Reveal находок (finding_revealed)
+| Событие | `event_type` | Когда |
+|---------|--------------|-------|
+| Вход (успех) | `auth_login` | `POST /api/auth/login` |
+| Вход (неудача) | `auth_failed` | `POST /api/auth/login` — с `reason`: `invalid_credentials` / `user_not_found` / `user_inactive` |
+| Выход | `auth_logout` | `POST /api/auth/logout` (в `metadata` — только `jti`) |
+| Создание/изменение/удаление пользователя | `user_created` / `user_updated` / `user_deleted` | CRUD `/api/auth/users*` (Admin) |
+| Смена пароля | `user_password_changed` | `POST /api/auth/change-password`, сброс админом |
+| Назначение/снятие роли | `role_assigned` / `role_revoked` | `PUT /api/auth/users/{id}/roles` |
+| Reveal находок | `finding_reveal` | `POST /api/findings/{id}/reveal` |
+| Доступ к фрагменту | `fragment_accessed` | `GET /api/findings/{id}/fragment*` |
+| Экспорт находок | `findings_exported` | `GET /api/findings/export` |
+| Изменения статусов находок | `finding_confirmed` / `finding_false_positive` | `PATCH /api/findings/{id}` |
+| Запуск сканирований | `scan_started` / `scan_completed` / `scan_failed` | Сканер |
+| Retention | `retention_run` | Планировщик архивации |
 
-Изменения статусов находок (finding_status_changed)
+**Что НЕ логируется:** `auth_refresh` (шумно — refresh каждые 15 мин).
 
-Запуск сканирований (scan_started)
+**Что никогда не попадает в `metadata`:** пароли, хеши паролей, токены, секреты —
+хелпер `log_auth_event()` (`manager/src/auth/audit.py`) вырезает такие ключи рекурсивно.
+PII (`email`, `full_name`) записывается как `"changed"` — без значений.
 
-Изменения пользователей/ролей (user_created, role_changed)
+**Где смотреть:**
 
-Ошибки аутентификации (auth_failed)
+```sql
+-- кто и когда входил (важно: "user" в кавычках!)
+SELECT created_at, "user", source_host, metadata->>'auth_method' AS method
+FROM audit_logs WHERE event_type = 'auth_login' ORDER BY created_at DESC LIMIT 20;
 
-Хранение:
+-- неудачные попытки входа (подбор пароля)
+SELECT created_at, "user", source_host, metadata->>'reason' AS reason
+FROM audit_logs WHERE event_type = 'auth_failed' ORDER BY created_at DESC LIMIT 50;
+```
 
-audit_logs — партиционирована по месяцам
+**Хранение:**
 
-audit_logs_archive — TTL 90 дней, архив 365 дней
+- `audit_logs` — партиционирована по месяцам;
+- `audit_logs_archive` — TTL 90 дней, архив 365 дней.
 
-Рекомендации:
+**Рекомендации:**
 
-Не логируйте секреты (пароли, токены).
-
-Маскируйте PII в логах.
+- Не логируйте секреты (пароли, токены) — это обеспечено автоматически;
+- Маскируйте PII в логах;
+- Для SIEM-выгрузки события `auth_*` / `user_*` / `role_*` уже готовы
+  (см. `ARCHITECTURE.md`, раздел SIEM).
 
 Ротация логов (уже реализована в агентах).
 
@@ -881,6 +903,9 @@ Rate-limit:
 
 □ audit_logs пишутся
 □ Reveal логируется
+□ Вход/выход логируются (`auth_login`, `auth_failed`, `auth_logout`) — BUG-095
+□ CRUD пользователей и ролей логируются (`user_*`, `role_*`) — BUG-095
+□ Пароли/токены не попадают в `metadata` (проверка: `SELECT COUNT(*) FROM audit_logs WHERE metadata::text LIKE '%password%'`)
 □ Партиционирование работает
 □ Архивация настроена
 📚 См. также
@@ -898,5 +923,5 @@ ARCHITECTURE.md — архитектура
 
 10-troubleshooting.md — troubleshooting
 
-Последнее обновление: 19.09.2026
-Версия: v3.13.8
+Последнее обновление: 27.09.2026
+Версия: v3.13.24

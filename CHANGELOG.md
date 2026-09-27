@@ -11,6 +11,63 @@
 
 ---
 
+## [3.13.24] — 2026-09-27 — День 48.2, BUG-095: аудит входов и управления пользователями
+
+### Added
+- **Аудит аутентификации (TASK-061)** — `manager/src/auth/audit.py` (новый модуль):
+  - `log_auth_event()` — единая запись в `audit_logs`, **fail-open** (сбой аудита не ломает
+    аутентификацию: `logger.warning` + `rollback`, эндпоинт продолжает работать);
+  - `_sanitize()` — рекурсивное вырезание из `metadata` ключей с паролями/токенами/секретами
+    (`password`, `*_token`, `*_secret`, `*_hash`, `*_salt`, `*_credential`);
+  - `classify_login_failure()` — `user_not_found` / `user_inactive` / `invalid_credentials`;
+  - `role_diff()` — дифф ролей для `role_assigned` / `role_revoked`.
+- Новые `event_type` в `audit_logs` (`event_source=api`, `file_path` = точный URL, `source_host` = IP):
+  - `auth_login` (`auth_source`, `auth_method`, `auth_mode`, `roles`),
+  - `auth_failed` (`reason`, `attempted_username`) — **без пароля и хеша**,
+  - `auth_logout` (`jti`, не сам токен).
+- **Аудит управления пользователями (TASK-062)** — `user_created`, `user_updated`
+  (в т.ч. `status_changed` при блокировке/разблокировке), `user_deleted`,
+  `user_password_changed` (self-service и сброс админом: `by_admin`, `self_service`),
+  `role_assigned` / `role_revoked` (по диффу ролей, в т.ч. из `PUT /users/{id}`).
+
+### Changed
+- `manager/src/auth/router.py`: `login`, `logout`, `change-password`, `users` (create/update/delete),
+  `users/{id}/status`, `users/{id}/roles` — добавлен `request: Request` и запись аудита;
+  `update_user` теперь пишет `changes` только по реально изменённым полям, PII-поля
+  (`email`, `full_name`) — как `"changed"` без значений.
+- `update_user`: `is_active` пишется в `changes` только при фактическом изменении.
+
+### Security
+- Пароли, хеши, токены и JWT-секреты **не могут** попасть в `metadata` (проверено unit-тестами
+  и live-запросом: `SELECT COUNT(*) ... LIKE '%пароль%'` → 0).
+- Причина неудачи входа видна только в аудите; HTTP-ответ остаётся «Invalid credentials»
+  (нет перечисления существующих учёток).
+- `auth_refresh` намеренно не логируется (refresh каждые 15 мин → шум) — решение из ТЗ.
+
+### Tests
+- `tests/unit/test_auth_audit_v31324.py` — **15 тестов** (6 аутентификация, 7 управление
+  пользователями/паролями/ролями, 2 безопасность метаданных) → 15 passed.
+- `tests/e2e/test_auth_audit_e2e.py` — **2 теста** (полный флоу: создание → роли →
+  блокировка → неудачный вход → удаление → logout; несуществующий пользователь) → 2 passed.
+- Полный unit-набор: **242 passed** (было 227).
+- Полный E2E: 47 passed, 3 failed, 2 skipped — все 3 падения **предсуществующие и вне ТЗ**
+  (см. ниже).
+
+### Live-проверка
+Все 9 `event_type` пишутся в PostgreSQL; `auth_login` (admin 72, auditor 4), `auth_failed`
+(admin 3 + тестовые), `auth_logout` (9), `user_created` (8), `user_updated` (7),
+`user_deleted` (7), `user_password_changed` (`by_admin: true`), `role_assigned` (7).
+
+### Known issues (найдено при полном E2E, вне ТЗ — не правил)
+- **BUG-096**: `GET /api/findings/false-positives` → **500**
+  (`manager/src/api/findings.py:324` — `_m.User`, а `User` в `manager.src.auth.models`).
+- **BUG-096b**: устаревшие E2E-тесты `test_full_scan_cycle`, `test_real_scanner_end_to_end` —
+  ждут `finding_type in {pii, credentials}` после рефакторинга v3.13.22 (теперь granular
+  `category`: email/person/phone/aws_key).
+- `docker-compose.override.yml` для прогона E2E (лимит логина 5/мин) удалён после проверки.
+
+---
+
 ## [3.13.23] — 2026-09-27 — День 48.1, TASK-060: «аудит reveal пишет dcap» — ложное срабатывание
 
 ### Changed
