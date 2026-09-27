@@ -7,7 +7,83 @@
 
 ## [Unreleased] — v3.0.0 (release)
 
-**Осталось:** Блок 5 (WebUI), Блок 7 (Retention), Блок 6 (Агенты), GitHub-пакет.
+**Осталось:** Блок 5 (WebUI, п.2.4), Блок 7 (Retention), Блок 6 (Агенты), GitHub-пакет.
+
+---
+
+## [3.13.22] — 2026-09-27 — День 48, Блок 5 (WebUI) п.2.3: фильтры, пагинация, аудит, экспорт
+
+### Fixed
+- **BUG-087** (TASK-054, `webui/api/routes.py`): прокси WebUI пробрасывал только `content-type`
+  и терял все остальные заголовки Manager — из-за этого не работала пагинация (`X-Total-Count`
+  был 667 в Manager и отсутствовал в WebUI), не доходили `X-Fragment-Mode`/`X-Fragment-Hash`/
+  `X-Bounding-Box` и `Content-Disposition` (имя файла экспорта). Добавлены `HOP_BY_HOP`
+  и `forwarded_headers()`: копируются все заголовки ответа, кроме hop-by-hop
+  (`connection`, `transfer-encoding`, `content-length`, `content-encoding`, `keep-alive`,
+  `upgrade`, `proxy-*`, `te`, `trailer`) и `set-cookie` (JWT WebUI передаёт Bearer-заголовком,
+  cookie Manager'а через прокси не доходят — иначе ломалась бы авторизация).
+- **BUG-088** (TASK-055, `webui/static/js/finding_detail.js`): фрагмент (`/fragment?format=png`)
+  грузился через `<img src>` — браузер не отправляет `Authorization: Bearer` (JWT в localStorage,
+  cookie не пробрасываются) → 401, изображение не показывалось. Теперь `fetch` + `Blob` + objectURL
+  с заголовками авторизации; в UI выводятся `X-Fragment-Mode` и сокращённый `X-Fragment-Hash`
+  (hex-дамп — через безопасный textContent); при 401 выполняется переход на `/login`.
+- **BUG-089** (TASK-056, `manager/src/api/webui.py`): `/api/access/resources` и
+  `/api/access/resources/{id}/entries` отдавали **500** на PostgreSQL — `AccessEntry.is_active == 1`
+  сравнивал Boolean-колонку с целым (`operator does not exist: boolean = integer`). Заменено на
+  `== True` (2 места).
+- **BUG-090** (TASK-057, `manager/src/api/findings.py`): фильтр «Категория» в WebUI принимает
+  список через запятую (`phone, email...`), но backend сравнивал строкой целиком → всегда 0 находок.
+  Теперь `_parse_categories` + `_apply_category_filter`: legacy-категории (`pii`, `credentials`,
+  `code`) фильтруются по `finding_type`, остальные — по `category`, объединение через ИЛИ
+  (`or_`), а не И. Дополнительно: пустые числовые параметры (`?task_id=&limit=&offset=&resource_id=`)
+  больше не дают 422, добавлены фильтры `detector`, `fragment_type`, `search`
+  (путь к файлу + маскированные значения), `order_by=id`; те же правила в `/count` и `/export`.
+- **BUG-091** (TASK-058, `manager/src/api/audit.py`, `webui/templates/audit.html`): `event_source`
+  принимался в `/api/audit`, но не передавался в SQL-фильтр — «Источник» в UI игнорировался
+  (`api` и `scanner` возвращали одинаковые 47 событий). Добавлен фильтр по `event_source`;
+  статические списки «Источник/Тип» (windows_agent/linux_agent, read/write/delete) заменены на
+  реальные значения из `/api/audit/stats` (`by_source`, `by_type`).
+- **BUG-093** (TASK-059, `webui/static/js/findings.js`): экспорт findings вызывался
+  `window.location.href = '/api/findings/export'` — переход браузера без `Authorization`
+  → 401 (у пользователя скачивался JSON с ошибкой). Теперь `fetch` + `Blob` + `<a download>`
+  с именем файла из `Content-Disposition`, обработка 401 → редирект на `/login`.
+
+### Changed
+- `manager/src/api/findings.py`: `OptInt = Annotated[Optional[int], BeforeValidator(_blank_to_none), Query()]`
+  + `_clamp_int()`. **FastAPI 0.137 gotcha:** `BeforeValidator` в `Annotated` теряется, если
+  `Query(...)` указан в default (`create_model_field` берёт annotation из `field_info`), поэтому
+  `Query()` вынесен внутрь `Annotated`, а дефолт — через `=`. Числовые `le`/`ge` несовместимы
+  с `Optional[int]` (TypeError на `None`), поэтому границы limit/offset задаёт `_clamp_int`.
+  `has_fragment` учитывает `fragment_data` (BACKLOG-086), а не только `fragment_path`.
+- `webui/templates/findings.html`: фильтры перестроены в две строки — поиск, «Категория (через запятую)»,
+  «Детектор», «Фрагмент», «Задание», статус/тип/severity + кнопки «Применить» и «Сброс».
+- `webui/static/js/findings.js`: `collectFilters()` + новый `resetFilters()`, поиск по Enter,
+  показ общего количества находок в заголовке списка.
+- `webui/templates/audit.html`: `loadFilterOptions()`/`fillSelect()`; `d.total ?? events.length`
+  (раньше `d.total || events.length` скрывал 0).
+- `docker-compose.yml` — manager/webui/celery → 3.13.22.
+
+### Tests
+- `tests/unit/test_webui_block5_v31322.py` (33): прокси-заголовки (4), фильтры findings (18 —
+  CSV-категории, legacy-микс, detector, fragment_type, search, order_by, пустые параметры, count,
+  export, has_fragment), `/api/access/*` без 500 (3), `/api/audit` event_source (5).
+- Итого **220 passed** (187 + 33) — регрессий нет.
+- `tests/e2e/test_webui_block5_v31322.py` (8) против живого стека: X-Total-Count через прокси,
+  CSV-категории и пустые параметры, новые фильтры, export 200/401, fragment 200/401,
+  `/api/access/resources`, `event_source`, рендер `/findings` и `/audit`.
+  В E2E один логин на модуль — `/api/auth/login` ограничен 5 попытками в минуту.
+
+### Verified (live)
+- `docker compose build manager webui` + `up -d` → `/api/health` = `3.13.22`.
+- BUG-087: Manager `X-Total-Count: 667` → WebUI `X-Total-Count: 667`; fragment через WebUI
+  200 `image/png` 8255 B, `X-Fragment-Mode: embedded`, `X-Fragment-Hash: 9ecadc2f…`,
+  без токена — 401.
+- BUG-090: `category=phone` → 11, `category=phone,email` → 623, `?task_id=`/`?limit=`/`?offset=` → 200
+  (total 667), `/count?category=phone,email` → `{"count":623}`, `detector`/`fragment_type`/`search`/`order_by=id` → 200.
+- BUG-089: `/api/access/resources` → 200 (7 ресурсов), `/entries` → 200.
+- BUG-091: `/api/audit` без фильтра — 48 событий, `event_source=api` — 44, `event_type=finding_reveal` — 25.
+- BUG-093: export CSV 200 (99 907 B, `Content-Disposition: attachment; filename="findings_20260927_002857.csv"`),
+  JSON 200, `?task_id=&resource_id=&limit=` → 200, без токена — 401.
 
 ---
 

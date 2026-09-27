@@ -2,10 +2,10 @@
 > Единственный источник правды о текущем состоянии проекта.
 > План и бэклог — в `ROADMAP.md`. Архитектура — в `ARCHITECTURE.md`.
 
-**Обновлено:** 26.09.2026
-**Текущая версия:** v3.13.21
+**Обновлено:** 27.09.2026
+**Текущая версия:** v3.13.22
 **Целевая версия:** v3.0.0 (релиз)
-**Статус:** 🟢 Блок 3 (Scanner deep) ✅; Блок 8 (Мониторинг) ✅; BACKLOG-086 (встроенные фрагменты) ✅; BUG-080/081 (reliability сканера) ✅; BUG-086 (masking контекстов) ✅; следующий шаг — Блок 5 (WebUI)
+**Статус:** 🟢 Блок 3 (Scanner deep) ✅; Блок 8 (Мониторинг) ✅; BACKLOG-086 (встроенные фрагменты) ✅; BUG-080/081 (reliability сканера) ✅; BUG-086 (masking контекстов) ✅; Блок 5 (WebUI) п.2.3 — фильтры/пагинация/аудит/экспорт ✅; следующий шаг — Блок 5, п.2.4
 
 ---
 
@@ -13,10 +13,10 @@
 
 | Параметр | Значение |
 |----------|----------|
-| Текущий день | 47.7 — BUG-086 (v3.13.21): mask_context конвейером _CONTEXT_PATTERNS |
+| Текущий день | 48 (Блок 5, п.2.3) — фильтры/пагинация/аудит/экспорт WebUI (BUG-087…093) |
 | Статус дня | ✅ Выполнен |
-| Последний принятый отчёт | `day_47.7_fix_bug086_mask_context_report.md` (v3.13.21) |
-| Следующий шаг | Блок 5 (WebUI) — продолжить с п.2.3 (фильтры) |
+| Последний принятый отчёт | `day_48_block5_webui_filters_report.md` (v3.13.22) |
+| Следующий шаг | Блок 5 (WebUI) — п.2.4: отчёты/архив, следующий прогон по бэклогу |
 | Открытые вопросы к архитектору | — |
 
 ---
@@ -44,6 +44,7 @@
 | 47.5 (BACKLOG-086) | Встроенные OCR-фрагменты: фрагмент в БД (TASK-045-049), /fragment RBAC Auditor+, батчинг по размеру (TASK-050), live task 39: «после удаления исходника — 200 embedded» | **v3.13.19** | `day_47.5_backlog086_embed_fragments_report.md` |
 | 47.6 (BUG-080/081) | Reliability сканера: heartbeat backoff 5→10→30→60→120 с без спама лога (TASK-051); graceful shutdown по SIGINT/SIGBREAK — OCRWorker завершается штатно (TASK-052); live: «restored after 4 failures», Ctrl+C → rc=0 | **v3.13.20** | `day_47.6_backlog080_081_scanner_reliability_report.md` |
 | 47.7 (BUG-086) | masking контекстов — критический блокер v3.0.0: mask_context покрывал 6 паттернов из 19 в MASK_RULES (в context_* утекали ghp_/Basic/xoxb-/AKIA/+1); новая реализация — конвейер `_CONTEXT_PATTERNS` (TASK-053, 21 паттерн: специфичные токены раньше generic, только значение KEY=VALUE); live task 40/41 — в контекстах 0 сырых паттернов (SQL + API viewer); тесты: 20 unit (187 passed) + E2E | **v3.13.21** | `day_47.7_fix_bug086_mask_context_report.md` |
+| 48 (Блок 5, п.2.3) | Фильтры/пагинация/аудит/экспорт WebUI: TASK-054 (BUG-087) прокси ронял `X-Total-Count`/`X-Fragment-*`/`Content-Disposition`; TASK-055 (BUG-088) fragment `<img>` без Bearer → 401, теперь fetch+blob; TASK-056 (BUG-089) `is_active == 1` → 500 на PostgreSQL; TASK-057 (BUG-090) CSV-категории, пустые параметры вместо 422, `detector`/`fragment_type`/`search`/`order_by=id`; TASK-058 (BUG-091) `event_source` в `/api/audit` + data-driven фильтры из `/api/audit/stats`; TASK-059 (BUG-093) export через fetch+blob вместо `window.location`; тесты: 33 unit (220 passed) + 8 E2E | **v3.13.22** | `day_48_block5_webui_filters_report.md` |
 
 ---
 
@@ -92,6 +93,7 @@
 *(Закрытые в v3.13.19: TASK-045..050 (BACKLOG-086 — встроенные фрагменты); BUG-079 исправлен (TASK-048 → /fragment только Auditor+) — ТЗ BACKLOG-086)*
 *(Закрытые в v3.13.20: TASK-051 (BUG-080 — heartbeat backoff); TASK-052 (BUG-081 — graceful shutdown SIGINT/SIGBREAK) — ТЗ BUG-080/081)*
 *(Закрытые в v3.13.21: TASK-053 (BUG-086 — masking контекстов: mask_context конвейером _CONTEXT_PATTERNS, 21 паттерн вместо 6) — ТЗ BUG-086)*
+*(Закрытые в v3.13.22: TASK-054 (BUG-087 — прокси headers: X-Total-Count/X-Fragment-*/Content-Disposition; Set-Cookie и hop-by-hop отбрасываются), TASK-055 (BUG-088 — fragment через fetch+blob с Bearer), TASK-056 (BUG-089 — is_active == True вместо == 1, 500 на PostgreSQL), TASK-057 (BUG-090 — CSV-категории, пустые числовые параметры, detector/fragment_type/search/order_by=id в list+count+export), TASK-058 (BUG-091 — фильтр event_source в /api/audit + опции фильтров из /api/audit/stats), TASK-059 (BUG-093 — export findings через fetch+blob) — Блок 5 п.2.3)*
 *(Отложено до v3.1.0: BACKLOG-085 (OCR bbox), BACKLOG-087 (дедупликация фрагментов), BACKLOG-088 (шифрование fragment_data, AES-256-GCM))*
 *(Минорные: BUG-060 (BOM email) 📋 v3.1.0; BUG-061 (восстановление HTTP после падения Manager) 📋 v3.1.0; BUG-076 (dcap_scanner_current_task) 📋 v3.1.0; BACKLOG-076 (last_seen_at/findings_count) 📋 v3.1.0; BACKLOG-077 (heartbeat после инициализации классификаторов) 📋 v3.1.0)*
 
@@ -128,6 +130,16 @@
 - **Reliability (BUG-080/081, v3.13.20):** heartbeat backoff 5→10→30→60→120 с (TASK-051): `_next_sleep`/`_send_heartbeat`, DEBUG на каждый фейл без спама, WARNING только на 1-м и каждые 5 попыток, `_stop.wait()` вместо `time.sleep()` (мгновенный выход при stop), INFO «Heartbeat restored after N failure(s)»; graceful shutdown (TASK-052): SIGINT (и SIGBREAK на Windows) → `_handle_sigint` ставит `_should_exit`/`_stop_event`, `stop()` = heartbeat stop + `_shutdown_classifiers()`, OCRWorker завершается штатно (None в request_queue → join(5) → terminate → join(2) → kill) — live Ctrl+C → rc=0
 - **Masking контекстов (BUG-086, v3.13.21):** `mask_context` — конвейер `_CONTEXT_PATTERNS`: список `(regex, category)` на все категории MASK_RULES (21 паттерн: ghp_/github_pat_→github_token, xoxb→slack_token, AKIA→aws_key, sk-→api_key, discord, JWT eyJ, PEM→ssh_key, Basic→basic_auth, scheme://→database_url, generic password/api_key/token в KEY=VALUE — маскируется ТОЛЬКО значение (2 capture-группы), email, телефоны +7/+1/международные, паспорт/СНИЛС/ИНН/cards); специфичные категории раньше generic; `person` и `high_entropy` в контексте НЕ маскируются (high_entropy — до v3.1.0); BUG-086 был критическим блокером v3.0.0 (Viewer+ видел сырые credentials в context_* через API)
 
+**WebUI (Блок 5, v3.13.22):**
+- WebUI не ходит в БД — всё через прокси `webui/api/routes.py` на Manager; JWT в localStorage, `Authorization: Bearer`, cookie через прокси не доходят
+- **Прокси пробрасывает заголовки ответа** (`forwarded_headers`): `X-Total-Count` (пагинация), `X-Fragment-Mode`/`X-Fragment-Hash`/`X-Bounding-Box`, `Content-Disposition` (экспорт); отбрасываются hop-by-hop (`connection`, `transfer-encoding`, `content-length`, `content-encoding`) и `set-cookie` — BUG-087
+- Бинарные/приватные данные (fragment PNG, экспорт CSV/JSON) грузятся `fetch()` + `Blob` + Bearer, а не `<img src>`/`window.location` (оба не шли заголовок Authorization → 401) — BUG-088, BUG-093
+- **Фильтры findings:** `category` принимает CSV («phone, email») — legacy-категории (pii/credentials/code) фильтруются по `finding_type`, остальные по `category`, объединение через ИЛИ; `detector`, `fragment_type`, `search` (путь/маскированные значения), `order_by=id`; пустые числовые параметры (`?task_id=&limit=`) трактуются как «без фильтра» — BUG-090
+- **FastAPI 0.137 gotcha:** `BeforeValidator` в `Annotated` теряется, если `Query(...)` указан в default (`create_model_field` берёт annotation из field_info) → `Query()` объявлен внутри `Annotated`, дефолт через `=`; числовые `le`/`ge` несовместимы с `Optional[int]` (TypeError на None) → `_clamp_int()` в коде
+- **Фильтры аудита** заполняются реальными значениями из `/api/audit/stats` (`by_source`, `by_type`) — раньше были захардкожены read/write/delete и windows/linux, а фактические события — `finding_reveal`/`fragment_accessed` и `api`/`scanner`; серверный фильтр `event_source` — BUG-091
+- `/api/access/*`: `is_active` — Boolean, сравнение `== True` (на PostgreSQL `== 1` давало 500) — BUG-089
+- Тесты: `tests/unit/test_webui_block5_v31322.py` (33), `tests/e2e/test_webui_block5_v31322.py` (8) — E2E логинится один раз на модуль (auth rate limit 5/мин)
+
 **Мониторинг (Блок 8):**
 - Prometheus + Grafana + Alertmanager — работают
 - Prometheus targets: manager, scanner, s3-agent, celery, postgres, redis (6/6 up)
@@ -151,9 +163,19 @@
 - `tests/e2e/test_mask_context_e2e.py` (1) — E2E против живого стека: контексты последнего скана без сырых credentials
 - `docker-compose.yml` — manager/webui/celery → 3.13.21
 - `docs/admin-guide/05-security.md`, `docs/admin-guide/10-troubleshooting.md` — секция по masking контекстов
+- `webui/api/routes.py` — TASK-054: `HOP_BY_HOP` + `forwarded_headers()` (BUG-087)
+- `webui/static/js/finding_detail.js` — TASK-055: fragment через fetch+blob, `X-Fragment-Mode`/`X-Fragment-Hash`
+- `webui/static/js/findings.js` — TASK-059: `showExportDialog` через fetch+blob; `collectFilters` (detector/fragment_type/search), `resetFilters` (BUG-090/093)
+- `webui/templates/findings.html` — TASK-057: поиск, CSV-категория, детектор, фрагмент, кнопка «Сброс»
+- `webui/templates/audit.html` — TASK-058: `loadFilterOptions`/`fillSelect` из `/api/audit/stats`, `d.total ?? events.length`
+- `manager/src/api/findings.py` — TASK-057: `OptInt` + `_clamp_int`, `_parse_categories`/`_apply_category_filter` (OR), фильтры в list/count/export, `has_fragment` по fragment_data
+- `manager/src/api/audit.py` — TASK-058: параметр `event_source` + SQL-фильтр
+- `manager/src/api/webui.py` — TASK-056: `AccessEntry.is_active == True` (2 места)
+- `tests/unit/test_webui_block5_v31322.py` (33) + `tests/e2e/test_webui_block5_v31322.py` (8) — 220 unit passed
+- `docker-compose.yml` — manager/webui/celery → 3.13.22
 
 ---
 
-**Актуально на:** 26.09.2026
-**Версия:** v3.13.21
-**Следующий шаг:** Блок 5 (WebUI) — продолжить с п.2.3 (фильтры)
+**Актуально на:** 27.09.2026
+**Версия:** v3.13.22
+**Следующий шаг:** Блок 5 (WebUI) — п.2.4 (отчёты/архив) или следующий пункт бэклога ROADMAP

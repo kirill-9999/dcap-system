@@ -44,7 +44,8 @@
 | 47.7 (BUG-086) | Masking контекстов: mask_context конвейером _CONTEXT_PATTERNS (критический блокер v3.0.0) | TASK-053 | ✅ **v3.13.21** |
 | 47 (test) | Мастер-сессия: Блок 3 (Scanner deep) | — | ✅ **ЗАКРЫТ** |
 | 47.2 (test) | Мастер-сессия: Блок 8 (Мониторинг) | — | ✅ **ЗАКРЫТ** |
-| 48 | Блок 5 (WebUI) | — | 📋 **следующий** |
+| 48 (Блок 5, п.2.3) | Фильтры/пагинация/аудит/экспорт WebUI: прокси headers, fragment+export с Bearer, CSV-категории, event_source | TASK-054…059 | ✅ **v3.13.22** |
+| 48.5 (Блок 5, п.2.4) | Отчёты/архив в WebUI | — | 📋 **следующий** |
 | 49 | Блок 7 (Retention) | — | 📋 |
 | 50 | Блок 6 (Агенты — тестирование) | BACKLOG-080…082 | 📋 |
 | 51 | GitHub-пакет (BACKLOG-028) | BACKLOG-028/046 | 📋 |
@@ -112,6 +113,12 @@
 | TASK-051 (BUG-080) | Heartbeat: backoff без спама лога (5→10→30→60→120 с) | v3.13.20 |
 | TASK-052 (BUG-081) | Graceful shutdown сканера: Ctrl+C → OCRWorker штатно | v3.13.20 |
 | TASK-053 (BUG-086) | Masking контекстов: mask_context конвейером _CONTEXT_PATTERNS (критический блокер v3.0.0 — Viewer+ видел сырые credentials в context_* через API) | v3.13.21 |
+| TASK-054 (BUG-087) | Прокси WebUI ронял заголовки ответа: X-Total-Count (пагинация), X-Fragment-*, Content-Disposition | v3.13.22 |
+| TASK-055 (BUG-088) | Fragment `<img>` без Authorization → 401; загрузка через fetch+blob с Bearer | v3.13.22 |
+| TASK-056 (BUG-089) | `/api/access/resources` 500 на PostgreSQL: `is_active == 1` для Boolean-колонки | v3.13.22 |
+| TASK-057 (BUG-090) | Фильтры findings: CSV-категории («phone, email» давало 0), пустые параметры 422, detector/fragment_type/search/order_by=id (list/count/export) | v3.13.22 |
+| TASK-058 (BUG-091) | `/api/audit` игнорировал `event_source`; фильтры WebUI со статическими опциями вместо данных `/api/audit/stats` | v3.13.22 |
+| TASK-059 (BUG-093) | Экспорт findings из WebUI 401: `window.location.href` без Bearer → fetch+blob | v3.13.22 |
 
 ---
 
@@ -286,10 +293,10 @@
 | Версия | Задач | Выполнено | Прогресс |
 |--------|-------|-----------|----------|
 | v1.0.0-v2.1.0 | 27 | 27 | 100% ✅ |
-| **v3.0.0** | **87 + 9 (Блок 8) + 3 (BUG-077) + 1 (BACKLOG-086) + 1 (BUG-086)** | **78 + 3 испр. + 3 (v3.13.17) + 1 (v3.13.18) + 1 (v3.13.19) + 2 (v3.13.20) + 1 (v3.13.21)** | **~88% 🔄** |
+| **v3.0.0** | **87 + 9 (Блок 8) + 3 (BUG-077) + 1 (BACKLOG-086) + 1 (BUG-086) + 7 (BUG-087…093)** | **78 + 3 испр. + 3 (v3.13.17) + 1 (v3.13.18) + 1 (v3.13.19) + 2 (v3.13.20) + 1 (v3.13.21) + 6 (v3.13.22)** | **~89% 🔄** |
 | v3.1.0 | 26 | 0 | 0% 📋 |
 | v4.0.0 | 9 | 0 | 0% 📋 |
-| **ИТОГО** | **~150** | **~110** | **~73%** |
+| **ИТОГО** | **~157** | **~116** | **~74%** |
 
 ---
 
@@ -319,10 +326,11 @@
 - **`TZ_BACKLOG_086_EMBED_FRAGMENTS.md`** — BACKLOG-086 (закрыто).
 - **`TZ_BUG080_081_SCANNER_RELIABILITY.md`** — BUG-080/081 (закрыто).
 - **`TZ_FIX_BUG086_MASK_CONTEXT.md`** — BUG-086, masking контекстов (закрыто).
+- **Блок 5 п.2.3 (BUG-087…093)** — выполнен без отдельного ТЗ-файла: подтверждено диагностикой живого стека, отчёт `prompts/reports/day_48_block5_webui_filters_report.md`.
 - **`SECURITY.md`**, **`docs/security_checklist.md`**, **`docs/admin-guide/05-security.md`**.
 
 ---
 
-**Актуально на:** 26.09.2026
-**Версия:** v3.13.21
-**Следующая цель:** v3.0.0 (релиз) — осталось Блок 5 (WebUI), Блок 7 (Retention), Блок 6 (Агенты), GitHub
+**Актуально на:** 27.09.2026
+**Версия:** v3.13.22
+**Следующая цель:** v3.0.0 (релиз) — осталось Блок 5 (WebUI, п.2.4 отчёты/архив), Блок 7 (Retention), Блок 6 (Агенты), GitHub
