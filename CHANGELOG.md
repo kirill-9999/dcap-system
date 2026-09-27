@@ -11,6 +11,46 @@
 
 ---
 
+## [3.13.23] — 2026-09-27 — День 48.1, TASK-060: «аудит reveal пишет dcap» — ложное срабатывание
+
+### Changed
+- **BUG-087 (ТЗ) / BUG-094 (факт) — 🔴 баг НЕ подтверждён, код приложения корректен.**
+  Диагностика ТЗ строилась на запросе `SELECT id, created_at, user FROM audit_logs`:
+  в PostgreSQL `user` — зарезервированное слово (синоним `CURRENT_USER`), поэтому
+  возвращалось **имя роли БД** `dcap`, а не значение колонки. Реальный `INSERT`
+  содержит корректного пользователя (`'auditor'`). Гипотезы H1–H7 не подтвердились:
+  нет SQLAlchemy-listener'ов, DEFAULT/TRIGGER/RULE, подмены в middleware/dependencies,
+  второго писателя `AuditLog` или hardcoded `"dcap"`. **Правки кода не требуются.**
+- Проверены остальные писатели аудита: `findings_exported` (admin 11 / auditor 4) и
+  `fragment_accessed` (admin 11 / auditor 9) — реальные пользователи, проблемы нет.
+
+### Added
+- `tests/unit/test_audit_reveal_user_v31323.py` — 7 тестов: `audit_logs.user` ==
+  `revealed_by` для reveal/export/fragment, `!= "dcap"`, admin ≠ auditor, имя колонки
+  `user` и отсутствие Python-side `default` (регрессия на переименование).
+- `tests/e2e/test_audit_reveal_user_e2e.py` — 3 теста: live-reveal → `/api/audit`
+  отдаёт `user == "auditor"`, стабильность при повторах, прямая SQL-проверка
+  `SELECT "user", user` (колонка ≠ `CURRENT_USER`).
+
+### Documentation
+- `docs/admin-guide/10-troubleshooting.md` — раздел 6 «Ложный "баг": `audit_logs.user`
+  показывает `dcap`»: правильный SQL с кавычками, подтверждение INSERT'а, приём
+  для других зарезервированных имён колонок (`order`, `group`, `default`).
+- `prompts/reports/day_48.1_bug087_audit_user_report.md` — отчёт с разбором H1–H7,
+  live-доказательствами и обратной связью архитектору.
+
+### Tests
+- 7 unit + 3 E2E (новые); полный unit-набор: **227 passed** (было 220).
+- Контейнеры manager/webui/celery пересобраны на `3.13.23` (healthy).
+
+### Known gaps (не в ТЗ)
+- `auth_login`, `user_created`, `change_password` **не пишутся** в `audit_logs`
+  (кандидат в бэклог: BUG-095).
+- ⚠️ Коллизия ID: BUG-087 уже занят Днём 48 (TASK-054, прокси-заголовки WebUI);
+  данный случай зафиксирован как **BUG-094**.
+
+---
+
 ## [3.13.22] — 2026-09-27 — День 48, Блок 5 (WebUI) п.2.3: фильтры, пагинация, аудит, экспорт
 
 ### Fixed

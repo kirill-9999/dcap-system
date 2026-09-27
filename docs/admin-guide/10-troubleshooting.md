@@ -198,4 +198,46 @@ docker compose up -d
 
 ---
 
-**Актуально на:** 26.09.2026
+## 6. Ложный «баг»: `audit_logs.user` показывает `dcap` вместо пользователя
+
+**Симптом:** после `POST /api/findings/{id}/reveal` в `audit_logs` якобы
+записывается `user = "dcap"`, хотя в ответе API `revealed_by = "auditor"`.
+
+**Причина — НЕ в приложении.** В PostgreSQL `user` — зарезервированное
+слово (синоним `CURRENT_USER`). В диагностическом SQL колонка была указана
+без кавычек, поэтому вернулось **имя роли БД** (`dcap`), а не значение
+колонки:
+
+```sql
+-- ❌ НЕВЕРНО: user -> CURRENT_USER (роль БД "dcap")
+SELECT id, user FROM audit_logs WHERE event_type = 'finding_reveal';
+
+-- ✅ ВЕРНО: "user" -> значение колонки ("auditor")
+SELECT id, "user" FROM audit_logs WHERE event_type = 'finding_reveal';
+```
+
+Проверка (день 48.1, BUG-087): реальный `INSERT` в PostgreSQL содержит
+корректного пользователя —
+
+```sql
+INSERT INTO audit_logs (..., "user", ...) VALUES (..., 'auditor', ...);
+```
+
+**Как проверять правильно:**
+```sql
+SELECT event_type, "user", COUNT(*)
+FROM audit_logs GROUP BY event_type, "user" ORDER BY event_type, COUNT(*) DESC;
+```
+
+Некавыченный `user` работает и в `INSERT` (`VALUES (user, ...)`), поэтому
+сам код Manager (`manager/src/db/models.py`, `manager/src/api/findings.py`)
+корректен — править его не нужно. Регрессия зафиксирована тестами
+`tests/unit/test_audit_reveal_user_v31323.py` и
+`tests/e2e/test_audit_reveal_user_e2e.py`.
+
+> Тот же приём кавычек нужен для зарезервированных имён колонок в других
+> таблицах (`user`, `order`, `group`, `default` и т.п.).
+
+---
+
+**Актуально на:** 27.09.2026
