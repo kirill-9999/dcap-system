@@ -25,6 +25,38 @@ MANAGER_TIMEOUT = 60.0
 # и в корневых роутах — здесь только /api/*)
 PROXY = True
 
+# BUG-087 (TASK-054, v3.13.22): заголовки hop-by-hop не проксируются —
+# они описывают конкретное TCP-соединение и невалидны для нового ответа.
+# Всё остальное (X-Total-Count, X-Fragment-Mode, X-Fragment-Hash,
+# X-Bounding-Box, Retry-After и т.п.) пробрасывается как есть.
+HOP_BY_HOP = {
+    "connection",
+    "keep-alive",
+    "proxy-authenticate",
+    "proxy-authorization",
+    "te",
+    "trailer",
+    "transfer-encoding",
+    "upgrade",
+    # content-length/encoding пересчитываются Starlette по телу ответа
+    "content-length",
+    "content-encoding",
+}
+
+
+def forwarded_headers(upstream: dict) -> dict:
+    """Заголовки ответа Manager для проброса в браузер (BUG-087, TASK-054).
+
+    Отбрасываются hop-by-hop заголовки и Set-Cookie (Manager выставляет
+    HttpOnly-cookie, которые через прокси не доходят до браузера — WebUI
+    использует Bearer-заголовок из localStorage).
+    """
+    return {
+        name: value
+        for name, value in upstream.items()
+        if name.lower() not in HOP_BY_HOP and name.lower() != "set-cookie"
+    }
+
 
 @router.api_route("/{path:path}", methods=["GET", "POST", "PUT", "DELETE", "PATCH"])
 async def proxy_to_manager(request: Request, path: str):
@@ -93,14 +125,16 @@ async def proxy_to_manager(request: Request, path: str):
 
     content_type_resp = resp.headers.get("content-type", "")
     disposition = resp.headers.get("content-disposition")
+    # BUG-087 (TASK-054): пробрасываем заголовки Manager (X-Total-Count и др.)
+    passthrough = forwarded_headers(dict(resp.headers))
 
     if disposition and "attachment" in disposition:
-        # Бинарный стрим (PDF/XLSX) — пробрасываем как есть
+        # Бинарный стрим (PDF/XLSX/CSV) — пробрасываем как есть
         return StreamingResponse(
             resp.aiter_bytes(),
             status_code=resp.status_code,
             media_type=content_type_resp or "application/octet-stream",
-            headers={"content-disposition": disposition},
+            headers=passthrough,
         )
 
     content = resp.content
@@ -110,4 +144,5 @@ async def proxy_to_manager(request: Request, path: str):
         content=content,
         status_code=resp.status_code,
         media_type=content_type_resp or "application/json",
+        headers=passthrough,
     )

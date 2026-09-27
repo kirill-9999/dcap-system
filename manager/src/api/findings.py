@@ -10,11 +10,12 @@ import json
 import logging
 import os
 from datetime import datetime
-from typing import Optional
+from typing import Annotated, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import Response
-from sqlalchemy import func, desc
+from pydantic import BeforeValidator
+from sqlalchemy import func, desc, or_
 from sqlalchemy.orm import Session
 
 from manager.src.db.session import get_db
@@ -36,6 +37,63 @@ from manager.src.api.schemas_findings import (
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/findings", tags=["findings"])
+
+# BUG-090 (TASK-057, v3.13.22): пустая строка в числовом query-параметре
+# (?task_id=&limit=) давала 422. Считаем пустое значение отсутствующим фильтром.
+#
+# ВАЖНО (FastAPI 0.137): BeforeValidator в Annotated ТЕРЯЕТСЯ, если Query()
+# указан в значении по умолчанию (create_model_field берёт annotation из
+# field_info и отбрасывает метаданные Annotated). Поэтому Query(description=)
+# объявлен ВНУТРИ Annotated, а дефолт — через «=». Числовые ограничения
+# (le/ge) с Optional[int] несовместимы (падает на None), поэтому limit
+# клампится в коде через _clamp_int().
+def _blank_to_none(value):
+    if isinstance(value, str) and not value.strip():
+        return None
+    return value
+
+
+OptInt = Annotated[Optional[int], BeforeValidator(_blank_to_none), Query()]
+
+
+def _clamp_int(value: Optional[int], default: int, lo: int, hi: int) -> int:
+    """limit/offset с безопасными границами (аналог Query(le=...), но для None)."""
+    if value is None:
+        return default
+    return max(lo, min(hi, value))
+
+
+def _parse_categories(raw: Optional[str]) -> list[str]:
+    """BUG-090 (TASK-057): список категорий через запятую.
+
+    WebUI подсказывает формат «phone, email...», но фильтр был только
+    точным совпадением — такой ввод всегда давал 0 находок.
+    """
+    if not raw:
+        return []
+    return [c.strip() for c in raw.split(",") if c.strip()]
+
+
+def _apply_category_filter(query, raw: Optional[str]):
+    """Фильтр по категориям (legacy: pii/credentials/code -> finding_type).
+
+    Список значений объединяется через ИЛИ, а не И: «credentials,phone»
+    должен находить и находки типа credentials, и находки категории phone.
+    """
+    cats = _parse_categories(raw)
+    if not cats:
+        return query
+    legacy = [c for c in cats if c in ("pii", "credentials", "code")]
+    real = [c for c in cats if c not in ("pii", "credentials", "code")]
+    clauses = []
+    if real:
+        clauses.append(Finding.category.in_(real))
+    if legacy:
+        clauses.append(Finding.finding_type.in_(legacy))
+    if not clauses:
+        return query
+    return query.filter(or_(*clauses))
+
 
 
 def _json_default(o):
@@ -72,7 +130,7 @@ def _finding_to_response(
         "line_text": finding.line_text_masked,
         "context_before": finding.context_before_masked,
         "context_after": finding.context_after_masked,
-        "has_fragment": bool(finding.fragment_path),
+        "has_fragment": bool(finding.fragment_path or finding.fragment_data),
         "bounding_box": finding.bounding_box,
         "byte_offset": finding.byte_offset,
         "byte_length": finding.byte_length,
@@ -106,20 +164,30 @@ def _finding_to_response(
 
 @router.get("", response_model=list[FindingResponse])
 def list_findings(
-    resource_id: Optional[int] = None,
-    task_id: Optional[int] = None,
+    resource_id: OptInt = None,
+    task_id: OptInt = None,
     status: Optional[str] = None,
     finding_type: Optional[str] = None,
     category: Optional[str] = None,
     severity: Optional[str] = None,
-    limit: int = Query(100, le=1000),
-    offset: int = 0,
-    order_by: str = Query("first_seen_at", pattern="^(first_seen_at|last_seen_at|severity|line_number)$"),
+    detector: Optional[str] = None,
+    fragment_type: Optional[str] = None,
+    search: Optional[str] = None,
+    limit: OptInt = 100,
+    offset: OptInt = 0,
+    order_by: str = Query("first_seen_at", pattern="^(first_seen_at|last_seen_at|severity|line_number|id)$"),
     order: str = Query("desc", pattern="^(asc|desc)$"),
     db: Session = Depends(get_db),
     user: User = Depends(require_auth),
 ):
-    """Список находок (маскированное)."""
+    """Список находок (маскированное).
+
+    BUG-090 (TASK-057, v3.13.22):
+      - `category` принимает список через запятую («phone, email»);
+      - добавлены `detector`, `fragment_type`, `search` (путь/значение);
+      - `order_by` дополнен `id`;
+      - пустые числовые параметры трактуются как «без фильтра», а не 422.
+    """
     q = db.query(Finding)
 
     if resource_id:
@@ -130,20 +198,29 @@ def list_findings(
         q = q.filter(Finding.status == status)
     if finding_type:
         q = q.filter(Finding.finding_type == finding_type)
-    if category:
-        # legacy-backward compat: старые категории pii/credentials/code
-        if category in ("pii", "credentials", "code"):
-            q = q.filter(Finding.finding_type == category)
-        else:
-            q = q.filter(Finding.category == category)
+    # BUG-090: CSV-список категорий (legacy-категории → finding_type).
+    q = _apply_category_filter(q, category)
     if severity:
         q = q.filter(Finding.severity == severity)
+    if detector:
+        q = q.filter(Finding.detector == detector)
+    if fragment_type:
+        q = q.filter(Finding.fragment_type == fragment_type)
+    if search:
+        pattern = f"%{search.strip()}%"
+        q = q.filter(
+            (Finding.fragment_path.ilike(pattern))
+            | (Finding.match_text_masked.ilike(pattern))
+            | (Finding.line_text_masked.ilike(pattern))
+        )
 
     col = getattr(Finding, order_by)
     q = q.order_by(desc(col) if order == "desc" else col)
 
     total = q.count()
-    findings = q.offset(offset).limit(limit).all()
+    limit_v = _clamp_int(limit, 100, 1, 1000)
+    offset_v = _clamp_int(offset, 0, 0, 10_000_000)
+    findings = q.offset(offset_v).limit(limit_v).all()
     payload = [_finding_to_response(f, user) for f in findings]
     return Response(
         content=json.dumps(payload, ensure_ascii=False, default=_json_default),
@@ -154,8 +231,8 @@ def list_findings(
 
 @router.get("/stats", response_model=FindingStatsResponse)
 def get_stats(
-    task_id: Optional[int] = None,
-    resource_id: Optional[int] = None,
+    task_id: OptInt = None,
+    resource_id: OptInt = None,
     db: Session = Depends(get_db),
     user: User = Depends(require_auth),
 ):
@@ -198,18 +275,15 @@ def get_stats(
 def get_findings_count_legacy(
     category: Optional[str] = None,
     file_path: Optional[str] = None,
-    scanner_id: Optional[int] = None,
-    task_id: Optional[int] = None,
+    scanner_id: OptInt = None,
+    task_id: OptInt = None,
     db: Session = Depends(get_db),
 ):
     """Количество находок с фильтрацией (WebUI-формат, legacy)."""
     from manager.src.db.models import ScanTask
     q = db.query(Finding)
-    if category:
-        if category in ("pii", "credentials", "code"):
-            q = q.filter(Finding.finding_type == category)
-        else:
-            q = q.filter(Finding.category == category)
+    # BUG-090 (TASK-057): CSV-список категорий, как в /api/findings.
+    q = _apply_category_filter(q, category)
     if file_path:
         q = q.filter(Finding.fragment_path.ilike(f"%{file_path}%"))
     if scanner_id:
@@ -277,9 +351,10 @@ async def export_findings(
     finding_type: Optional[str] = None,
     category: Optional[str] = None,
     severity: Optional[str] = None,
-    task_id: Optional[int] = None,
-    resource_id: Optional[int] = None,
-    limit: int = Query(10000, le=100000),
+    detector: Optional[str] = None,
+    task_id: OptInt = None,
+    resource_id: OptInt = None,
+    limit: OptInt = 10000,
     db: Session = Depends(get_db),
     current_user: User = Depends(require_auditor),
 ):
@@ -289,6 +364,7 @@ async def export_findings(
     - format=csv|json (по умолчанию csv)
     - reveal=true → расшифровка (только Auditor+, с аудитом)
     - По умолчанию — маскированное
+    - BUG-090 (TASK-057): category — список через запятую, как в /api/findings.
     """
     if reveal and not _is_auditor(current_user):
         raise HTTPException(403, "Reveal requires Auditor role")
@@ -299,24 +375,23 @@ async def export_findings(
         q = q.filter(Finding.status == status)
     if finding_type:
         q = q.filter(Finding.finding_type == finding_type)
-    if category:
-        if category in ("pii", "credentials", "code"):
-            q = q.filter(Finding.finding_type == category)
-        else:
-            q = q.filter(Finding.category == category)
+    q = _apply_category_filter(q, category)
     if severity:
         q = q.filter(Finding.severity == severity)
+    if detector:
+        q = q.filter(Finding.detector == detector)
     if task_id:
         q = q.filter(Finding.task_id == task_id)
     if resource_id:
         q = q.filter(Finding.resource_id == resource_id)
 
-    findings = q.order_by(desc(Finding.first_seen_at)).limit(limit).all()
+    limit_v = _clamp_int(limit, 10000, 1, 100000)
+    findings = q.order_by(desc(Finding.first_seen_at)).limit(limit_v).all()
 
     # Аудит
     _log_export(db, current_user, format, reveal, findings, {
         "status": status, "finding_type": finding_type,
-        "category": category, "severity": severity,
+        "category": category, "severity": severity, "detector": detector,
         "task_id": task_id, "resource_id": resource_id,
     })
 

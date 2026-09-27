@@ -59,7 +59,8 @@ const FindingDetail = {
           </dl>
 
           <h5>Фрагмент</h5>
-          <pre class="bg-light p-3 finding-context" id="fragment">${this.renderFragment(f)}</pre>
+          <div id="fragment">${this.renderFragment(f)}</div>
+          <div class="small text-muted mt-1" id="fragment-meta"></div>
 
           <div class="mt-3">
             ${f.can_reveal ? `<button class="btn btn-outline-primary" id="reveal-btn"><i class="fas fa-eye me-1"></i>Показать оригинал</button>` : ''}
@@ -77,7 +78,40 @@ const FindingDetail = {
     `;
     document.getElementById('finding-detail').innerHTML = html;
     if (document.getElementById('hex-dump')) this.loadHexFragment();
+    this.loadImageFragment();
     this.bindEvents();
+  },
+
+  /**
+   * BUG-088 (TASK-055, v3.13.22): фрагмент грузим через fetch с Bearer —
+   * <img src="/api/findings/{id}/fragment"> уходил без заголовка Authorization
+   * (JWT лежит в localStorage, а Set-Cookie Manager'а прокси не пробрасывает)
+   * и получал 401: встроенные фрагменты BACKLOG-086 были не видны.
+   * Blob-URL снимает проблему и для image/png, и для hex-дампа.
+   */
+  async loadImageFragment() {
+    const img = document.getElementById('fragment-image');
+    if (!img) return;
+    const meta = document.getElementById('fragment-meta');
+    try {
+      const r = await fetch(`/api/findings/${window.FINDING_ID}/fragment`,
+                            { headers: api._headers() });
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      const blob = await r.blob();
+      img.src = URL.createObjectURL(blob);
+      img.style.display = '';
+      // BUG-087 (TASK-054): заголовки X-Fragment-Mode/X-Fragment-Hash теперь
+      // доходят до браузера через прокси WebUI.
+      const mode = r.headers.get('X-Fragment-Mode');
+      const hash = r.headers.get('X-Fragment-Hash');
+      const parts = [];
+      if (mode) parts.push('режим: ' + mode);
+      if (hash) parts.push('SHA-256: ' + hash.slice(0, 16) + '…');
+      if (meta) meta.textContent = parts.join(' · ');
+    } catch (e) {
+      img.style.display = 'none';
+      if (meta) meta.textContent = 'Фрагмент недоступен: ' + e.message;
+    }
   },
 
   async loadHexFragment() {
@@ -96,11 +130,11 @@ const FindingDetail = {
   renderFragment(f) {
     if (f.fragment_type === 'image_region') {
       return f.has_fragment || f.bounding_box
-        ? `<img src="/api/findings/${f.id}/fragment"
-                 class="img-fluid finding-image"
-                 alt="Фрагмент находки #${f.id}"
-                 data-bbox='${JSON.stringify(f.bounding_box || {})}'
-                 onerror="this.style.display='none'; this.insertAdjacentHTML('afterend','<div class=\'alert alert-warning\'>Фрагмент недоступен</div>')">`
+        ? `<img id="fragment-image" src="" class="img-fluid finding-image"
+                  style="display:none"
+                  alt="Фрагмент находки #${f.id}"
+                  data-bbox='${JSON.stringify(f.bounding_box || {})}'
+                  onerror="this.style.display='none'; this.insertAdjacentHTML('afterend','<div class=\'alert alert-warning\'>Фрагмент недоступен</div>')">`
         : '<span class="text-muted">(изображение без вырезанного фрагмента)</span>';
     }
     if (f.fragment_type === 'byte_range') {
@@ -123,8 +157,13 @@ const FindingDetail = {
       revealBtn.addEventListener('click', async () => {
         try {
           const r = await api.post(`/api/findings/${window.FINDING_ID}/reveal`);
-          document.getElementById('fragment').innerHTML =
-            `<mark>${escapeHtml(r.line_text || '')}</mark>\n\nОригинал: ${escapeHtml(r.match_text)}`;
+          const box = document.getElementById('fragment');
+          if (box) {
+            box.innerHTML =
+              `<div class="alert alert-warning py-2 small">Оригинал показан (операция записана в аудит)</div>` +
+              `<pre class="bg-light p-2 small mb-1">${escapeHtml(r.line_text || '(строка недоступна)')}</pre>` +
+              `<div><code>${escapeHtml(r.match_text || '')}</code></div>`;
+          }
         } catch (e) {
           showError(e.message);
         }

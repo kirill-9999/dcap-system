@@ -391,7 +391,10 @@ def get_access_resources(db: Session = Depends(get_db)):
     for r in resources:
         entries_count = db.query(models.AccessEntry).filter(
             models.AccessEntry.resource_id == r.id,
-            models.AccessEntry.is_active == 1,
+            # BUG-089 (TASK-056, v3.13.22): is_active — Boolean; сравнение с 1
+            # работало только на SQLite, на PostgreSQL → 500
+            # (operator does not exist: boolean = integer).
+            models.AccessEntry.is_active == True,  # noqa: E712
         ).count()
         alerts_count = db.query(models.AccessAlert).filter(
             models.AccessAlert.resource_id == r.id
@@ -437,7 +440,8 @@ def get_access_entries(
 
     query = db.query(models.AccessEntry).filter(
         models.AccessEntry.resource_id == resource_id,
-        models.AccessEntry.is_active == 1,
+        # BUG-089 (TASK-056, v3.13.22): Boolean-колонка, не integer.
+        models.AccessEntry.is_active == True,  # noqa: E712
     )
     if principal:
         query = query.filter(models.AccessEntry.principal_name.ilike(f"%{principal}%"))

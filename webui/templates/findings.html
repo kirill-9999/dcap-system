@@ -12,6 +12,41 @@
   </div>
 
   <div class="filter-card mb-3">
+    <div class="row g-2 mb-2">
+      <div class="col-md-4">
+        <label class="form-label small">Поиск</label>
+        <input type="text" class="form-control form-control-sm" id="filter-search"
+               placeholder="путь к файлу или значение (маскированное)">
+      </div>
+      <div class="col-md-2">
+        <label class="form-label small">Категория (через запятую)</label>
+        <input type="text" class="form-control form-control-sm" id="filter-category" placeholder="phone, email...">
+      </div>
+      <div class="col-md-2">
+        <label class="form-label small">Детектор</label>
+        <select class="form-select form-select-sm" id="filter-detector">
+          <option value="">Все</option>
+          <option value="regex">regex</option>
+          <option value="presidio">presidio</option>
+          <option value="entropy">entropy</option>
+          <option value="ocr">ocr</option>
+        </select>
+      </div>
+      <div class="col-md-2">
+        <label class="form-label small">Фрагмент</label>
+        <select class="form-select form-select-sm" id="filter-fragment">
+          <option value="">Все</option>
+          <option value="text_line">Строка</option>
+          <option value="text_context">Контекст</option>
+          <option value="image_region">Изображение</option>
+          <option value="byte_range">Байты</option>
+        </select>
+      </div>
+      <div class="col-md-2">
+        <label class="form-label small">Задание</label>
+        <input type="number" class="form-control form-control-sm" id="filter-task" placeholder="ID">
+      </div>
+    </div>
     <div class="row g-2">
       <div class="col-md-2">
         <label class="form-label small">Статус</label>
@@ -33,10 +68,6 @@
         </select>
       </div>
       <div class="col-md-2">
-        <label class="form-label small">Категория</label>
-        <input type="text" class="form-control form-control-sm" id="filter-category" placeholder="phone, email...">
-      </div>
-      <div class="col-md-2">
         <label class="form-label small">Severity</label>
         <select class="form-select form-select-sm" id="filter-severity">
           <option value="">Все</option>
@@ -46,12 +77,11 @@
           <option value="low">🟢 Low</option>
         </select>
       </div>
-      <div class="col-md-2">
-        <label class="form-label small">Задание</label>
-        <input type="number" class="form-control form-control-sm" id="filter-task" placeholder="ID">
-      </div>
-      <div class="col-md-2 d-flex align-items-end">
-        <button class="btn btn-primary btn-sm w-100" id="apply-filters">Применить</button>
+      <div class="col-md-3 d-flex align-items-end gap-2">
+        <button class="btn btn-primary btn-sm flex-fill" id="apply-filters">Применить</button>
+        <button class="btn btn-outline-secondary btn-sm flex-fill" id="reset-filters" title="Сбросить фильтры">
+          <i class="fas fa-undo me-1"></i>Сброс
+        </button>
       </div>
     </div>
   </div>

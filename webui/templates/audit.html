@@ -8,8 +8,8 @@
 </div>
 <div class="filter-card mb-3">
     <div class="row g-3 align-items-end">
-        <div class="col-md-3"><label class="form-label">Источник</label><select class="form-select" id="a-source" onchange="loadAudit()"><option value="">Все</option><option value="windows_agent">Windows</option><option value="linux_agent">Linux</option></select></div>
-        <div class="col-md-3"><label class="form-label">Тип</label><select class="form-select" id="a-type" onchange="loadAudit()"><option value="">Все</option><option value="read">Read</option><option value="write">Write</option><option value="delete">Delete</option></select></div>
+        <div class="col-md-3"><label class="form-label">Источник</label><select class="form-select" id="a-source" onchange="loadAudit()"><option value="">Все</option></select></div>
+        <div class="col-md-3"><label class="form-label">Тип</label><select class="form-select" id="a-type" onchange="loadAudit()"><option value="">Все</option></select></div>
         <div class="col-md-3"><label class="form-label">Пользователь</label><input type="text" class="form-control" id="a-user" placeholder="имя..." onkeyup="loadAudit()"></div>
         <div class="col-md-3"><button class="btn btn-outline-secondary" onclick="document.getElementById('a-source').value='';document.getElementById('a-type').value='';document.getElementById('a-user').value='';loadAudit()"><i class="fas fa-undo"></i> Сброс</button></div>
     </div>
@@ -20,6 +20,34 @@
 <script>
 var icons = {windows_agent:'\ud83e\udea7',linux_agent:'\ud83d\udc27',scanner:'\ud83d\udce1',api:'\ud83d\udd0c'};
 var ticons = {read:'\ud83d\udcd6',write:'\u270f\ufe0f',delete:'\ud83d\uddd1\ufe0f',move:'\ud83d\udce6'};
+// BUG-091 (TASK-058, v3.13.22): фильтры заполняются реальными значениями из
+// /api/audit/stats — раньше были захардкожены read/write/delete и
+// windows/linux, а фактические события — finding_reveal/fragment_accessed и
+// источники api/scanner, поэтому фильтры ничего не находили.
+var _filterOptsLoaded = false;
+async function loadFilterOptions() {
+    if (_filterOptsLoaded) return;
+    try {
+        var st = await api.get('/api/audit/stats', {days: 30});
+        fillSelect('a-source', (st.by_source || []).map(function (x) { return x.source; }));
+        fillSelect('a-type', (st.by_type || []).map(function (x) { return x.type; }));
+        _filterOptsLoaded = true;
+    } catch (e) { /* статистика недоступна — фильтры остаются пустыми */ }
+}
+function fillSelect(id, values) {
+    var sel = document.getElementById(id);
+    if (!sel) return;
+    var seen = {};
+    sel.innerHTML = '<option value="">Все</option>';
+    values.forEach(function (v) {
+        if (!v || seen[v]) return;
+        seen[v] = 1;
+        var opt = document.createElement('option');
+        opt.value = v;
+        opt.textContent = v;
+        sel.appendChild(opt);
+    });
+}
 async function loadAudit() {
     try {
         var src = document.getElementById('a-source')?.value || '';
@@ -27,7 +55,7 @@ async function loadAudit() {
         var usr = document.getElementById('a-user')?.value?.trim() || '';
         var d = await api.get('/api/audit', {limit: 200, event_source: src, event_type: tp, user: usr});
         var events = d.events || [];
-        document.getElementById('a-total').textContent = d.total || events.length;
+        document.getElementById('a-total').textContent = d.total != null ? d.total : events.length;
         var agentsResp = await api.get('/api/audit/agents');
         document.getElementById('a-agents').textContent = agentsResp.online || 0;
         var c = document.getElementById('audit-table');
@@ -41,6 +69,9 @@ async function loadAudit() {
         c.innerHTML = html + '</tbody></table></div>';
     } catch(e) { console.error(e); }
 }
-document.addEventListener('DOMContentLoaded', loadAudit);
+document.addEventListener('DOMContentLoaded', async function () {
+    await loadFilterOptions();
+    await loadAudit();
+});
 </script>
 {% endblock %}

@@ -21,6 +21,16 @@ const FindingsPage = {
       this.load();
     });
 
+    const resetBtn = document.getElementById('reset-filters');
+    if (resetBtn) resetBtn.addEventListener('click', () => this.resetFilters());
+
+    const search = document.getElementById('filter-search');
+    if (search) {
+      search.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') { e.preventDefault(); this.page = 0; this.load(); }
+      });
+    }
+
     document.getElementById('filter-status').addEventListener('change', () => { this.page = 0; this.load(); });
     document.getElementById('filter-type').addEventListener('change', () => { this.page = 0; this.load(); });
     document.getElementById('filter-severity').addEventListener('change', () => { this.page = 0; this.load(); });
@@ -42,7 +52,20 @@ const FindingsPage = {
       category: document.getElementById('filter-category').value,
       severity: document.getElementById('filter-severity').value,
       task_id: document.getElementById('filter-task').value,
+      detector: document.getElementById('filter-detector')?.value || '',
+      fragment_type: document.getElementById('filter-fragment')?.value || '',
+      search: document.getElementById('filter-search')?.value || '',
     };
+  },
+
+  resetFilters() {
+    ['filter-status', 'filter-type', 'filter-category', 'filter-severity', 'filter-task',
+     'filter-detector', 'filter-fragment', 'filter-search'].forEach((id) => {
+      const el = document.getElementById(id);
+      if (el) el.value = '';
+    });
+    this.page = 0;
+    this.load();
   },
 
   async load() {
@@ -239,7 +262,13 @@ const FindingsPage = {
     }
   },
 
-  showExportDialog() {
+  /**
+   * BUG-093 (TASK-059, v3.13.22): экспорт выполнялся через
+   * window.location.href = '/api/findings/export' — браузер уходил без
+   * заголовка Authorization (JWT в localStorage, cookie через прокси не
+   * доходят) и получал 401. Качаем ответ через fetch и сохраняем blob.
+   */
+  async showExportDialog() {
     const fmt = prompt('Формат экспорта (csv/json):', 'csv');
     if (!fmt || !['csv', 'json'].includes(fmt)) return;
 
@@ -254,7 +283,36 @@ const FindingsPage = {
     for (const [k, v] of [...params.entries()]) {
       if (!v || v === 'false') params.delete(k);
     }
-    window.location.href = `/api/findings/export?${params}`;
+
+    try {
+      const r = await fetch(`/api/findings/export?${params.toString()}`, {
+        headers: api._headers(),
+      });
+      if (r.status === 401) {
+        if (typeof Auth !== 'undefined') Auth.setToken(null);
+        window.location.href = '/login';
+        return;
+      }
+      if (!r.ok) {
+        const err = await r.json().catch(() => ({ detail: r.statusText }));
+        throw new Error(err.detail || ('HTTP ' + r.status));
+      }
+      const blob = await r.blob();
+      const cd = r.headers.get('Content-Disposition') || '';
+      const m = /filename="?([^"]+)"?/.exec(cd);
+      const name = m ? m[1] : `findings.${fmt}`;
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = name;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 5000);
+      showSuccess(`Экспорт: ${name}`);
+    } catch (e) {
+      showError('Ошибка экспорта: ' + e.message);
+    }
   },
 
   updateBulkBar() {

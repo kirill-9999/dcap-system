@@ -285,6 +285,10 @@ def get_audit_events(
     agent_id: Optional[int] = None,
     user: Optional[str] = None,
     event_type: Optional[str] = None,
+    # BUG-091 (TASK-058, v3.13.22): WebUI шлёт event_source (выпадающий список
+    # «Источник» на странице Аудита), а параметр не поддерживался — фильтр
+    # молча игнорировался и список не менялся.
+    event_source: Optional[str] = None,
     file_path: Optional[str] = None,
     since: Optional[str] = None,  # ISO формат
     limit: int = Query(100, ge=1, le=1000),
@@ -300,6 +304,8 @@ def get_audit_events(
         query = query.filter(models.AuditLog.user.ilike(f"%{user}%"))
     if event_type:
         query = query.filter(models.AuditLog.event_type == event_type)
+    if event_source:
+        query = query.filter(models.AuditLog.event_source == event_source)
     if file_path:
         query = query.filter(models.AuditLog.file_path.ilike(f"%{file_path}%"))
     if since:
