@@ -2,10 +2,10 @@
 > Единственный источник правды о текущем состоянии проекта.
 > План и бэклог — в `ROADMAP.md`. Архитектура — в `ARCHITECTURE.md`.
 
-**Обновлено:** 27.09.2026
-**Текущая версия:** v3.13.24
+**Обновлено:** 28.09.2026
+**Текущая версия:** v3.13.25
 **Целевая версия:** v3.0.0 (релиз)
-**Статус:** 🟢 Блок 3 (Scanner deep) ✅; Блок 8 (Мониторинг) ✅; BACKLOG-086 (встроенные фрагменты) ✅; BUG-080/081 (reliability сканера) ✅; BUG-086 (masking контекстов) ✅; Блок 5 (WebUI) п.2.3 — фильтры/пагинация/аудит/экспорт ✅; BUG-087 (аудит reveal) — диагностика: 🔴 ложное срабатывание, регрессия закрыта ✅; BUG-095 (аудит auth) ✅ — 9 event_type в `audit_logs`, 152-ФЗ/GDPR/PCI DSS 10.2 закрыты; следующий шаг — Блок 5, п.2.4
+**Статус:** 🟢 Блок 3 (Scanner deep) ✅; Блок 8 (Мониторинг) ✅; BACKLOG-086 (встроенные фрагменты) ✅; BUG-080/081 (reliability сканера) ✅; BUG-086 (masking контекстов) ✅; Блок 5 (WebUI) п.2.3 ✅; BUG-095 (аудит auth) ✅; BUG-096 (500 `/false-positives`) ✅; BUG-096b (падавшие E2E) ✅; BUG-097 (зависшие задания + вечный 404) ✅ — очередь сканера больше не встаёт; следующий шаг — Блок 5, п.2.4
 
 ---
 
@@ -13,11 +13,11 @@
 
 | Параметр | Значение |
 |----------|----------|
-| Текущий день | 48.2 (BUG-095, TASK-061/062) — аудит аутентификации и управления пользователями |
+| Текущий день | 48.3 (BUG-096/096b/097, TASK-064/065/066) — 500 на /false-positives, зависшие задания, осиротевшие оффлайн-пачки |
 | Статус дня | ✅ Выполнен |
-| Последний принятый отчёт | `day_48.2_bug095_auth_audit_report.md` (v3.13.24) |
+| Последний принятый отчёт | `day_48.3_bug096_097_report.md` (v3.13.25) |
 | Следующий шаг | Блок 5 (WebUI) — п.2.4: отчёты/архив, следующий прогон по бэклогу |
-| Открытые вопросы к архитектору | 1) BUG-096: 500 в `GET /api/findings/false-positives` (`findings.py:324` `_m.User` → `auth.models.User`), найден на полном E2E; 2) TASK-063 (алерт на N неудачных входов) — отложен на v3.1.0/SIEM; 3) BUG-096b: 2 устаревших E2E-теста (`test_full_scan_cycle`, `test_real_scanner_end_to_end`) ждут `finding_type in {pii, credentials}` вместо `category` |
+| Открытые вопросы к архитектору | 1) TASK-063 (алерт на N неудачных входов) — отложен на v3.1.0/SIEM; 2) BUG-061 (сканер не восстанавливает HTTP после падения Manager) — воспроизведён при рестарте контейнера Manager: heartbeat отбивается `RemoteDisconnected`, urllib3-retry вытягивает, но отдельная задача; 3) логи сканера пишутся в stderr, а не в `logging.file` (`logs/scanner.log`) — файл не создаётся, диагностика затруднена |
 
 ---
 
@@ -47,6 +47,7 @@
 | 48 (Блок 5, п.2.3) | Фильтры/пагинация/аудит/экспорт WebUI: TASK-054 (BUG-087) прокси ронял `X-Total-Count`/`X-Fragment-*`/`Content-Disposition`; TASK-055 (BUG-088) fragment `<img>` без Bearer → 401, теперь fetch+blob; TASK-056 (BUG-089) `is_active == 1` → 500 на PostgreSQL; TASK-057 (BUG-090) CSV-категории, пустые параметры вместо 422, `detector`/`fragment_type`/`search`/`order_by=id`; TASK-058 (BUG-091) `event_source` в `/api/audit` + data-driven фильтры из `/api/audit/stats`; TASK-059 (BUG-093) export через fetch+blob вместо `window.location`; тесты: 33 unit (220 passed) + 8 E2E | **v3.13.22** | `day_48_block5_webui_filters_report.md` |
 | 48.1 (TASK-060) | «BUG-087» аудит reveal: 🔴 **баг ложный** — код пишет `auditor`/`admin` корректно; `dcap` = `CURRENT_USER`, т.к. диагностический SQL использовал `SELECT user` без кавычек (в PG `user` — keyword). Фикс кода не требуется; регрессия закрыта 7 unit + 3 E2E (227 unit passed), раздел 6 в troubleshooting; live: `revealed_by=auditor`, `SELECT "user"` → `auditor` | **v3.13.23** | `day_48.1_bug087_audit_user_report.md` |
 | 48.2 (BUG-095) | Аудит auth + управления пользователями: TASK-061 (`manager/src/auth/audit.py` — `log_auth_event`, `_sanitize`, `classify_login_failure`, `role_diff`; `auth_login`/`auth_failed`/`auth_logout`) + TASK-062 (`user_created`/`user_updated`/`user_deleted`/`user_password_changed`/`role_assigned`/`role_revoked`); `auth_refresh` не пишется по решению из ТЗ; тесты: 15 unit + 2 E2E (242 unit passed); live: все 9 event_type в `audit_logs`, утечек пароля 0 | **v3.13.24** | `day_48.2_bug095_auth_audit_report.md` |
+| 48.3 (BUG-096/096b/097) | TASK-064 (BUG-096): `_m.User` → `User` из `manager.src.auth.models` в `findings.py`, live `/false-positives` 200; TASK-065 (BUG-096b): `finding_type`/`category`, `_get_with_retry` (RemoteDisconnected), precheck сканера, `@pytest.mark.timeout(600)` + 240 с, освобождение зависших заданий, `fingerprint` не в ответе API; TASK-066 (BUG-097): диагноз — исключение в `_execute_task` гасилось и задание висело `assigned` 30 мин, оффлайн-пачка `task_43.json` давала вечный 404; фикс — `SubmitStatus`(OK/RETRY/LOST) + `submit_results_status()`, отбрасывание потерянной пачки, `_fail_task_safely()` при исключении, логирование 404 в Manager с task_id/scanner/batch; тесты: +8 и +14 unit (264 unit passed), E2E 50 passed / 2 skipped (было 47/3 failed); live: 200 на /false-positives, 404 с контекстом | **v3.13.25** | `day_48.3_bug096_097_report.md` |
 
 ---
 
@@ -98,6 +99,7 @@
 *(Закрытые в v3.13.22: TASK-054 (BUG-087 — прокси headers: X-Total-Count/X-Fragment-*/Content-Disposition; Set-Cookie и hop-by-hop отбрасываются), TASK-055 (BUG-088 — fragment через fetch+blob с Bearer), TASK-056 (BUG-089 — is_active == True вместо == 1, 500 на PostgreSQL), TASK-057 (BUG-090 — CSV-категории, пустые числовые параметры, detector/fragment_type/search/order_by=id в list+count+export), TASK-058 (BUG-091 — фильтр event_source в /api/audit + опции фильтров из /api/audit/stats), TASK-059 (BUG-093 — export findings через fetch+blob) — Блок 5 п.2.3)*
 *(Закрытые в v3.13.24: BUG-095 (TASK-061 — аудит login/logout: auth_login/auth_failed/auth_logout + reason user_not_found|user_inactive|invalid_credentials; TASK-062 — аудит user_created/user_updated/user_deleted/user_password_changed/role_assigned/role_revoked; пароли/токены вырезаются _sanitize(); auth_refresh не пишется по решению ТЗ). Закрыт пробел 152-ФЗ/GDPR/PCI DSS 10.2 и подготовлена выгрузка для SIEM (BACKLOG-069/070))*
 *(Новые находки дня 48.2: BUG-096 — 500 в `GET /api/findings/false-positives` (`manager/src/api/findings.py:324`: `_m.User`, но `User` живёт в `manager.src.auth.models`); 2 устаревших E2E-теста ждут `finding_type in {pii, credentials}` после рефакторинга v3.13.22 (теперь `category`: email/person/phone/aws_key))*
+*(Закрытые в v3.13.25: BUG-096 (TASK-064 — `_m.User` → `User` из `manager.src.auth.models`; live `/false-positives` 200 вместо 500); BUG-096b (TASK-065 — `finding_type`/`category` в E2E, `_get_with_retry` против `RemoteDisconnected` на keep-alive 5 с, precheck активного сканера, `@pytest.mark.timeout(600)` против глобального `timeout=300`, освобождение зависших заданий, `fingerprint` наружу не отдаётся `_finding_to_dict`); BUG-097 (TASK-066 — задание падало в `_execute_task` на удалённом pytest-каталоге, исключение гасилось и задание висело `assigned` 30 мин = `TASK_TIMEOUT_MINUTES`; оффлайн-пачка `task_43.json` ретраилась с 404 бесконечно. Фикс: `SubmitStatus` OK/RETRY/LOST + `submit_results_status()`, отбрасывание потерянной пачки в `_flush_offline`, `_fail_task_safely()` при исключении, логирование 404 в Manager с task_id/scanner/batch. E2E: 50 passed / 2 skipped — полный цикл сканирования 15 с вместо таймаута 240 с))*
 *(Отложено до v3.1.0: TASK-063 — алерт на N неудачных входов (совместно с SIEM-интеграцией); BACKLOG-085 (OCR bbox), BACKLOG-087 (дедупликация фрагментов), BACKLOG-088 (шифрование fragment_data, AES-256-GCM))*
 *(Минорные: BUG-060 (BOM email) 📋 v3.1.0; BUG-061 (восстановление HTTP после падения Manager) 📋 v3.1.0; BUG-076 (dcap_scanner_current_task) 📋 v3.1.0; BACKLOG-076 (last_seen_at/findings_count) 📋 v3.1.0; BACKLOG-077 (heartbeat после инициализации классификаторов) 📋 v3.1.0)*
 

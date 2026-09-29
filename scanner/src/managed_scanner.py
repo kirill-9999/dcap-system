@@ -158,6 +158,18 @@ class ProgressPoller(threading.Thread):
         self._stop.set()
 
 
+class SubmitStatus:
+    """Итог отправки результатов (BUG-097, TASK-066, v3.13.25).
+
+    Различает «временно не отправилось» (нужен повтор) и «задания больше нет
+    в Manager» (повтор бессмысленен — задача удалена, повтор вёл к вечной
+    петле 404 в логах и к зависшим заданиям в статусе assigned).
+    """
+    OK = "ok"
+    RETRY = "retry"
+    LOST = "lost"
+
+
 class ManagerClient:
     def __init__(self, base_url: str, scanner_id: Optional[int] = None, config: AppConfig = None):
         self.base_url = base_url.rstrip('/')
@@ -314,9 +326,29 @@ class ManagerClient:
         failed_files: List[Dict[str, Any]],
         stats: Dict[str, Any]
     ) -> bool:
+        """Совместимая обёртка: True только при полной успешной отправке."""
+        return self.submit_results_status(
+            task_id, findings, catalog_entries, failed_files, stats
+        ) == SubmitStatus.OK
+
+    def submit_results_status(
+        self,
+        task_id: int,
+        findings: List[Dict[str, Any]],
+        catalog_entries: List[Dict[str, Any]],
+        failed_files: List[Dict[str, Any]],
+        stats: Dict[str, Any]
+    ) -> str:
+        """Отправка результатов с явным статусом (BUG-097, TASK-066, v3.13.25).
+
+        Раньше метод возвращал только bool, из-за чего офлайн-буфер с
+        удалённым заданием ретраился бесконечно: Manager отвечал 404, сканер
+        сохранял файл заново и повторял попытку в каждом цикле main().
+        Теперь 404 → SubmitStatus.LOST, и вызывающий код отбрасывает пачку.
+        """
         if self.scanner_id is None:
             logger.warning("[SubmitResults] Scanner not registered")
-            return False
+            return SubmitStatus.RETRY
             
         url = f"{self.base_url}/api/scanner/tasks/{task_id}/results"
         # BACKLOG-086 (TASK-050): разбивка по размеру payload, а не только по
@@ -338,14 +370,23 @@ class ManagerClient:
                 if response.status_code == 200:
                     result = response.json()
                     logger.info(f"[SubmitResults] batch {batch_idx}/{total_batches}: {result.get('findings_count', 0)} findings saved")
+                elif response.status_code in (404, 410):
+                    # BUG-097: задание удалено в Manager (или истекло) — повтор
+                    # не имеет смысла, задача потеряна безвозвратно.
+                    logger.warning(
+                        f"[SubmitResults] task {task_id} not found in Manager "
+                        f"(HTTP {response.status_code}, scanner_id={self.scanner_id}) — "
+                        "results dropped"
+                    )
+                    return SubmitStatus.LOST
                 else:
                     logger.error(f"[SubmitResults] batch {batch_idx}/{total_batches} failed: {response.status_code}")
                     logger.error(f"[SubmitResults] response: {response.text[:200]}")
-                    return False
-            return True
+                    return SubmitStatus.RETRY
+            return SubmitStatus.OK
         except Exception as e:
             logger.error(f"[SubmitResults] error: {e}")
-            return False
+            return SubmitStatus.RETRY
     
     def get_scanner_info(self) -> Optional[Dict[str, Any]]:
         if self.scanner_id is None:
@@ -1236,6 +1277,12 @@ class ManagedScanner:
         """Попытаться отправить сохранённые оффлайн-результаты в Manager.
 
         Возвращает количество успешно отправленных заданий.
+
+        BUG-097 (TASK-066, v3.13.25): если Manager больше не знает задание
+        (404/410 — задача удалена вручную, очищена E2E-фикстурой или
+        удалена политикой хранения), пачка отбрасывается, а не ретраится
+        бесконечно. Раньше такой файл ждал своей очереди часами, засоряя
+        лог 404-ошибками на каждом цикле main().
         """
         offline_dir = self._get_offline_dir()
         flushed = 0
@@ -1246,17 +1293,23 @@ class ManagedScanner:
                 task_id = payload["task_id"]
                 result = payload.get("result", {})
 
-                success = self.client.submit_results(
+                status = self.client.submit_results_status(
                     task_id=task_id,
                     findings=result.get("findings", []),
                     catalog_entries=result.get("catalog_entries", []),
                     failed_files=result.get("failed_files", []),
                     stats=result.get("stats", {})
                 )
-                if success:
+                if status == SubmitStatus.OK:
                     file_path.unlink()
                     flushed += 1
                     logger.info(f"[Offline] Задание {task_id} отправлено из оффлайн-очереди")
+                elif status == SubmitStatus.LOST:
+                    file_path.unlink()
+                    logger.warning(
+                        f"[Offline] Задание {task_id} удалено в Manager — "
+                        "оффлайн-пачка отброшена"
+                    )
                 else:
                     logger.warning(f"[Offline] Не удалось отправить задание {task_id} из очереди")
                     break
@@ -1351,7 +1404,21 @@ class ManagedScanner:
                 if task:
                     self.client.heartbeat(status="busy", task_id=task["id"])
                     
-                    result = self._execute_task(task)
+                    # BUG-097 (TASK-066, v3.13.25): раньше исключение внутри
+                    # _execute_task гасилось внешним except, и задание оставалось
+                    # в статусе assigned до срабатывания stale-таймаута Manager
+                    # (TASK_TIMEOUT_MINUTES = 30) — очередь вставала, все
+                    # последующие задания копились в assigned. Теперь задание
+                    # сразу переводится в failed, а причина логируется со стеком.
+                    try:
+                        result = self._execute_task(task)
+                    except Exception as e:
+                        logger.exception(
+                            f"[ERROR] Task {task['id']} failed during execution: {e}"
+                        )
+                        self._fail_task_safely(task["id"], f"scanner error: {e}")
+                        self.client.heartbeat(status="idle")
+                        continue
                     
                     if self._should_exit or self._stop_event.is_set():
                         logger.warning("[STOP] Задача прервана пользователем — уведомляем Manager")
@@ -1361,7 +1428,7 @@ class ManagedScanner:
                             logger.error(f"[STOP] Не удалось уведомить Manager: {e}")
                         break
                     
-                    success = self.client.submit_results(
+                    submit_status = self.client.submit_results_status(
                         task_id=task["id"],
                         findings=result.get("findings", []),
                         catalog_entries=result.get("catalog_entries", []),
@@ -1369,8 +1436,14 @@ class ManagedScanner:
                         stats=result.get("stats", {})
                     )
                     
-                    if success:
+                    if submit_status == SubmitStatus.OK:
                         logger.info(f"[OK] Task {task['id']} completed successfully")
+                    elif submit_status == SubmitStatus.LOST:
+                        # BUG-097: задание удалено в Manager — оффлайн-пачку не
+                        # создаём, иначе получим вечный цикл 404.
+                        logger.warning(
+                            f"[WARN] Task {task['id']} удалён в Manager — результаты отброшены"
+                        )
                     else:
                         logger.error(f"[ERROR] Failed to submit results for task {task['id']}")
                         self._save_offline(task["id"], result)
@@ -1396,6 +1469,23 @@ class ManagedScanner:
             self.heartbeat_thread.stop()
         self._shutdown_classifiers()
         logger.info("[X] Сканер остановлен")
+
+    def _fail_task_safely(self, task_id: int, reason: str) -> bool:
+        """Сообщить Manager об ошибке задания, не роняя основной цикл.
+
+        BUG-097 (TASK-066, v3.13.25): без этого задание оставалось в статусе
+        assigned и блокировало очередь на TASK_TIMEOUT_MINUTES.
+        """
+        try:
+            ok = self.client.fail_task(task_id, reason=reason)
+            if ok:
+                logger.info(f"[Task] Task {task_id} marked as failed: {reason}")
+            else:
+                logger.warning(f"[Task] Не удалось перевести задание {task_id} в failed")
+            return ok
+        except Exception as e:
+            logger.error(f"[Task] Ошибка при переводе задания {task_id} в failed: {e}")
+            return False
 
     def _shutdown_classifiers(self):
         """Корректное завершение классификаторов (OCRWorker и др. процессы) —

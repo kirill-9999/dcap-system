@@ -319,5 +319,70 @@ curl -s -X POST http://127.0.0.1:8000/api/auth/login \
 
 ---
 
-**Актуально на:** 27.09.2026
-**Версия:** v3.13.24
+## 8. Задание висит в `assigned`, в логах 404 на `/tasks/{id}/results` (BUG-097, v3.13.25)
+
+**Симптомы (комбинация):**
+
+- задание создано, но долго не выполняется; в UI статус `assigned`/`running` не меняется;
+- в логах Manager идёт `POST /api/scanner/tasks/43/results?... 404 Not Found` раз в 10–30 с;
+- новые задания копятся в `assigned` и не берутся;
+- при этом heartbeat сканера свежий, а CPU сканера ≈ 0.
+
+**Диагностика:**
+
+1. Найти застрявшие задания:
+   ```sql
+   SELECT id, status, scanner_id, files_scanned, assigned_at
+   FROM scan_tasks WHERE status IN ('assigned','running') ORDER BY id DESC;
+   ```
+2. Найти осиротевшие пачки сканера (ретраятся с 404):
+   ```bash
+   ls -l scanner/data/offline/          # task_<id>.json — отправка этих заданий падает
+   ```
+3. Посмотреть, что делает сканер:
+   ```bash
+   docker compose logs manager | grep "unknown task"
+   ```
+   Сообщение `Results for unknown task N (scanner=M)` — задание удалено в Manager
+   (E2E-фикстура, ручное удаление, retention), а сканер продолжает слать результаты.
+
+**Причины и что делать (обе закрыты в v3.13.25):**
+
+| Причина | Симптом | Лечение в v3.13.25 |
+|---------|---------|--------------------|
+| Сканер упал внутри `_execute_task` (например, каталог задания удалён), исключение гасилось и задание оставалось `assigned` до `TASK_TIMEOUT_MINUTES` (30 мин) | задания копятся, каждое ждёт по 30 минут | `_fail_task_safely()` переводит задание в `failed` сразу, причина логируется со стеком |
+| Оффлайн-пачка по удалённой задаче ретраилась бесконечно | вечные 404 в логах | `SubmitStatus.LOST` → пачка отбрасывается, файл удаляется |
+| Тест сам забирал задание через `GET /tasks/pending` | задание уходило в `assigned` и сканер его не видел | в E2E задание не забирается вручную, сканер берёт его сам |
+
+**Разблокировка застрявших заданий вручную:**
+
+```bash
+# освободить задание (вернуть в pending) — endpoint /api/scanner/tasks/{id}/release
+curl -s -X POST http://127.0.0.1:8000/api/scanner/tasks/90/release
+
+# или освободить все застрявшие разом
+docker compose exec -T postgres psql -U dcap -d dcap -c \
+  "UPDATE scan_tasks SET status='pending', scanner_id=NULL, assigned_at=NULL WHERE status='assigned';"
+```
+
+**Если 404 на `/results` идут и после v3.13.25** — значит запущен старый процесс сканера
+(код грузится при старте). Проверьте, что процесс один и запущен после обновления:
+
+```powershell
+Get-CimInstance Win32_Process -Filter "name like 'python%'" |
+  Where-Object { $_.CommandLine -match "run_scanner" } |
+  Select-Object ProcessId, CreationDate, CommandLine
+```
+
+Перезапустите сканер — при старте осиротевшие пачки будут отброшены, а зависшие задания
+перестанут копиться.
+
+**Отдельно про `RemoteDisconnected` в логах:** при перезапуске контейнера Manager
+keep-alive соединение рвётся (`urllib3 ... RemoteDisconnected`), но urllib3-retry
+(TASK-026) его переживает — это нормально, не ошибка. Ловится в E2E-прогоне как флак
+опроса статуса; в тестах учтено retry-хелпером.
+
+---
+
+**Актуально на:** 28.09.2026
+**Версия:** v3.13.25

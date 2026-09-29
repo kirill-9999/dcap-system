@@ -19,7 +19,7 @@ from sqlalchemy import func, desc, or_
 from sqlalchemy.orm import Session
 
 from manager.src.db.session import get_db
-from manager.src.db.models import Finding
+from manager.src.db.models import Finding, Resource
 from manager.src.auth.models import User
 from manager.src.auth.dependencies import (
     require_auth, require_auditor, require_admin, require_viewer
@@ -312,16 +312,16 @@ def list_false_positives(
         .offset(offset).limit(limit).all()
     )
     # W-66/W-67: file_path из resource + reviewed_by_username из users.
-    from manager.src.db import models as _m
+    # BUG-096: _m.User не существует — User живёт в manager.src.auth.models.
     resource_ids = [f.resource_id for f in findings if f.resource_id]
     reviewer_ids = [f.reviewed_by for f in findings if f.reviewed_by]
     res_map = {}
     if resource_ids:
-        for r in db.query(_m.Resource).filter(_m.Resource.id.in_(set(resource_ids))).all():
+        for r in db.query(Resource).filter(Resource.id.in_(set(resource_ids))).all():
             res_map[r.id] = r.path
     reviewer_map = {}
     if reviewer_ids:
-        for u in db.query(_m.User).filter(_m.User.id.in_(set(reviewer_ids))).all():
+        for u in db.query(User).filter(User.id.in_(set(reviewer_ids))).all():
             reviewer_map[u.id] = u.username
     return [
         {

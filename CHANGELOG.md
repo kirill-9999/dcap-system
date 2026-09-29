@@ -11,6 +11,54 @@
 
 ---
 
+## [3.13.25] — 2026-09-28 — День 48.3, BUG-096 / BUG-096b / BUG-097: /false-positives, зависшие задания и осиротевшие пачки
+
+### Fixed
+- **BUG-096 — 500 на `/api/findings/false-positives`** (TASK-064): в `manager/src/api/findings.py`
+  использовалась несуществующая ссылка `_m.User`. `User` — это модель `manager/src/auth/models.py`,
+  а не `manager/src/db/models.py`, поэтому любой запрос к эндпоинту падал с
+  `AttributeError: module 'manager.src.db.models' has no attribute 'User'` (HTTP 500).
+  Исправлено: импорт `User` из `manager.src.auth.models`, `Resource` — из `manager.src.db.models`.
+  Live: `GET /api/findings/false-positives` → 200.
+- **BUG-097 — задания навечно застревали в статусе `assigned`, в логах 404 на `/tasks/{id}/results`** (TASK-066).
+  Полная цепочка причин (установлена на живой системе):
+  1. E2E создавал задание на `tmp_path`, который pytest удалял после теста; сканер
+     падал на несуществующем пути, а исключение глушилось внешним `except Exception`
+     в `main()` — задание оставалось в `assigned` до `TASK_TIMEOUT_MINUTES` (30 минут)
+     в Manager, и каждое новое задание вставало в очередь за зависшими;
+  2. офлайн-пачка `scanner/data/offline/task_43.json` по удалённой задаче
+     ретраилась **бесконечно** — 404 на каждом цикле `main()`.
+  Исправлено в `scanner/src/managed_scanner.py`:
+  - новый `SubmitStatus` (`OK` / `RETRY` / `LOST`) и `submit_results_status()`:
+    404/410 → `LOST`; прежний `submit_results()` сохранён как bool-обёртка;
+  - `_flush_offline()` отбрасывает пачку потерянного задания (файл удаляется)
+    вместо бесконечного retry; `LOST` не прерывает разбор очереди;
+  - главный цикл: исключение в `_execute_task()` больше не оставляет задание
+    в `assigned` — задание сразу переводится в `failed` через
+    `_fail_task_safely()`, причина логируется со стеком (`logger.exception`).
+  В `manager/src/api/scanner.py` 404 на `/tasks/{task_id}/results` теперь
+  логируется с `task_id`, `scanner_id`/CN клиента и `batch`/`total` (было
+  без контекста в generic-логе).
+- **BUG-096b — падавшие E2E-тесты** (TASK-065):
+  - `test_full_scan_cycle`: `finding_type` (`pii`/`credentials`/`code`) и
+    гранулярный `category` вместо устаревших полей;
+  - `tests/fixtures/manager.py`: `_get_with_retry()` — обход разрыва
+    keep-alive соединения (`RemoteDisconnected` при опросе каждые 5 с против
+    uvicorn `timeout_keep_alive=5`), 3 попытки с паузой и закрытием соединения;
+  - `test_scanner_findings`: precheck активного сканера (иначе skip вместо
+    таймаута 300 с), ожидание задания 240 с + `@pytest.mark.timeout(600)`
+    (глобальный `timeout = 300` в `pyproject.toml` убивал тест ровно в момент
+    ожидания), освобождение зависших заданий перед прогоном, задание больше не
+    забирается вручную через `/tasks/pending` (это переводило его в `assigned`,
+    и реальный сканер его уже не видел — полный цикл проходит за ~15 с),
+    ассерт на `fingerprint` заменён на реальный контракт `/api/findings`.
+
+### Tests
+- 264 unit passed (было 242: +8 BUG-096, +14 BUG-097).
+- 50 E2E passed, 2 skipped (было 47 passed, 3 failed, 2 skipped).
+
+---
+
 ## [3.13.24] — 2026-09-27 — День 48.2, BUG-095: аудит входов и управления пользователями
 
 ### Added

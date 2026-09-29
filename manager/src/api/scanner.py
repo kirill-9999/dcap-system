@@ -369,10 +369,25 @@ async def submit_results(
         _batch_total_06045225 = 1
     _is_final_06045225 = _batch_no_06045225 >= _batch_total_06045225
 
-    
     task = db.query(models.ScanTask).filter(models.ScanTask.id == task_id).first()
     if not task:
+        # BUG-097 (TASK-066, v3.13.25): раньше 404 уходил в generic-лог без
+        # контекста, из-за чего невозможно было понять, чей это сканер и какое
+        # задание потеряно (в логах висел только "POST .../results 404").
+        _scanner_ref = payload.get("scanner_id") or getattr(
+            request.state, "client_cert_cn", None
+        )
+        logger.warning(
+            "[Scanner] Results for unknown task %s (scanner=%s) — task not found "
+            "(deleted or expired), results rejected. batch=%s/%s",
+            task_id,
+            _scanner_ref,
+            _batch_no_06045225,
+            _batch_total_06045225,
+        )
         raise HTTPException(404, "Task not found")
+
+
     
     if task.status not in ("assigned", "pending", "running"):
         raise HTTPException(400, f"Task status is {task.status}, expected assigned/running")
