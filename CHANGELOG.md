@@ -11,6 +11,70 @@
 
 ---
 
+## [3.13.26] — 2026-09-29 — День 49, BUG-098 / BUG-099 / BUG-100 / BUG-101: аудит ревью, сброс ревью-полей, пагинация и путь FP
+
+### Fixed
+- **BUG-101 🔴 — PATCH + bulk не писались в `audit_logs`** — 📁 `manager/src/api/findings.py`
+  Смена статуса находки нигде не аудировалась: за 30 минутlive-активности в журнале
+  оказалось 0 записей `finding_confirmed` / `finding_false_positive` / `finding_updated`
+  (только `auth_login`), хотя PATCH и bulk вызывались 10+ раз. Сравнение подтвердило,
+  что аудит в модуле работает (`finding_reveal`, `fragment_accessed`, `findings_exported`).
+  **Исправление:** хелпер `_log_finding_status_change()` с маппингом статуса на `event_type`
+  (`confirmed` → `finding_confirmed`, `false_positive` → `finding_false_positive`,
+  `archived` → `finding_archived`, `new` → `finding_reset`), вызов в `update_finding`
+  (`via='patch'`) и в `bulk_update` (`via='bulk'`, **по записи на каждую находку** —
+  Вариант A из ТЗ, удобнее искать по `finding_id` в SIEM). Записи копятся без коммита и
+  пишутся одним коммитом вызывающего кода — bulk не делает N commit'ов.
+  В `metadata_json`: `action`, `finding_id`, `category`, `finding_type`, `old_status`,
+  `new_status`, `comment`, `via`. В `audit_logs.user` — реальный пользователь.
+  Live: 4 записи от PATCH (включая `finding_reset`) + 2 от bulk за одну операцию.
+- **BUG-101 (открытый вопрос ТЗ) — DELETE findings тоже не аудировался** — 📁 `manager/src/api/findings.py`
+  Проверено в ходе фикса: `DELETE /api/findings/{id}` (только Admin) удалял находку без
+  следа в журнале. Добавлена запись `finding_deleted` (`old_status`, `resource_id`,
+  `via='delete'`), которая создаётся **до** `db.delete()` и уходит в том же коммите —
+  после коммита инстанс expire'ится и `fragment_path`/`category` уже не прочитать.
+- **BUG-100 🟡 — PATCH `status=new` не очищал поля ревью** — 📁 `manager/src/api/findings.py`
+  Сброс ревью оставлял `reviewed_by` / `reviewed_at` от предыдущего ревьюера, и находка
+  со статусом `new` выглядела одобренной (а `/false-positives` сортирует по `reviewed_at`).
+  **Исправление:** общая функция `_apply_status()` — при `status='new'` поля ревью
+  очищаются в `None`, `comment` берётся из тела запроса (решение ТЗ). Тот же путь
+  использует `bulk_update`, поэтому поведение PATCH и bulk больше не расходится.
+- **BUG-099 🟡 — `/false-positives?offset=-1` / `?limit=-5` → 500** — 📁 `manager/src/api/findings.py`
+  В `list_false_positives` остались старые `limit: int = Query(100, le=1000)` /
+  `offset: int = 0` без нижних границ — отрицательные значения доходили до
+  `.offset(-1)` / `.limit(-5)`, и PostgreSQL отвечал ошибкой → HTTP 500.
+  **Исправление:** `OptInt` + `_clamp_int()` как в `list_findings`.
+  Проверен весь `manager/src/api/`: остальные эндпоинты защищены валидацией
+  `ge/le` (422 вместо 500), `retention.py` — явной проверкой (400). Реальных
+  случаев 500 не осталось.
+- **BUG-098 🟡 — `/false-positives` отдавал `file_path` = директория** — 📁 `manager/src/api/findings.py`
+  `file_path` брался из `res_map` (путь **ресурса** = сканируемая папка) раньше
+  `fragment_path` (путь **файла**), поэтому один и тот же finding давал разные пути
+  в `/false-positives` и в `/findings?status=false_positive`. **Исправление:**
+  `fragment_path` в приоритете, `res_map` — только fallback для находок без фрагмента.
+  Live: `C:\test\scanner_clean\pii\phones_clean.txt` (ожидаемое из ТЗ значение).
+
+### Added
+- Тесты (40 новых, юнит-прогон 264 → 301):
+  - `tests/unit/test_audit_status_change_v31326.py` — 18 (все 4 статуса через PATCH,
+    bulk по записи на находку, `metadata` old/new, `via=patch|bulk`, реальный `user`,
+    аудит удаления, отсутствие записей при 404);
+  - `tests/unit/test_patch_reset_clears_review_v31326.py` — 8 (очистка `reviewed_by` /
+    `reviewed_at`, `comment` из тела, сброс из `false_positive` и `confirmed`,
+    регрессия «для confirmed/false_positive/archived ревью проставляется»);
+  - `tests/unit/test_fp_pagination_v31326.py` — 8 (`offset=-1`, `limit=-5`, `limit=0`,
+    `limit=99999`, пустые параметры, валидная пагинация, offset за концом);
+  - `tests/unit/test_fp_file_path_v31326.py` — 6 (путь файла, не директория;
+    согласованность с `/findings`; fallback на путь ресурса; несколько строк).
+
+### Changed
+- `update_finding`, `bulk_update` и `delete_finding` принимают `request: Request` —
+  нужен `source_host` для записи аудита.
+- `tests/unit/test_false_positives_v31325.py` — ассерт `file_path` обновлён: ранее тест
+  закреплял **баговое** значение (директорию ресурса), теперь — путь файла.
+
+---
+
 ## [3.13.25] — 2026-09-28 — День 48.3, BUG-096 / BUG-096b / BUG-097: /false-positives, зависшие задания и осиротевшие пачки
 
 ### Fixed

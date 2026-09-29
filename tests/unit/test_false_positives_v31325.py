@@ -187,7 +187,9 @@ class TestFalsePositives:
         assert by_id[f1.id]["comment"] == "не PII"
         assert by_id[f2.id]["reviewed_by_username"] == "test_auditor"
         assert by_id[f2.id]["comment"] == "служебный"
-        assert by_id[f1.id]["file_path"] == "C:/data/fp-demo"
+        # BUG-098 (v3.13.26): file_path = fragment_path (файл), а не путь
+        # ресурса (директория) — раньше здесь ожидалось "C:/data/fp-demo".
+        assert by_id[f1.id]["file_path"] == "C:/data/fp-demo/emails.txt"
         assert by_id[f1.id]["category"] == "email"
 
     def test_false_positives_admin_reviewer(self, db_session, resource, reviewer):

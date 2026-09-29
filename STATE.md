@@ -2,10 +2,10 @@
 > Единственный источник правды о текущем состоянии проекта.
 > План и бэклог — в `ROADMAP.md`. Архитектура — в `ARCHITECTURE.md`.
 
-**Обновлено:** 28.09.2026
-**Текущая версия:** v3.13.25
+**Обновлено:** 29.09.2026
+**Текущая версия:** v3.13.26
 **Целевая версия:** v3.0.0 (релиз)
-**Статус:** 🟢 Блок 3 (Scanner deep) ✅; Блок 8 (Мониторинг) ✅; BACKLOG-086 (встроенные фрагменты) ✅; BUG-080/081 (reliability сканера) ✅; BUG-086 (masking контекстов) ✅; Блок 5 (WebUI) п.2.3 ✅; BUG-095 (аудит auth) ✅; BUG-096 (500 `/false-positives`) ✅; BUG-096b (падавшие E2E) ✅; BUG-097 (зависшие задания + вечный 404) ✅ — очередь сканера больше не встаёт; следующий шаг — Блок 5, п.2.4
+**Статус:** 🟢 Блок 3 (Scanner deep) ✅; Блок 8 (Мониторинг) ✅; BACKLOG-086 ✅; BUG-080/081 ✅; BUG-086 ✅; Блок 5 (WebUI) п.2.3 ✅; BUG-095 ✅; BUG-096/096b/097 ✅; BUG-098/099/100/101 ✅ — ревью находок теперь аудируется (PATCH + bulk + DELETE), сброс ревью чистит поля, `/false-positives` не отдаёт 500 и показывает путь файла; следующий шаг — Блок 5, п.2.4
 
 ---
 
@@ -13,9 +13,9 @@
 
 | Параметр | Значение |
 |----------|----------|
-| Текущий день | 48.3 (BUG-096/096b/097, TASK-064/065/066) — 500 на /false-positives, зависшие задания, осиротевшие оффлайн-пачки |
+| Текущий день | 49 (BUG-098/099/100/101) — аудит ревью находок, сброс review-полей, пагинация FP, file_path |
 | Статус дня | ✅ Выполнен |
-| Последний принятый отчёт | `day_48.3_bug096_097_report.md` (v3.13.25) |
+| Последний принятый отчёт | `day_49_bug098_101_report.md` (v3.13.26) |
 | Следующий шаг | Блок 5 (WebUI) — п.2.4: отчёты/архив, следующий прогон по бэклогу |
 | Открытые вопросы к архитектору | 1) TASK-063 (алерт на N неудачных входов) — отложен на v3.1.0/SIEM; 2) BUG-061 (сканер не восстанавливает HTTP после падения Manager) — воспроизведён при рестарте контейнера Manager: heartbeat отбивается `RemoteDisconnected`, urllib3-retry вытягивает, но отдельная задача; 3) логи сканера пишутся в stderr, а не в `logging.file` (`logs/scanner.log`) — файл не создаётся, диагностика затруднена |
 
@@ -47,7 +47,8 @@
 | 48 (Блок 5, п.2.3) | Фильтры/пагинация/аудит/экспорт WebUI: TASK-054 (BUG-087) прокси ронял `X-Total-Count`/`X-Fragment-*`/`Content-Disposition`; TASK-055 (BUG-088) fragment `<img>` без Bearer → 401, теперь fetch+blob; TASK-056 (BUG-089) `is_active == 1` → 500 на PostgreSQL; TASK-057 (BUG-090) CSV-категории, пустые параметры вместо 422, `detector`/`fragment_type`/`search`/`order_by=id`; TASK-058 (BUG-091) `event_source` в `/api/audit` + data-driven фильтры из `/api/audit/stats`; TASK-059 (BUG-093) export через fetch+blob вместо `window.location`; тесты: 33 unit (220 passed) + 8 E2E | **v3.13.22** | `day_48_block5_webui_filters_report.md` |
 | 48.1 (TASK-060) | «BUG-087» аудит reveal: 🔴 **баг ложный** — код пишет `auditor`/`admin` корректно; `dcap` = `CURRENT_USER`, т.к. диагностический SQL использовал `SELECT user` без кавычек (в PG `user` — keyword). Фикс кода не требуется; регрессия закрыта 7 unit + 3 E2E (227 unit passed), раздел 6 в troubleshooting; live: `revealed_by=auditor`, `SELECT "user"` → `auditor` | **v3.13.23** | `day_48.1_bug087_audit_user_report.md` |
 | 48.2 (BUG-095) | Аудит auth + управления пользователями: TASK-061 (`manager/src/auth/audit.py` — `log_auth_event`, `_sanitize`, `classify_login_failure`, `role_diff`; `auth_login`/`auth_failed`/`auth_logout`) + TASK-062 (`user_created`/`user_updated`/`user_deleted`/`user_password_changed`/`role_assigned`/`role_revoked`); `auth_refresh` не пишется по решению из ТЗ; тесты: 15 unit + 2 E2E (242 unit passed); live: все 9 event_type в `audit_logs`, утечек пароля 0 | **v3.13.24** | `day_48.2_bug095_auth_audit_report.md` |
-| 48.3 (BUG-096/096b/097) | TASK-064 (BUG-096): `_m.User` → `User` из `manager.src.auth.models` в `findings.py`, live `/false-positives` 200; TASK-065 (BUG-096b): `finding_type`/`category`, `_get_with_retry` (RemoteDisconnected), precheck сканера, `@pytest.mark.timeout(600)` + 240 с, освобождение зависших заданий, `fingerprint` не в ответе API; TASK-066 (BUG-097): диагноз — исключение в `_execute_task` гасилось и задание висело `assigned` 30 мин, оффлайн-пачка `task_43.json` давала вечный 404; фикс — `SubmitStatus`(OK/RETRY/LOST) + `submit_results_status()`, отбрасывание потерянной пачки, `_fail_task_safely()` при исключении, логирование 404 в Manager с task_id/scanner/batch; тесты: +8 и +14 unit (264 unit passed), E2E 50 passed / 2 skipped (было 47/3 failed); live: 200 на /false-positives, 404 с контекстом | **v3.13.25** | `day_48.3_bug096_097_report.md` |
+| | 48.3 (BUG-096/096b/097) | TASK-064 (BUG-096): `_m.User` → `User` из `manager.src.auth.models` в `findings.py`, live `/false-positives` 200; TASK-065 (BUG-096b): `finding_type`/`category`, `_get_with_retry` (RemoteDisconnected), precheck сканера, `@pytest.mark.timeout(600)` + 240 с, освобождение зависших заданий, `fingerprint` не в ответе API; TASK-066 (BUG-097): диагноз — исключение в `_execute_task` гасилось и задание висело `assigned` 30 мин, оффлайн-пачка `task_43.json` давала вечный 404; фикс — `SubmitStatus`(OK/RETRY/LOST) + `submit_results_status()`, отбрасывание потерянной пачки, `_fail_task_safely()` при исключении, логирование 404 в Manager с task_id/scanner/batch; тесты: +8 и +14 unit (264 unit passed), E2E 50 passed / 2 skipped (было 47/3 failed); live: 200 на /false-positives, 404 с контекстом | **v3.13.25** | `day_48.3_bug096_097_report.md` |
+| 49 (BUG-098/099/100/101) | BUG-101: PATCH и bulk не писались в `audit_logs` (0 записей за 30 мин) — хелпер `_log_finding_status_change()` с маппингом статуса (`confirmed`/`false_positive`/`archived`/`new` → `finding_confirmed`/`finding_false_positive`/`finding_archived`/`finding_reset`), `via='patch'|'bulk'`, по записи на находку в bulk (Вариант A), единый коммит; закрыт открытый вопрос ТЗ — DELETE тоже аудируется (`finding_deleted`, лог создаётся до `db.delete`); BUG-100: `_apply_status()` очищает `reviewed_by`/`reviewed_at` при `status=new`, `comment` из тела (PATCH и bulk); BUG-099: `OptInt` + `_clamp_int` в `list_false_positives` (было 500 на `offset=-1`/`limit=-5`), проаудирован весь `manager/src/api/` — остальные защищены `ge/le` (422) либо явной проверкой (400); BUG-098: `file_path` = `fragment_path`, `res_map` только fallback; сигнатуры PATCH/bulk/DELETE получили `request: Request` (нужен `source_host`); тесты: +40 unit (301 unit passed), E2E 38 passed/9 skipped на стенде + 5 отдельно на основном стенде; live: 4 записи аудита от PATCH + 2 от bulk, `reviewed_by=NULL` после reset, `file_path=C:\test\scanner_clean\pii\phones_clean.txt` | **v3.13.26** | `day_49_bug098_101_report.md` |
 
 ---
 
@@ -101,6 +102,7 @@
 *(Новые находки дня 48.2: BUG-096 — 500 в `GET /api/findings/false-positives` (`manager/src/api/findings.py:324`: `_m.User`, но `User` живёт в `manager.src.auth.models`); 2 устаревших E2E-теста ждут `finding_type in {pii, credentials}` после рефакторинга v3.13.22 (теперь `category`: email/person/phone/aws_key))*
 *(Закрытые в v3.13.25: BUG-096 (TASK-064 — `_m.User` → `User` из `manager.src.auth.models`; live `/false-positives` 200 вместо 500); BUG-096b (TASK-065 — `finding_type`/`category` в E2E, `_get_with_retry` против `RemoteDisconnected` на keep-alive 5 с, precheck активного сканера, `@pytest.mark.timeout(600)` против глобального `timeout=300`, освобождение зависших заданий, `fingerprint` наружу не отдаётся `_finding_to_dict`); BUG-097 (TASK-066 — задание падало в `_execute_task` на удалённом pytest-каталоге, исключение гасилось и задание висело `assigned` 30 мин = `TASK_TIMEOUT_MINUTES`; оффлайн-пачка `task_43.json` ретраилась с 404 бесконечно. Фикс: `SubmitStatus` OK/RETRY/LOST + `submit_results_status()`, отбрасывание потерянной пачки в `_flush_offline`, `_fail_task_safely()` при исключении, логирование 404 в Manager с task_id/scanner/batch. E2E: 50 passed / 2 skipped — полный цикл сканирования 15 с вместо таймаута 240 с))*
 *(Отложено до v3.1.0: TASK-063 — алерт на N неудачных входов (совместно с SIEM-интеграцией); BACKLOG-085 (OCR bbox), BACKLOG-087 (дедупликация фрагментов), BACKLOG-088 (шифрование fragment_data, AES-256-GCM))*
+*(Закрытые в v3.13.26: BUG-101 (PATCH `/{id}` и `POST /bulk` не писали `audit_logs` — 0 записей за 30 мин при 10+ вызовах; хелпер `_log_finding_status_change()` с маппингом статуса на event_type, `via='patch'|'bulk'`, **по записи на находку** в bulk = Вариант A, единый коммит, без N коммитов; закрыт открытый вопрос ТЗ — `DELETE /{id}` тоже не аудировался → добавлен `finding_deleted`, лог строится до `db.delete()` и уходит в том же коммите, т.к. после коммита инстанс expire'ится); BUG-100 (PATCH `status='new'` не очищал `reviewed_by`/`reviewed_at` — находка со статусом new выглядела одобренной; общая `_apply_status()` чистит поля на сбросе, `comment` из тела запроса; PATCH и bulk больше не расходятся); BUG-099 (`list_false_positives` остался со старыми `limit: int = Query(100, le=1000)` / `offset: int = 0` — `offset=-1` и `limit=-5` доходили до `.offset()/.limit()` и давали 500; переведён на `OptInt` + `_clamp_int` как в `list_findings`; проаудирован весь `manager/src/api/` — прочие эндпоинты защищены `ge/le` (422) либо явной проверкой (400), других 500 нет); BUG-098 (`file_path` брался из `res_map` = путь **ресурса/директории** раньше `fragment_path` = путь **файла**, поэтому `/false-positives` и `/findings?status=false_positive` расходились; `fragment_path` в приоритете, `res_map` — fallback)*)
 *(Минорные: BUG-060 (BOM email) 📋 v3.1.0; BUG-061 (восстановление HTTP после падения Manager) 📋 v3.1.0; BUG-076 (dcap_scanner_current_task) 📋 v3.1.0; BACKLOG-076 (last_seen_at/findings_count) 📋 v3.1.0; BACKLOG-077 (heartbeat после инициализации классификаторов) 📋 v3.1.0)*
 
 ---
@@ -179,9 +181,16 @@
 - `manager/src/api/webui.py` — TASK-056: `AccessEntry.is_active == True` (2 места)
 - `tests/unit/test_webui_block5_v31322.py` (33) + `tests/e2e/test_webui_block5_v31322.py` (8) — 220 unit passed
 - `docker-compose.yml` — manager/webui/celery → 3.13.22
+- `manager/src/api/findings.py` — BUG-101: `_STATUS_EVENT_MAP` + `_log_finding_status_change()` (без коммита) + `_apply_status()`; вызовы в `update_finding` (`via='patch'`) и `bulk_update` (`via='bulk'`); `finding_deleted` в `delete_finding` (лог до `db.delete`); все три приняли `request: Request` ради `source_host`
+- `manager/src/api/findings.py` — BUG-100: сброс `status='new'` чистит `reviewed_by`/`reviewed_at`, `comment` из тела
+- `manager/src/api/findings.py` — BUG-099: `list_false_positives` на `OptInt` + `_clamp_int(limit, 100, 1, 1000)` / `_clamp_int(offset, 0, 0, 10_000_000)`
+- `manager/src/api/findings.py` — BUG-098: `file_path = f.fragment_path or res_map.get(f.resource_id)`
+- `tests/unit/test_audit_status_change_v31326.py` (18), `test_patch_reset_clears_review_v31326.py` (8), `test_fp_pagination_v31326.py` (8), `test_fp_file_path_v31326.py` (6) — 301 unit passed
+- `tests/unit/test_false_positives_v31325.py` — ассерт `file_path` переведён с директории на путь файла (закреплял BUG-098)
+- `.env`, `.env.example`, `docker-compose.yml` — VERSION → 3.13.26; образы `dcap/manager:3.13.26`, `dcap/webui:3.13.26`
 
 ---
 
-**Актуально на:** 27.09.2026
-**Версия:** v3.13.22
+**Актуально на:** 29.09.2026
+**Версия:** v3.13.26
 **Следующий шаг:** Блок 5 (WebUI) — п.2.4 (отчёты/архив) или следующий пункт бэклога ROADMAP

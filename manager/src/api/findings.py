@@ -299,17 +299,23 @@ def get_findings_count_legacy(
 
 @router.get("/false-positives", response_model=list[FalsePositiveResponse])
 def list_false_positives(
-    limit: int = Query(100, le=1000),
-    offset: int = 0,
+    limit: OptInt = 100,
+    offset: OptInt = 0,
     db: Session = Depends(get_db),
     user: User = Depends(require_auditor),
 ):
-    """Список ложных срабатываний (для аудита)."""
+    """Список ложных срабатываний (для аудита).
+
+    BUG-099 (v3.13.26): limit/offset клампятся через _clamp_int — раньше
+    ?offset=-1 / ?limit=-5 уходили в .offset()/.limit() и давали 500.
+    """
+    limit_val = _clamp_int(limit, 100, 1, 1000)
+    offset_val = _clamp_int(offset, 0, 0, 10_000_000)
     findings = (
         db.query(Finding)
         .filter(Finding.status == "false_positive")
         .order_by(desc(Finding.reviewed_at))
-        .offset(offset).limit(limit).all()
+        .offset(offset_val).limit(limit_val).all()
     )
     # W-66/W-67: file_path из resource + reviewed_by_username из users.
     # BUG-096: _m.User не существует — User живёт в manager.src.auth.models.
@@ -327,7 +333,10 @@ def list_false_positives(
         {
             "id": f.id,
             "resource_id": f.resource_id,
-            "file_path": res_map.get(f.resource_id) or f.fragment_path,
+            # BUG-098 (v3.13.26): fragment_path (файл) — приоритет выше, чем
+            # путь ресурса (директория). Иначе /false-positives отдавал
+            # путь к папке в отличие от /findings?status=false_positive.
+            "file_path": f.fragment_path or res_map.get(f.resource_id),
             "line_number": f.line_number,
             "match_text_masked": f.match_text_masked,
             "category": f.category,
@@ -777,22 +786,86 @@ def _log_reveal(db, user, finding, revealed_at, request):
 
 # ========== UPDATE ==========
 
+# BUG-101 (v3.13.26): смена статуса находки (PATCH / bulk) нигде не писалась
+# в audit_logs — в журнале были только auth_login / finding_reveal.
+_STATUS_EVENT_MAP = {
+    "confirmed": "finding_confirmed",
+    "false_positive": "finding_false_positive",
+    "archived": "finding_archived",
+    "new": "finding_reset",
+}
+
+
+def _log_finding_status_change(
+    db, user, finding, old_status, new_status, request, comment=None, via="patch"
+) -> None:
+    """BUG-101 (v3.13.26): аудит смены статуса finding.
+
+    via: 'patch' | 'bulk' — различение источника в metadata.
+    Коммита не делает: записи копятся и пишутся одним транзакционным
+    коммитом вызывающего кода (иначе bulk дал бы N commit'ов).
+    """
+    try:
+        from manager.src.db.models import AuditLog
+        log = AuditLog(
+            event_type=_STATUS_EVENT_MAP.get(new_status, "finding_updated"),
+            event_source="api",
+            user=user.username if user else None,
+            file_path=finding.fragment_path or f"finding:{finding.id}",
+            source_host=request.client.host if request and request.client else None,
+            metadata_json={
+                "action": "status_changed",
+                "finding_id": finding.id,
+                "category": finding.category,
+                "finding_type": finding.finding_type,
+                "old_status": old_status,
+                "new_status": new_status,
+                "comment": comment,
+                "via": via,
+            },
+            created_at=datetime.utcnow(),
+        )
+        db.add(log)
+    except Exception as e:
+        logger.warning("Failed to log status change for finding %s: %s", finding.id, e)
+
+
+def _apply_status(finding, status, comment, user) -> None:
+    """Единая логика применения статуса к находке (PATCH и bulk).
+
+    BUG-100 (v3.13.26): при status='new' (сброс) поля ревью
+    reviewed_by/reviewed_at очищаются — раньше finding оставался
+    «одобренным» последним ревьюером, хотя статус снова new.
+    """
+    finding.status = status
+    finding.comment = comment
+    if status == "new":
+        finding.reviewed_by = None
+        finding.reviewed_at = None
+    else:
+        finding.reviewed_by = user.id
+        finding.reviewed_at = datetime.utcnow()
+
+
 @router.patch("/{finding_id}", response_model=FindingResponse)
 def update_finding(
     finding_id: int,
     body: FindingUpdateRequest,
+    request: Request,
     db: Session = Depends(get_db),
     user: User = Depends(require_auditor),
 ):
-    """Обновить статус находки (confirmed / false_positive)."""
+    """Обновить статус находки (confirmed / false_positive / archived / new)."""
     finding = db.query(Finding).filter(Finding.id == finding_id).first()
     if not finding:
         raise HTTPException(404, "Finding not found")
 
-    finding.status = body.status
-    finding.comment = body.comment
-    finding.reviewed_by = user.id
-    finding.reviewed_at = datetime.utcnow()
+    old_status = finding.status
+    _apply_status(finding, body.status, body.comment, user)
+    _log_finding_status_change(
+        db, user, finding, old_status, body.status, request,
+        comment=body.comment, via="patch",
+    )
 
     db.commit()
     db.refresh(finding)
@@ -803,12 +876,17 @@ def update_finding(
 @router.post("/bulk", response_model=FindingBulkUpdateResponse)
 def bulk_update(
     body: FindingBulkUpdateRequest,
+    request: Request,
     db: Session = Depends(get_db),
     user: User = Depends(require_auditor),
 ):
-    """Массовое обновление статуса."""
+    """Массовое обновление статуса.
+
+    BUG-101 (v3.13.26): по одной записи в audit_logs на каждую находку
+    (Вариант A из ТЗ) — удобнее искать по finding_id в SIEM. Все записи
+    и сами правки уходят в один коммит.
+    """
     updated = 0
-    skipped = 0
     errors = []
 
     findings = db.query(Finding).filter(Finding.id.in_(body.finding_ids)).all()
@@ -816,11 +894,13 @@ def bulk_update(
     missing = set(body.finding_ids) - found_ids
 
     for f in findings:
+        old_status = f.status
         try:
-            f.status = body.status
-            f.comment = body.comment
-            f.reviewed_by = user.id
-            f.reviewed_at = datetime.utcnow()
+            _apply_status(f, body.status, body.comment, user)
+            _log_finding_status_change(
+                db, user, f, old_status, body.status, request,
+                comment=body.comment, via="bulk",
+            )
             updated += 1
         except Exception as e:
             errors.append(f"Finding {f.id}: {e}")
@@ -838,6 +918,7 @@ def bulk_update(
 @router.delete("/{finding_id}")
 def delete_finding(
     finding_id: int,
+    request: Request,
     db: Session = Depends(get_db),
     user: User = Depends(require_admin),
 ):
@@ -855,7 +936,30 @@ def delete_finding(
         except Exception as e:
             logger.warning("Failed to remove fragment: %s", e)
 
+    # BUG-101 (v3.13.26): удаление — тоже изменение данных, пишем в аудит.
+    # Значения читаем ДО db.delete/commit: после коммита инстанс expire'ится,
+    # и fragment_path/category вернуть уже нельзя.
+    from manager.src.db.models import AuditLog
+    log = AuditLog(
+        event_type="finding_deleted",
+        event_source="api",
+        user=user.username if user else None,
+        file_path=finding.fragment_path or f"finding:{finding.id}",
+        source_host=request.client.host if request and request.client else None,
+        metadata_json={
+            "action": "deleted",
+            "finding_id": finding.id,
+            "category": finding.category,
+            "finding_type": finding.finding_type,
+            "old_status": finding.status,
+            "resource_id": finding.resource_id,
+            "via": "delete",
+        },
+        created_at=datetime.utcnow(),
+    )
+
     db.delete(finding)
+    db.add(log)
     db.commit()
     return {"deleted": finding_id}
 

@@ -48,7 +48,9 @@
 | 48.1 (диагностика) | «BUG-087» аудит reveal: 🔴 **ложное срабатывание** — `user` без кавычек = `CURRENT_USER`; код корректен, закрыто регрессией | TASK-060 | ✅ **v3.13.23** |
 | 48.2 (BUG-095) | Аудит входов и управления пользователями: `auth_login`/`auth_failed`/`auth_logout`/`user_*`/`role_*` в `audit_logs` (152-ФЗ / GDPR / PCI DSS 10.2) | TASK-061/062 | ✅ **v3.13.24** |
 | 48.3 (BUG-096/096b/097) | 500 на `/api/findings/false-positives` (`User` из `auth.models`); починка упавших E2E; очередь сканера не встаёт навечно (`SubmitStatus` LOST, `fail_task` при исключении, логирование 404) | TASK-064/065/066 | ✅ **v3.13.25** |
+| 49 (BUG-098/099/100/101) | Ревью находок в WebUI: аудит смены статуса (`finding_confirmed`/`_false_positive`/`_archived`/`_reset` + `finding_deleted`), сброс `status=new` чистит поля ревью, пагинация `/false-positives` без 500, `file_path` = путь файла | — | ✅ **v3.13.26** |
 | 48.5 (Блок 5, п.2.4) | Отчёты/архив в WebUI | — | 📋 **следующий** |
+| 49 (Блок 5, п.7/13/14/15) | Stats, счётчики, WebUI-правки, регрессия | — | 📋 |
 | 49 | Блок 7 (Retention) | — | 📋 |
 | 50 | Блок 6 (Агенты — тестирование) | BACKLOG-080…082 | 📋 |
 | 51 | GitHub-пакет (BACKLOG-028) | BACKLOG-028/046 | 📋 |
@@ -127,8 +129,14 @@
 | TASK-061 (BUG-095) | Аудит аутентификации: `auth_login` / `auth_failed` (reason: `invalid_credentials`/`user_not_found`/`user_inactive`) / `auth_logout` — хелпер `log_auth_event()` в `manager/src/auth/audit.py`, fail-open, `_sanitize()` вырезает пароли/токены; `auth_refresh` не пишется (шум, решение из ТЗ) | v3.13.24 |
 | TASK-062 (BUG-095) | Аудит управления пользователями: `user_created` / `user_updated` / `user_deleted` / `user_password_changed` (self + admin reset) / `role_assigned` / `role_revoked` (дифф ролей) | v3.13.24 |
 | TASK-063 (BUG-095) | Алерт на N неудачных входов | 📋 v3.1.0 (SIEM) |
-| BUG-096 (новый, 27.09) | `GET /api/findings/false-positives` → **500**: `manager/src/api/findings.py:324` использует `_m.User`, а `User` определён в `manager.src.auth.models`. Найден на полном E2E-прогоне дня 48.2, вне ТЗ BUG-095 | 📋 v3.13.25 |
-| BUG-096b (новый, 27.09) | Устаревшие E2E-тесты `test_full_scan_cycle`, `test_real_scanner_end_to_end`: ждут `finding_type in {pii, credentials}` после рефакторинта v3.13.22 (теперь granular `category`: email/person/phone/aws_key) | 📋 v3.13.25 |
+| BUG-096 (новый, 27.09) | `GET /api/findings/false-positives` → **500**: `manager/src/api/findings.py:324` использует `_m.User`, а `User` определён в `manager.src.auth.models`. Найден на полном E2E-прогоне дня 48.2, вне ТЗ BUG-095 | ✅ v3.13.25 |
+| BUG-096b (новый, 27.09) | Устаревшие E2E-тесты `test_full_scan_cycle`, `test_real_scanner_end_to_end`: ждут `finding_type in {pii, credentials}` после рефакторинта v3.13.22 (теперь granular `category`: email/person/phone/aws_key) | ✅ v3.13.25 |
+| BUG-097 (новый, 28.09) | Задание зависало в `assigned` до 30 мин при исключении в `_execute_task`; оффлайн-пачка удалённой задачи давала бесконечный 404 от `POST /tasks/{id}/results` | ✅ v3.13.25 |
+| BUG-101 (новый, 29.09) | 🔴 **PATCH `/{id}` и `POST /bulk` не писались в `audit_logs`** — 0 записей `finding_confirmed`/`finding_false_positive`/`finding_updated` за 30 мин при 10+ вызовах (аудит reveal/fragment/export работал). Пробел 152-ФЗ/GDPR: решение ревью находки не прослеживается | ✅ v3.13.26 |
+| BUG-101b (новый, 29.09) | 🔴 `DELETE /api/findings/{id}` (Admin) удалял находку без записи в аудите — открытый вопрос из ТЗ, проверен в ходе фикса и закрыт (`finding_deleted`) | ✅ v3.13.26 |
+| BUG-100 (новый, 29.09) | `PATCH {status: new}` (сброс ревью) не очищал `reviewed_by`/`reviewed_at` — находка со статусом `new` выглядела одобренной прошлым ревьюером; `/false-positives` сортирует по `reviewed_at` | ✅ v3.13.26 |
+| BUG-099 (новый, 29.09) | `GET /api/findings/false-positives?offset=-1` / `?limit=-5` → **500** (в списке остались старые `limit: int = Query(100, le=1000)` / `offset: int = 0` без нижних границ; в `list_findings` clamp из BUG-084 был применён) | ✅ v3.13.26 |
+| BUG-098 (новый, 29.09) | `/false-positives` отдавал `file_path` = директория сканирования: приоритет был у `res_map` (путь ресурса) вместо `fragment_path` (путь файла), поэтому один finding давал разные пути в `/false-positives` и `/findings?status=false_positive` | ✅ v3.13.26 |
 
 ---
 
