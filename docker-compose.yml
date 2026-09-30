@@ -1,4 +1,4 @@
-# DCAP System вЂ” РїРѕР»РЅС‹Р№ СЃС‚РµРє (Р”РµРЅСЊ 38)
+﻿# DCAP System вЂ” РїРѕР»РЅС‹Р№ СЃС‚РµРє (Р”РµРЅСЊ 38)
 # Р”РµРїР»РѕР№ РѕРґРЅРѕР№ РєРѕРјР°РЅРґРѕР№: docker compose up -d
 # Production overrides: docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
 #
@@ -69,7 +69,7 @@ services:
     build:
       context: .
       dockerfile: manager/Dockerfile
-    image: dcap/manager:${VERSION:-3.13.26}
+    image: dcap/manager:${VERSION:-3.13.27}
     container_name: dcap-manager
     environment:
       DATABASE_URL: postgresql://${POSTGRES_USER:-dcap}:${POSTGRES_PASSWORD:-dcap123}@postgres:5432/${POSTGRES_DB:-dcap}
@@ -77,7 +77,7 @@ services:
       REDIS_PASSWORD: ${REDIS_PASSWORD:-redis123}
       JWT_SECRET_KEY: ${JWT_SECRET_KEY:-change-me-in-production}
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
-      VERSION: ${VERSION:-3.13.12}
+      VERSION: ${VERSION:-3.13.27}
       # Ключи Findings — только ENV (TASK-018; для dev fallback отключён)
       FINDINGS_ENCRYPTION_KEY: ${FINDINGS_ENCRYPTION_KEY}
       FINDINGS_HMAC_KEY: ${FINDINGS_HMAC_KEY}
@@ -107,14 +107,14 @@ services:
     build:
       context: .
       dockerfile: manager/Dockerfile
-    image: dcap/manager:${VERSION:-3.13.26}
+    image: dcap/manager:${VERSION:-3.13.27}
     environment:
       DATABASE_URL: postgresql://${POSTGRES_USER:-dcap}:${POSTGRES_PASSWORD:-dcap123}@postgres:5432/${POSTGRES_DB:-dcap}
       REDIS_URL: redis://:${REDIS_PASSWORD:-redis123}@redis:6379/0
       REDIS_PASSWORD: ${REDIS_PASSWORD:-redis123}
       JWT_SECRET_KEY: ${JWT_SECRET_KEY:-change-me-in-production}
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
-      VERSION: ${VERSION:-3.13.12}
+      VERSION: ${VERSION:-3.13.27}
     command: celery -A manager.src.workers.celery_app:app worker -Q audit_events,scanner_tasks,retention,reports -c 4 --loglevel=info
     healthcheck: # celery-worker: РЅРµ HTTP-СЃРµСЂРІРµСЂ, РїРѕСЌС‚РѕРјСѓ РќР• РЅР°СЃР»РµРґСѓРµРј HEALTHCHECK manager/Dockerfile (curl :8000/api/health)
       test: ["CMD-SHELL", "celery -A manager.src.workers.celery_app:app inspect ping --timeout=10 || exit 1"]
@@ -137,13 +137,13 @@ services:
     build:
       context: .
       dockerfile: manager/Dockerfile
-    image: dcap/manager:${VERSION:-3.13.26}
+    image: dcap/manager:${VERSION:-3.13.27}
     container_name: dcap-celery-beat
     environment:
       REDIS_URL: redis://:${REDIS_PASSWORD:-redis123}@redis:6379/0
       REDIS_PASSWORD: ${REDIS_PASSWORD:-redis123}
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
-      VERSION: ${VERSION:-3.13.12}
+      VERSION: ${VERSION:-3.13.27}
     command: celery -A manager.src.workers.celery_app:app beat --loglevel=info
     healthcheck:
       # celery beat вЂ” РїР»Р°РЅРёСЂРѕРІС‰РёРє, Р° РЅРµ HTTP-СЃРµСЂРІРµСЂ: РїСЂРѕРІРµСЂСЏРµРј Р±СЂРѕРєРµСЂ (redis) С‡РµСЂРµР· python socket.
@@ -182,12 +182,12 @@ services:
     build:
       context: ./webui
       dockerfile: Dockerfile
-    image: dcap/webui:${VERSION:-3.13.26}
+    image: dcap/webui:${VERSION:-3.13.27}
     container_name: dcap-webui
     environment:
       MANAGER_URL: http://manager:8000
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
-      VERSION: ${VERSION:-3.13.12}
+      VERSION: ${VERSION:-3.13.27}
     ports:
       - "${WEBUI_PORT:-8001}:8001"
     depends_on:
@@ -212,7 +212,7 @@ services:
       S3_SECRET_KEY: ${S3_SECRET_KEY}
       MANAGER_URL: http://manager:8000
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
-      VERSION: ${VERSION:-3.13.12}
+      VERSION: ${VERSION:-3.13.27}
     volumes:
       - s3_agent_data:/app/audit-agent-s3/data
       - s3_agent_logs:/app/audit-agent-s3/logs
@@ -236,7 +236,7 @@ services:
     environment:
       MANAGER_URL: http://manager:8000
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
-      VERSION: ${VERSION:-3.13.12}
+      VERSION: ${VERSION:-3.13.27}
     volumes:
       - linux_agent_data:/app/audit-agent-linux/data
       - linux_agent_logs:/app/audit-agent-linux/logs

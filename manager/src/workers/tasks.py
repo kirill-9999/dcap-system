@@ -15,6 +15,17 @@ from .celery_app import app
 from ..db.session import SessionLocal
 from ..config import get_config
 
+# BUG-102 (TASK-072, v3.13.27): Finding.reviewer = relationship("User") объявлен
+# строкой, а сам User живёт в manager.src.auth.models. Celery worker импортирует
+# только db.session, поэтому User в registry не попадал, и первое же обращение
+# к Finding роняло инициализацию mapper'ов всего registry:
+#   "expression 'User' failed to locate a name ('User')"
+#   -> падали run_retention (все 5 шагов) и sweep_scheduled_scans.
+# db.models не может импортировать auth.models сам (цикл: auth.models -> db.models),
+# поэтому точка гарантии — точка входа воркера. Импорт обязателен ДО любого
+# обращения к Finding / AuditLog. BUG-096 уже закрыл то же самое в api/findings.py.
+from manager.src.auth.models import User  # noqa: F401
+
 logger = logging.getLogger(__name__)
 
 

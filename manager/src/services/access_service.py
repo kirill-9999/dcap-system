@@ -8,6 +8,7 @@ from datetime import datetime, timedelta
 from collections import defaultdict
 
 from manager.src.db import models
+from manager.src.auth.models import User  # noqa: F401  # BUG-102: Finding.reviewer -> User
 from manager.src.connectors.permissions import PermissionCollectorFactory
 from manager.src.services.access_config import get_access_config
 

@@ -7,6 +7,12 @@ from typing import Dict
 from ..db import models
 from .policies import RetentionPolicy
 
+# BUG-102 (TASK-072): Finding.reviewer = relationship("User") — строка, User живёт
+# в manager.src.auth.models. Без этого импорта модуль падает при standalone-запуске
+# (Celery worker, retention по расписанию): "expression 'User' failed to locate a name".
+# Цикла нет: db.models не тянет retention, auth.models тянет только db.models.
+from manager.src.auth.models import User  # noqa: F401
+
 logger = logging.getLogger(__name__)
 
 

@@ -3,7 +3,7 @@
 > **Обновляется архитектором.** План — редко, бэклог — по мере.
 > Текущее состояние — в `STATE.md`. Архитектура — в `ARCHITECTURE.md`.
 
-**Обновлено:** 26.09.2026
+**Обновлено:** 30.09.2026
 **Стратегия:** Windows First → Linux → S3/MinIO → Enterprise Ready → Rust + DLP + SIEM
 
 ---
@@ -14,7 +14,7 @@
 |--------|--------|---------------|
 | v1.0.0-v2.1.0 | ✅ | Обнаружение, классификация, WebUI, Linux-агент |
 | **v3.0.0** | **🔄 Финальный этап** | **Enterprise Ready: S3, AD, mTLS, архивация, Findings Refactor, ENV-ключи, RBAC, админ-руководство, GitHub** |
-| v3.1.0 | 📋 | Rust Scanner, DLP/ICAP, SMB, Webhook, облака, **Auth Hardening, Per-scanner keys, BOM fix, SIEM-интеграция** |
+| v3.1.0 | 📋 | Rust Scanner (CIFS/NFS), DLP/ICAP, SMB, Webhook, облака, **Auth Hardening, Per-scanner keys, BOM fix, SIEM-интеграция**, **Cython-оптимизация, быстрые regex** |
 | v4.0.0 | 📋 | ML-классификаторы, Zero-Trust, распределённый Manager, Kafka/Kinesis SIEM |
 
 ---
@@ -40,31 +40,33 @@
 | 47.3 (bug077) | BUG-077: bbox=None для OCR + fallback full-image | TASK-041…043 | ✅ **v3.13.17** |
 | 47.4 (bug077 diag) | BUG-077 diag: Manager дефолтил bbox (H3) | TASK-044 | ✅ **v3.13.18** |
 | 47.5 (BACKLOG-086) | Встраивание OCR-фрагментов в БД | TASK-045…050 | ✅ **v3.13.19** |
-| 47.6 (BUG-080/081) | Reliability сканера: heartbeat backoff + graceful shutdown (Ctrl+C) | TASK-051…052 | ✅ **v3.13.20** |
-| 47.7 (BUG-086) | Masking контекстов: mask_context конвейером _CONTEXT_PATTERNS (критический блокер v3.0.0) | TASK-053 | ✅ **v3.13.21** |
+| 47.6 (BUG-080/081) | Reliability сканера: heartbeat backoff + graceful shutdown | TASK-051…052 | ✅ **v3.13.20** |
+| 47.7 (BUG-086) | Masking контекстов: `_CONTEXT_PATTERNS` (критический блокер) | TASK-053 | ✅ **v3.13.21** |
 | 47 (test) | Мастер-сессия: Блок 3 (Scanner deep) | — | ✅ **ЗАКРЫТ** |
 | 47.2 (test) | Мастер-сессия: Блок 8 (Мониторинг) | — | ✅ **ЗАКРЫТ** |
-| 48 (Блок 5, п.2.3) | Фильтры/пагинация/аудит/экспорт WebUI: прокси headers, fragment+export с Bearer, CSV-категории, event_source | TASK-054…059 | ✅ **v3.13.22** |
-| 48.1 (диагностика) | «BUG-087» аудит reveal: 🔴 **ложное срабатывание** — `user` без кавычек = `CURRENT_USER`; код корректен, закрыто регрессией | TASK-060 | ✅ **v3.13.23** |
-| 48.2 (BUG-095) | Аудит входов и управления пользователями: `auth_login`/`auth_failed`/`auth_logout`/`user_*`/`role_*` в `audit_logs` (152-ФЗ / GDPR / PCI DSS 10.2) | TASK-061/062 | ✅ **v3.13.24** |
-| 48.3 (BUG-096/096b/097) | 500 на `/api/findings/false-positives` (`User` из `auth.models`); починка упавших E2E; очередь сканера не встаёт навечно (`SubmitStatus` LOST, `fail_task` при исключении, логирование 404) | TASK-064/065/066 | ✅ **v3.13.25** |
-| 49 (BUG-098/099/100/101) | Ревью находок в WebUI: аудит смены статуса (`finding_confirmed`/`_false_positive`/`_archived`/`_reset` + `finding_deleted`), сброс `status=new` чистит поля ревью, пагинация `/false-positives` без 500, `file_path` = путь файла | — | ✅ **v3.13.26** |
-| 48.5 (Блок 5, п.2.4) | Отчёты/архив в WebUI | — | 📋 **следующий** |
-| 49 (Блок 5, п.7/13/14/15) | Stats, счётчики, WebUI-правки, регрессия | — | 📋 |
-| 49 | Блок 7 (Retention) | — | 📋 |
-| 50 | Блок 6 (Агенты — тестирование) | BACKLOG-080…082 | 📋 |
-| 51 | GitHub-пакет (BACKLOG-028) | BACKLOG-028/046 | 📋 |
-| 52 | Релиз v3.0.0 | — | 📋 |
+| 48 (Блок 5, п.2.3) | Фильтры/пагинация/аудит/экспорт WebUI | TASK-054…059 | ✅ **v3.13.22** |
+| 48.1 (диагностика) | «BUG-087» аудит reveal: ложное срабатывание (`CURRENT_USER`) | TASK-060 | ✅ **v3.13.23** |
+| 48.2 (BUG-095) | Аудит аутентификации и управления пользователями | TASK-061…062 | ✅ **v3.13.24** |
+| 48.3 (BUG-096/096b/097) | `/false-positives` 500, устаревшие E2E, зависшие задания | TASK-064…066 | ✅ **v3.13.25** |
+| 49 (BUG-098…101) | PATCH/bulk/DELETE аудит, reset review-полей, FP-пагинация, FP `file_path` | TASK-067…071 | ✅ **v3.13.26** |
+| 49.5 (Блок 5, п.7) | Stats — `GET /api/findings/stats` | — | 📋 **следующий** |
+| 49.6 (Блок 5, п.13) | Legacy `/count` | — | 📋 |
+| 49.7 (Блок 5, п.14) | WebUI визуально | — | 📋 |
+| 49.8 (Блок 5, п.15) | Регрессия | — | 📋 |
+| 50 | ~~Блок 7 (Retention)~~ — BUG-102 (Mapper[Finding] в Celery) | BUG-102 | ✅ **v3.13.27** |
+| 51 | Блок 6 (Агенты — тестирование) | BACKLOG-080…082 | 📋 |
+| 52 | GitHub-пакет (BACKLOG-028) | BACKLOG-028/046 | 📋 |
+| 53 | Релиз v3.0.0 | — | 📋 |
 
 ### Бэклог v3.0.0 — активные задачи
 
 | ID | Название | Приоритет | Статус |
 |----|----------|-----------|--------|
-| **BACKLOG-028** | Публикация на GitHub | 🔴 | 📋 51 |
+| **BACKLOG-028** | Публикация на GitHub | 🔴 | 📋 52 |
 | **BACKLOG-039** | Аудит NOT NULL полей | 🟡 | 📋 |
 | **BACKLOG-044** | Защита `/metrics` (JWT/basic_auth) | 🟡 | 📋 production |
 | **BACKLOG-045** | Параметризация портов экспортеров | 🟢 | 📋 |
-| **BACKLOG-046** | Полный E2E-прогон на CI | 🔴 | 📋 51 |
+| **BACKLOG-046** | Полный E2E-прогон на CI | 🔴 | 📋 52 |
 | **BACKLOG-047** | `/api/health` версия — синхронизация | 🟡 | 📋 |
 | **BACKLOG-065** | Удалить `findings_old` после проверки | 🟢 | 📋 |
 | **BACKLOG-076** | Manager: возвращать `findings_updated` (не только новые) | 🟡 | 📋 v3.1.0 |
@@ -78,7 +80,7 @@
 | **BACKLOG-084** | Prometheus → Alertmanager не настроено | 🟢 | ✅ **исправлено** 23.09 |
 | **BACKLOG-085** | **Полный OCR-пайплайн с bbox (tesseract tsv)** | 🟢 | 📋 v3.1.0 |
 | **BACKLOG-087** | **Дедупликация встроенных фрагментов** | 🟢 | 📋 v3.1.0 |
-| **BACKLOG-088** | **Шифрование fragment_data (AES-256-GCM)** | 🟡 | 📋 v3.1.0 |
+| **BACKLOG-088** | **Шифрование `fragment_data` (AES-256-GCM)** | 🟡 | 📋 v3.1.0 |
 | **BUG-076** | Сканер: `dcap_scanner_current_task` не сбрасывается | 🟢 | 📋 v3.1.0 |
 
 ### Бэклог v3.0.0 — ЗАКРЫТЫЕ (история)
@@ -114,29 +116,15 @@
 | BACKLOG-061 | WebUI v3.8: legacy Findings (деградация) | v3.11.0 |
 | BACKLOG-066 | MD5 → SHA-256 в `_legacy_fingerprint` | v3.11.0 |
 | BACKLOG-067 | X-Total-Count в `/api/findings` | v3.12.0 |
-| BACKLOG-086 | Встраивание OCR-фрагментов в БД (TASK-045…050) | v3.13.19 |
-| TASK-051 (BUG-080) | Heartbeat: backoff без спама лога (5→10→30→60→120 с) | v3.13.20 |
-| TASK-052 (BUG-081) | Graceful shutdown сканера: Ctrl+C → OCRWorker штатно | v3.13.20 |
-| TASK-053 (BUG-086) | Masking контекстов: mask_context конвейером _CONTEXT_PATTERNS (критический блокер v3.0.0 — Viewer+ видел сырые credentials в context_* через API) | v3.13.21 |
-| TASK-054 (BUG-087) | Прокси WebUI ронял заголовки ответа: X-Total-Count (пагинация), X-Fragment-*, Content-Disposition | v3.13.22 |
-| TASK-055 (BUG-088) | Fragment `<img>` без Authorization → 401; загрузка через fetch+blob с Bearer | v3.13.22 |
-| TASK-056 (BUG-089) | `/api/access/resources` 500 на PostgreSQL: `is_active == 1` для Boolean-колонки | v3.13.22 |
-| TASK-057 (BUG-090) | Фильтры findings: CSV-категории («phone, email» давало 0), пустые параметры 422, detector/fragment_type/search/order_by=id (list/count/export) | v3.13.22 |
-| TASK-058 (BUG-091) | `/api/audit` игнорировал `event_source`; фильтры WebUI со статическими опциями вместо данных `/api/audit/stats` | v3.13.22 |
-| TASK-059 (BUG-093) | Экспорт findings из WebUI 401: `window.location.href` без Bearer → fetch+blob | v3.13.22 |
-| TASK-060 (BUG-094) | «BUG-087» аудит reveal: 🔴 **ложное срабатывание** — `audit_logs.user` пишет реального пользователя, `dcap` = `CURRENT_USER` (в PG `user` — keyword, нужен `"user"`). Фикс кода не требуется; 7 unit + 3 E2E, раздел 6 в troubleshooting. ⚠️ ТЗ обозначило как BUG-087, но ID занят TASK-054 → зафиксировано как BUG-094 | v3.13.23 |
-| BACKLOG-095 (кандидат) | ~~Аудит входа не пишется~~ | ✅ закрыто в v3.13.24 |
-| TASK-061 (BUG-095) | Аудит аутентификации: `auth_login` / `auth_failed` (reason: `invalid_credentials`/`user_not_found`/`user_inactive`) / `auth_logout` — хелпер `log_auth_event()` в `manager/src/auth/audit.py`, fail-open, `_sanitize()` вырезает пароли/токены; `auth_refresh` не пишется (шум, решение из ТЗ) | v3.13.24 |
-| TASK-062 (BUG-095) | Аудит управления пользователями: `user_created` / `user_updated` / `user_deleted` / `user_password_changed` (self + admin reset) / `role_assigned` / `role_revoked` (дифф ролей) | v3.13.24 |
-| TASK-063 (BUG-095) | Алерт на N неудачных входов | 📋 v3.1.0 (SIEM) |
-| BUG-096 (новый, 27.09) | `GET /api/findings/false-positives` → **500**: `manager/src/api/findings.py:324` использует `_m.User`, а `User` определён в `manager.src.auth.models`. Найден на полном E2E-прогоне дня 48.2, вне ТЗ BUG-095 | ✅ v3.13.25 |
-| BUG-096b (новый, 27.09) | Устаревшие E2E-тесты `test_full_scan_cycle`, `test_real_scanner_end_to_end`: ждут `finding_type in {pii, credentials}` после рефакторинта v3.13.22 (теперь granular `category`: email/person/phone/aws_key) | ✅ v3.13.25 |
-| BUG-097 (новый, 28.09) | Задание зависало в `assigned` до 30 мин при исключении в `_execute_task`; оффлайн-пачка удалённой задачи давала бесконечный 404 от `POST /tasks/{id}/results` | ✅ v3.13.25 |
-| BUG-101 (новый, 29.09) | 🔴 **PATCH `/{id}` и `POST /bulk` не писались в `audit_logs`** — 0 записей `finding_confirmed`/`finding_false_positive`/`finding_updated` за 30 мин при 10+ вызовах (аудит reveal/fragment/export работал). Пробел 152-ФЗ/GDPR: решение ревью находки не прослеживается | ✅ v3.13.26 |
-| BUG-101b (новый, 29.09) | 🔴 `DELETE /api/findings/{id}` (Admin) удалял находку без записи в аудите — открытый вопрос из ТЗ, проверен в ходе фикса и закрыт (`finding_deleted`) | ✅ v3.13.26 |
-| BUG-100 (новый, 29.09) | `PATCH {status: new}` (сброс ревью) не очищал `reviewed_by`/`reviewed_at` — находка со статусом `new` выглядела одобренной прошлым ревьюером; `/false-positives` сортирует по `reviewed_at` | ✅ v3.13.26 |
-| BUG-099 (новый, 29.09) | `GET /api/findings/false-positives?offset=-1` / `?limit=-5` → **500** (в списке остались старые `limit: int = Query(100, le=1000)` / `offset: int = 0` без нижних границ; в `list_findings` clamp из BUG-084 был применён) | ✅ v3.13.26 |
-| BUG-098 (новый, 29.09) | `/false-positives` отдавал `file_path` = директория сканирования: приоритет был у `res_map` (путь ресурса) вместо `fragment_path` (путь файла), поэтому один finding давал разные пути в `/false-positives` и `/findings?status=false_positive` | ✅ v3.13.26 |
+| BACKLOG-086 | Встраивание OCR-фрагментов в БД | v3.13.19 |
+| TASK-051 (BUG-080) | Heartbeat backoff | v3.13.20 |
+| TASK-052 (BUG-081) | Graceful shutdown сканера | v3.13.20 |
+| TASK-053 (BUG-086) | Masking контекстов | v3.13.21 |
+| TASK-054…059 (BUG-087…093) | WebUI фильтры/пагинация/аудит/экспорт | v3.13.22 |
+| TASK-060 (BUG-094) | Аудит reveal — ложное срабатывание | v3.13.23 |
+| TASK-061…062 (BUG-095) | Аудит аутентификации и управления пользователями | v3.13.24 |
+| TASK-064…066 (BUG-096/096b/097) | `/false-positives` 500, E2E, зависшие задания | v3.13.25 |
+| TASK-067…071 (BUG-098…101, 101b) | PATCH/bulk/DELETE аудит, reset review, FP-пагинация, FP `file_path` | v3.13.26 |
 
 ---
 
@@ -195,7 +183,7 @@
 | BUG-073 | `uk_nhs` на US-телефоне | v3.13.15 |
 | BUG-074 | email из URL-логина | v3.13.15 |
 | BUG-075 | url = домен email | v3.13.16 |
-| BUG-077 | OCR bbox захардкожен {0,0,0,0} → None + fallback full-image в /fragment | v3.13.17 |
+| BUG-077 | OCR bbox захардкожен {0,0,0,0} → None + fallback full-image | v3.13.17 + v3.13.18 |
 
 ### 🟢 TEST-NOTE
 
@@ -216,9 +204,53 @@
 
 ---
 
+## 🐛 БАГИ БЛОКА 5 (WebUI) — 26-29.09.2026
+
+### ✅ Закрытые в v3.13.22–26
+
+| ID | Название | Закрыт в |
+|----|----------|----------|
+| BUG-087 | Прокси WebUI ронял заголовки ответа (`X-Total-Count`, `X-Fragment-*`, `Content-Disposition`) | v3.13.22 |
+| BUG-088 | Fragment `<img>` без Bearer → 401 | v3.13.22 |
+| BUG-089 | `/api/access/resources` 500 на PostgreSQL (`is_active == 1`) | v3.13.22 |
+| BUG-090 | Фильтры findings: CSV-категории, пустые параметры, detector/fragment_type/search | v3.13.22 |
+| BUG-091 | `/api/audit` игнорировал `event_source`; статические опции фильтров | v3.13.22 |
+| BUG-093 | Экспорт findings из WebUI 401 (`window.location.href`) | v3.13.22 |
+| BUG-094 | «BUG-087» аудит reveal: ложное срабатывание (CURRENT_USER vs "user") | v3.13.23 |
+| BUG-095 | Аудит аутентификации (`auth_login`/`auth_failed`) не писался | v3.13.24 |
+| BUG-096 | `/false-positives` 500 (`_m.User` → `User` из `auth.models`) | v3.13.25 |
+| BUG-096b | Устаревшие E2E-тесты (finding_type/category, RemoteDisconnected) | v3.13.25 |
+| BUG-097 | Зависшие задания + вечный 404 (SubmitStatus OK/RETRY/LOST) | v3.13.25 |
+| BUG-098 | `/false-positives` → `file_path` = директория (должен быть файл) | v3.13.26 |
+| BUG-099 | `/false-positives` → `offset=-1`/`limit=-5` → 500 (нет `_clamp_int`) | v3.13.26 |
+| BUG-100 | PATCH `status=new` не очищает `reviewed_by`/`reviewed_at` | v3.13.26 |
+| BUG-101 | PATCH + bulk не пишутся в `audit_logs` | v3.13.26 |
+| BUG-101b | DELETE findings не писался в `audit_logs` | v3.13.26 |
+
+### 🟢 Открытые (минорные)
+
+| ID | Название | Приоритет |
+|----|----------|-----------|
+| BUG-083 | `order_by=severity` — лексикографический порядок (не семантический) | 🟢 v3.1.0 |
+| BUG-085 | `/fragment` для text_line → 400 (нужно 404 + пояснение) | 🟢 v3.1.0 |
+
+### 📋 TEST-NOTE Блока 5
+
+| ID | Название |
+|----|----------|
+| TEST-NOTE-5.2 | ARCHITECTURE.md: имена полей API (`match_text` вместо `match_text_masked`, нет `fingerprint`, есть `value`/`has_fragment`/`has_encrypted`/`can_reveal`) |
+| TEST-NOTE-5.3 | Export CSV содержит BOM в начале файла |
+| TEST-NOTE-5.4 | `catalog_entries` пуста — каталог формируется динамически |
+| TEST-NOTE-5.5 | Осиротевшие сканеры после обновления (связано с BUG-081) |
+| TEST-NOTE-5.6 | `GET /api/findings` без `task_id` смешивает задачи |
+| TEST-NOTE-5.7 | `event_type=finding_reveal` vs `metadata.action=finding_revealed` |
+| TEST-NOTE-5.8 | Сканер на хосте не перезапускается автоматически после рестарта Docker/хоста |
+
+---
+
 ## 🐛 БАГИ БЛОКА 8 (Мониторинг) — 23.09.2026
 
-### ✅ Исправлено в рабочей копии
+### ✅ Исправлено
 
 | ID | Название | Статус |
 |----|----------|--------|
@@ -229,7 +261,7 @@
 
 | ID | Название | Приоритет |
 |----|----------|-----------|
-| BACKLOG-078 | Linux-агент вне Docker (убрать из docker-compose) | 🟢 v3.0.0 |
+| BACKLOG-078 | Linux-агент вне Docker | 🟢 v3.0.0 |
 | BACKLOG-080 | Тестирование Windows-агента | 🟡 v3.1.0 |
 | BACKLOG-081 | Тестирование Linux-агента | 🟡 v3.1.0 |
 | BACKLOG-082 | Тестирование S3-агента + сканирование бакетов | 🟡 v3.1.0 |
@@ -238,33 +270,38 @@
 
 ---
 
-## 📋 v3.1.0 — RUST + DLP + SIEM + HARDENING
+## 📋 v3.1.0 — RUST + DLP + SIEM + HARDENING + OPTIMIZATION
 
 ### План по дням
 
 | День | Задача | BACKLOG/BUG | Приоритет |
 |------|--------|-------------|-----------|
-| 53-54 | Rust Scanner (ядро + интеграция) | BACKLOG-036 | 🔴 |
-| 55 | ICAP Connector (DLP) | BACKLOG-032 | 🟡 |
-| 56 | DLP Политики (WebUI) | BACKLOG-033 | 🟡 |
-| 57 | SMB-сканер (Rust) | BACKLOG-035 | 🟡 |
-| 58 | **SIEM: генерация событий (Syslog + JSON)** | **BACKLOG-069** | 🔴 |
-| 59 | **SIEM: экспорт findings/audit** | **BACKLOG-070** | 🔴 |
-| 60 | **SIEM: WebUI настройки** | **BACKLOG-072** | 🟡 |
-| 61 | **Per-scanner keys** | **BACKLOG-068** | 🟡 |
-| 62 | **Multi-key режим** (ротация без downtime) | — | 🟡 |
-| 63 | **BOM fix + Scanner hardening** | **BUG-060, BUG-076** | 🟢 |
-| 64 | Обработка архивов | BACKLOG-017 | 🟡 |
-| 65 | Распределённая архитектура | BACKLOG-018 | 🔴 |
-| 66 | Расширенный мониторинг | BACKLOG-063/064 | 🟡 |
-| 67 | Red teaming, SAST, SCA | BACKLOG-022 | 🔴 |
-| 68 | Релиз v3.1.0 | — | 🔴 |
+| 53-54 | Rust Scanner (только CIFS/NFS + параллелизм) | BACKLOG-036 | 🔴 |
+| 55 | **Cython-оптимизация горячих точек** | **BACKLOG-089** | 🟡 |
+| 56 | **Быстрые regex: `cre` / `re2`** | **BACKLOG-090** | 🟡 |
+| 57 | ICAP Connector (DLP) | BACKLOG-032 | 🟡 |
+| 58 | DLP Политики (WebUI) | BACKLOG-033 | 🟡 |
+| 59 | SMB-сканер (Rust) | BACKLOG-035 | 🟡 |
+| 60 | **SIEM: генерация событий (Syslog + JSON)** | **BACKLOG-069** | 🔴 |
+| 61 | **SIEM: экспорт findings/audit** | **BACKLOG-070** | 🔴 |
+| 62 | **SIEM: WebUI настройки** | **BACKLOG-072** | 🟡 |
+| 63 | **Per-scanner keys** | **BACKLOG-068** | 🟡 |
+| 64 | **Multi-key режим** (ротация без downtime) | — | 🟡 |
+| 65 | **BOM fix + Scanner hardening** | **BUG-060, BUG-076** | 🟢 |
+| 66 | **FP-пагинация + `order_by=severity`** | **BUG-083, BUG-085** | 🟢 |
+| 67 | Обработка архивов | BACKLOG-017 | 🟡 |
+| 68 | Распределённая архитектура | BACKLOG-018 | 🔴 |
+| 69 | Расширенный мониторинг | BACKLOG-063/064 | 🟡 |
+| 70 | Red teaming, SAST, SCA | BACKLOG-022 | 🔴 |
+| 71 | Релиз v3.1.0 | — | 🔴 |
 
 ### Бэклог v3.1.0
 
 | ID | Название | Приоритет | Статус |
 |----|----------|-----------|--------|
-| BACKLOG-036 | Rust Scanner (IPC, CIFS, NFS) | 🔴 | 📋 |
+| BACKLOG-036 | **Rust Scanner — только для сетевых ФС (CIFS/NFS) и распараллеливания.** Классификаторы/PII остаются в Python | 🔴 | 📋 |
+| **BACKLOG-089** | **Cython-оптимизация горячих точек сканера** (regex-фильтры, `mask_context`, entropy, prefilter) — 3–10× на функциях, 30–50% общего ускорения | 🟡 | 📋 |
+| **BACKLOG-090** | **Быстрые regex: `cre` (PCRE + nogil) / `re2` (Google)** — замена `re` в горячих фильтрах, распараллеливание без Rust | 🟡 | 📋 |
 | BACKLOG-032 | ICAP Connector (DLP) | 🟡 | 📋 |
 | BACKLOG-033 | DLP Политики (WebUI) | 🟡 | 📋 |
 | BACKLOG-035 | SMB-сканер | 🟡 | 📋 |
@@ -273,17 +310,19 @@
 | BACKLOG-049 | Автоматизация chaos-теста scanner inactive | 🟡 | 📋 |
 | BACKLOG-063 | Presidio: производительность | 🟡 | 📋 |
 | BACKLOG-064 | Бенчмарк сканирования | 🟢 | 📋 |
-| **BACKLOG-068** | **Per-scanner keys** | 🟡 | 📋 |
-| **BACKLOG-069** | **SIEM: генерация событий (Syslog + JSON)** | 🔴 | 📋 |
-| **BACKLOG-070** | **SIEM: экспорт findings/audit** | 🔴 | 📋 |
-| **BACKLOG-072** | **SIEM: WebUI настройки** | 🟡 | 📋 |
-| **BACKLOG-076** | **Manager: `findings_updated`** | 🟡 | 📋 |
-| **BACKLOG-077** | **Сканер: heartbeat до инициализации** | 🟢 | 📋 |
-| **BACKLOG-080** | **Тестирование Windows-агента** | 🟡 | 📋 |
-| **BACKLOG-081** | **Тестирование Linux-агента** | 🟡 | 📋 |
-| **BACKLOG-082** | **Тестирование S3-агента + сканирование бакетов** | 🟡 | 📋 |
-| **BUG-060** | **BOM ломает маскирование email** | 🟢 | 📋 |
-| **BUG-076** | **Scanner: `current_task` не сбрасывается** | 🟢 | 📋 |
+| BACKLOG-068 | Per-scanner keys | 🟡 | 📋 |
+| BACKLOG-069 | SIEM: генерация событий (Syslog + JSON) | 🔴 | 📋 |
+| BACKLOG-070 | SIEM: экспорт findings/audit | 🔴 | 📋 |
+| BACKLOG-072 | SIEM: WebUI настройки | 🟡 | 📋 |
+| BACKLOG-076 | Manager: `findings_updated` | 🟡 | 📋 |
+| BACKLOG-077 | Сканер: heartbeat до инициализации | 🟢 | 📋 |
+| BACKLOG-080 | Тестирование Windows-агента | 🟡 | 📋 |
+| BACKLOG-081 | Тестирование Linux-агента | 🟡 | 📋 |
+| BACKLOG-082 | Тестирование S3-агента + сканирование бакетов | 🟡 | 📋 |
+| BUG-060 | BOM ломает маскирование email | 🟢 | 📋 |
+| BUG-076 | Scanner: `current_task` не сбрасывается | 🟢 | 📋 |
+| BUG-083 | `order_by=severity` — семантический порядок | 🟢 | 📋 |
+| BUG-085 | `/fragment` text_line → 404 + пояснение | 🟢 | 📋 |
 | BACKLOG-011 | Webhook для MinIO | 🟢 | 📋 |
 | BACKLOG-012 | Облачные хранилища | 🟢 | 📋 |
 | BACKLOG-017 | Обработка архивов | 🟡 | 📋 |
@@ -292,17 +331,38 @@
 
 ---
 
+## 💡 Идеи для будущих версий
+
+| ID | Название | Версия |
+|----|----------|--------|
+| **BACKLOG-089** | **Cython-оптимизация** — перевод 5–7 горячих функций в `.pyx` (`mask_context`, `_filter_url_over_email_finding`, `_filter_spacy_noise`, `_filter_uk_nhs_with_phone`, entropy, prefilter) — 3–10× на функциях, 30–50% общего ускорения сканирования | 📋 v3.1.0 |
+| **BACKLOG-090** | **Быстрые regex** — `cre` (PCRE + nogil, распараллеливание без Rust) / `re2` (ReDoS-устойчивость, линейное время) через Cython | 📋 v3.1.0 |
+| BACKLOG-091 | TruffleHog — верификация credentials (валидность токенов через API провайдера) | 📋 v3.1.0+ |
+| BACKLOG-092 | **Гибрид Cython + Rust**: Cython для горячих точек Python, Rust для сетевых ФС и параллелизма | 📋 v3.1.0+ |
+
+### Находки Блока 7 (Retention) — из тестирования, день 50
+
+| ID | Название | Статус | Приоритет |
+|----|----------|--------|-----------|
+| TEST-NOTE-7.1 | `findings_archive` — legacy-таблица (старая модель findings), отсутствует в ARCHITECTURE.md | 📋 док | 🟢 |
+| TEST-NOTE-7.2 | `last_run` / `last_result` retention не сохраняются в БД — только в памяти процесса и в `data/retention_state.json`, который **не смонтирован** в контейнер воркера, поэтому результат выполнения retention через Celery нельзя проверить через `/api/retention/status`. Нужен общий том либо запись результата в БД | 📋 v3.1.0 | 🟡 |
+| TEST-NOTE-7.3 | `findings.ttl_days=180` — удаляется без архивации (в отличие от `audit_events`) | 📋 v3.1.0 | 🟢 |
+| TEST-NOTE-7.4 | `dry_run` через `POST /api/retention/run` работает даже без Celery (задача выполняется синхронно в процессе Manager) — поэтому этот путь **не способен поймать BUG-102**; учтено в `tests/e2e/test_retention_e2e.py` | ✅ учтено | — |
+| TEST-NOTE-7.5 | Flower не видит worker'ов (`Inspect failed`) — не критично | 🟢 v3.1.0 | 🟢 |
+
+---
+
 ## 📋 v4.0.0 — AI/ML + DISTRIBUTED
 
 | День | Задача | Приоритет |
 |------|--------|-----------|
-| 69-70 | ML-классификаторы | 🔴 |
-| 71 | Аномалии в аудите | 🟡 |
-| 72-73 | Zero-Trust архитектура | 🔴 |
-| 74 | Распределённый Manager | 🔴 |
-| 75 | **SIEM: Kafka / Kinesis (streaming)** | 🟡 |
-| 76 | Версионирование данных | 🟢 |
-| 77 | Релиз v4.0.0 | 🔴 |
+| 72-73 | ML-классификаторы | 🔴 |
+| 74 | Аномалии в аудите | 🟡 |
+| 75-76 | Zero-Trust архитектура | 🔴 |
+| 77 | Распределённый Manager | 🔴 |
+| 78 | **SIEM: Kafka / Kinesis (streaming)** | 🟡 |
+| 79 | Версионирование данных | 🟢 |
+| 80 | Релиз v4.0.0 | 🔴 |
 
 ---
 
@@ -311,10 +371,10 @@
 | Версия | Задач | Выполнено | Прогресс |
 |--------|-------|-----------|----------|
 | v1.0.0-v2.1.0 | 27 | 27 | 100% ✅ |
-| **v3.0.0** | **87 + 9 (Блок 8) + 3 (BUG-077) + 1 (BACKLOG-086) + 1 (BUG-086) + 8 (BUG-087…094) + 3 (TASK-061/062/063 — BUG-095)** | **78 + 3 испр. + 3 (v3.13.17) + 1 (v3.13.18) + 1 (v3.13.19) + 2 (v3.13.20) + 1 (v3.13.21) + 6 (v3.13.22) + 1 (v3.13.23) + 2 (v3.13.24)** | **~89% 🔄** |
-| v3.1.0 | 26 | 0 | 0% 📋 |
+| **v3.0.0** | **~95** | **~88** | **~93% 🔄** |
+| v3.1.0 | 31 | 0 | 0% 📋 |
 | v4.0.0 | 9 | 0 | 0% 📋 |
-| **ИТОГО** | **~157** | **~116** | **~74%** |
+| **ИТОГО** | **~162** | **~115** | **~71%** |
 
 ---
 
@@ -333,22 +393,11 @@
 - **`STATE.md`** — текущее состояние проекта.
 - **`STATE_TEST_SESSION.md`** — протокол тестирования.
 - **`ARCHITECTURE.md`** — архитектура, модели, API, SIEM.
-- **`TZ_FIX_SPRINT.md`** — ТЗ №1 (закрыто).
-- **`TZ_FIX_SPRINT_2.md`** — ТЗ №2 (закрыто).
-- **`TZ_FIX_SPRINT_3.md`** — ТЗ №3 (закрыто).
-- **`TZ_FIX_SPRINT_4.md`** — ТЗ №4 (закрыто).
-- **`TZ_FIX_SPRINT_5.md`** — ТЗ №5 (закрыто).
-- **`TZ_FIX_SPRINT_6.md`** — ТЗ №6 (закрыто).
-- **`TZ_FIX_SPRINT_7.md`** — ТЗ №7 (закрыто).
-- **`TZ_FIX_BUG077.md`** — ТЗ №8, BUG-077 (закрыто).
-- **`TZ_BACKLOG_086_EMBED_FRAGMENTS.md`** — BACKLOG-086 (закрыто).
-- **`TZ_BUG080_081_SCANNER_RELIABILITY.md`** — BUG-080/081 (закрыто).
-- **`TZ_FIX_BUG086_MASK_CONTEXT.md`** — BUG-086, masking контекстов (закрыто).
-- **Блок 5 п.2.3 (BUG-087…093)** — выполнен без отдельного ТЗ-файла: подтверждено диагностикой живого стека, отчёт `prompts/reports/day_48_block5_webui_filters_report.md`.
+- **ТЗ (архив):** `TZ_FIX_SPRINT.md` … `TZ_FIX_BUG077.md`, `TZ_BACKLOG_086_EMBED_FRAGMENTS.md`, `TZ_BUG080_081_SCANNER_RELIABILITY.md`, `TZ_FIX_BUG086_MASK_CONTEXT.md`, `TZ_FIX_BUG095_AUTH_AUDIT.md`, `TZ_FIX_BUG096_097.md`, `TZ_FIX_SPRINT_BUG098-101.md`.
 - **`SECURITY.md`**, **`docs/security_checklist.md`**, **`docs/admin-guide/05-security.md`**.
 
 ---
 
-**Актуально на:** 27.09.2026
-**Версия:** v3.13.24
-**Следующая цель:** v3.0.0 (релиз) — осталось Блок 5 (WebUI, п.2.4 отчёты/архив), Блок 7 (Retention), Блок 6 (Агенты), GitHub
+**Актуально на:** 30.09.2026
+**Версия:** v3.13.27
+**Следующая цель:** v3.0.0 (релиз) — осталось Блок 5 (п.7, 13, 14, 15), Блок 6 (Агенты), GitHub

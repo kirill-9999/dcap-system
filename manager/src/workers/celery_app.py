@@ -13,9 +13,24 @@
 import logging
 
 from celery import Celery
+from sqlalchemy.orm import configure_mappers
 
 from ..config import get_config
 from .beat_schedule import BEAT_SCHEDULE
+
+# BUG-102 (TASK-072, v3.13.27): явная инициализация SQLAlchemy mapper'ов при
+# импорте celery_app. Порядок обязателен: сначала оба модуля моделей (db.models
+# и auth.models — из-за relationship("User") у Finding), затем configure_mappers().
+#
+# Нужно, чтобы воркер падал сразу на старте с понятным трейсбеком, а не тихо
+# ломал каждую задачу в рантайме: SQLAlchemy конфигурирует mapper'ы всего
+# registry одним проходом, поэтому одна неразрешённая строка в relationship()
+# роняет не одну задачу, а все сразу (run_retention, sweep_scheduled_scans,
+# process_audit_event, ...). Именно так выглядел BUG-102.
+from manager.src.db import models  # noqa: F401
+from manager.src.auth.models import User  # noqa: F401
+
+configure_mappers()
 
 logger = logging.getLogger(__name__)
 

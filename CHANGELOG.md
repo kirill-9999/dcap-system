@@ -7,7 +7,68 @@
 
 ## [Unreleased] — v3.0.0 (release)
 
-**Осталось:** Блок 5 (WebUI, п.2.4), Блок 7 (Retention), Блок 6 (Агенты), GitHub-пакет.
+**Осталось:** Блок 5 (WebUI, п.2.4), Блок 6 (Агенты), GitHub-пакет.
+(Блок 7 — Retention — закрыт в v3.13.27.)
+
+---
+
+## [3.13.27] — 2026-09-30 — День 50, BUG-102: Retention и sweep_scheduled_scans падали на Mapper[Finding] ... 'User'
+
+### Fixed
+- **BUG-102 🔴 critical — Retention и `sweep_scheduled_scans` не работали вообще** — 📁 `manager/src/workers/tasks.py` (+ `celery_app.py`, `retention/*`, `services/access_service.py`)
+  Тот же класс бага, что BUG-096, но в другом модуле: `Finding.reviewer` объявлен
+  строкой — `relationship("User", ...)`, а сам `User` определён в
+  `manager/src/auth/models.py`. Celery-воркер этот модуль не импортировал, поэтому
+  первое же обращение к `Finding` роняло инициализацию mapper'ов **всего** registry:
+
+  ```
+  When initializing mapper Mapper[Finding(findings)],
+  expression 'User' failed to locate a name ('User')
+  ```
+
+  Ошибка каскадная: после первого сбоя `Mapper[Finding]` все последующие попытки
+  падали с «One or more mappers failed to initialize». `run_retention` при этом
+  **формально отчитывался об успехе** — все 5 шагов (архивация audit, архивация
+  findings, очистка архивных таблиц, очистка tasks, экспорт) возвращали
+  `{"archived": 0, "error": "When initializing mapper ..."}`, то есть цикл не делал
+  ничего. `sweep_scheduled_scans` возвращал `{"error": "When initializing mapper ..."}`
+  и не запускал запланированные сканирования.
+  **Решение:** явный импорт `User` в точку входа воркера до первого обращения к
+  моделям (Вариант A ТЗ) + fail-fast `configure_mappers()` в `celery_app.py`
+  (Вариант B, страховка). Вариант C (`db/__init__.py`) отклонён: `auth.models`
+  импортирует `Base` из `db.models`, при первом импорте `auth.models` возникает
+  частичный цикл.
+  **Проверено «заодно»:** тот же дефект был в `retention/archiver.py`,
+  `retention/cleaner.py`, `retention/exporter.py` и `services/access_service.py` —
+  они работали только потому, что в API-процессе раньше них импортировался
+  `auth.models`; в воркере и при standalone-запуске гарантии не было.
+  Live: `POST /api/retention/run?dry_run=true` → все 5 шагов без `error`;
+  `POST /api/retention/start` (Celery) → задача выполнена за 0.15 с без
+  mapper-ошибки; `sweep_scheduled_scans` → `{'dispatched': []}`, ошибки нет.
+
+### Added
+- **TASK-073 — тесты BUG-102** — 📁 `tests/unit/test_celery_mapper_v31327.py` (13), `tests/e2e/test_retention_e2e.py` (1)
+  Ключевой приём: регрессионные проверки выполняются в **чистом подпроцессе**,
+  который импортирует ровно то, что импортирует Celery-воркер. Проверка в том же
+  процессе pytest не годится — `User` нужен в registry глобально и появляется там
+  при первом же импорте любого API-модуля, поэтому баг маскировался бы и тест
+  проходил бы на сломанном коде. На коде без фикса падают 12 из 13 тестов с
+  настоящим сообщением `failed to locate a name ('User')`.
+  Функциональный сценарий (`run_retention` + `sweep_scheduled_scans` на временной
+  SQLite) готовит схему в родительском процессе и открывает её из подпроцесса —
+  так `Base.metadata.create_all` не требует импортировать `auth.models`, и падение
+  остаётся именно mapper-ошибкой, а не `NoReferencedTableError`.
+- **TEST-NOTE-7.1…7.5** — зафиксированы в `ROADMAP.md` (`findings_archive` —
+  legacy-таблица вне ARCHITECTURE.md; `last_run`/`last_result` retention живут
+  только в памяти; `findings.ttl_days=180` без архивации; dry_run через API
+  работает и без Celery; Flower не видит worker'ов).
+
+### Changed
+- Версия 3.13.26 → **3.13.27**: `.env`, `.env.example`, `docker-compose.yml`
+  (включая устаревшие fallback `${VERSION:-3.13.12}`, из-за которых образы
+  собирались со старой версией при отсутствии `.env`).
+- Полный прогон: **317 unit passed** (было 304, +13), **47 E2E passed / 6 skipped**
+  (было 46/6, +1).
 
 ---
 

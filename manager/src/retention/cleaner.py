@@ -7,6 +7,10 @@ from typing import Dict
 from ..db import models
 from .policies import RetentionPolicy
 
+# BUG-102 (TASK-072): см. комментарий в retention/archiver.py — гарантия загрузки
+# User до mapper init (Finding.reviewer = relationship("User")).
+from manager.src.auth.models import User  # noqa: F401
+
 logger = logging.getLogger(__name__)
 
 
