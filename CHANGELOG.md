@@ -7,8 +7,8 @@
 
 ## [Unreleased] — v3.0.0 (release)
 
-**Осталось:** Блок 5 (WebUI, п.2.4), Блок 6 (Агенты), GitHub-пакет.
-(Блок 7 — Retention — закрыт в v3.13.27. Фикс-спринт Блок 9 — закрыт в v3.13.28.)
+**Осталось:** Блок 5 (WebUI, п.2.4), Блок 6.5 (сбор прав Windows, BUG-123/127), дотест Linux-агента (метрики с хоста, сквозной поток после restart WSL, BUG-130), Scanner (S3-коннектор), Блок 11, GitHub-пакет.
+(Блок 7 — Retention — закрыт в v3.13.27. Фикс-спринт Блок 9 — закрыт в v3.13.28. Блок 6 — закрыт в v3.13.28 на 5 из 6 под-блоков.)
 
 ---
 
@@ -94,6 +94,36 @@
 - `tests/e2e`: **46 passed, 12 skipped** против живого Manager на `:18000`.
 - `manager/tests`: 44 passed, 1 пре-существующее падение (`test_retention.py::test_archiver_findings`,
   `Finding.file_path` → `fragment_path`, не связано со спринтом).
+
+### Fixed — Блок 6 (Агенты)
+
+**BUG-120 🔴 critical — S3-агент лез в AWS S3 вместо MinIO** — 📁 `.env`, `docker-compose.yml`, `docker-compose.s3.yml`
+S3-агент не отправлял события (`events_sent: 0` за 3 недели). Причина:
+в `.env` задан `S3_ENDPOINT=https://s3.amazonaws.com` и пустые credentials.
+**Решение:** `S3_ENDPOINT=http://host.docker.internal:9000`, MinIO развёрнут нативно.
+Live: 16 событий в `audit_logs` (`event_source='s3_agent'`).
+
+**BUG-122 🟡 medium — systemd-unit Linux-агента не portable** — 📁 `audit-agent-linux/service/*`
+Unit-файл содержал `User=kirill` и `/home/kirill/dcap-system/...` — на любом другом хосте не работал.
+**Решение:** плейсхолдеры `__DCAP_USER__` / `__DCAP_HOME__` / `__DCAP_PYTHON__` + `install.sh` подставляет.
+
+### Added — Блок 6 (Агенты)
+
+- **Windows-агент как служба** (`DCAPAuditAgent`, Automatic) — читает Security Log, отправляет 4663/4656/4660.
+- **Linux-агент в WSL 2** — systemd-user (`~/.config/systemd/user/dcap-audit-agent.service`), использует `watchdog`.
+- **MinIO нативный** (`E:\Dev\MinIO\bin\minio.exe`) — бакет `dcap-audit-logs`, seed-логи.
+- **Setup-скрипты:** `scripts/minio-seed/access-logs/*.json`, `*.csv`.
+- **Audit Policy + SACL на Windows** — `auditpol` + `FileSystemAuditRule` через `S-1-1-0`.
+- **Ubuntu 22.04 в WSL 2** — установлен, systemd включён через `/etc/wsl.conf`.
+
+### Known issues (v3.1.0)
+
+- **BUG-123** — Windows-агент: сбор прав = 0 (2 бага: распаковка ACE, `win32security.*` → `win32file.*`).
+- **BUG-135** — S3-агент: `json.loads` падает на BOM.
+- **BUG-125** — Linux-агент: `MANAGER_URL` env игнорируется.
+- **BUG-130** — Linux-агент: retry без backoff.
+- **BUG-131** — WSL → Manager: `localhost:8000` терялся при зависании Docker (само-исправился).
+- **BUG-132** — S3-агент не переустанавливает соединение после перезагрузки Docker.
 
 ---
 

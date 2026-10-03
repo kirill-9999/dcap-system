@@ -1,0 +1,29 @@
+[
+  {
+    "eventName": "s3:ObjectAccessed:Get",
+    "bucket": { "name": "dcap-audit-logs" },
+    "object": { "key": "docs/report.pdf" },
+    "userIdentity": { "principalId": "alice" },
+    "source": { "host": "10.0.0.5" },
+    "api": { "name": "GetObject" },
+    "eventTime": "2026-10-03T10:00:01Z"
+  },
+  {
+    "eventName": "s3:ObjectCreated:Put",
+    "bucket": { "name": "dcap-audit-logs" },
+    "object": { "key": "uploads/data.csv" },
+    "userIdentity": { "principalId": "bob" },
+    "source": { "host": "10.0.0.7" },
+    "api": { "name": "PutObject" },
+    "eventTime": "2026-10-03T10:00:05Z"
+  },
+  {
+    "eventName": "s3:ObjectRemoved:Delete",
+    "bucket": { "name": "dcap-audit-logs" },
+    "object": { "key": "old/temp.txt" },
+    "userIdentity": { "principalId": "alice" },
+    "source": { "host": "10.0.0.5" },
+    "api": { "name": "DeleteObject" },
+    "eventTime": "2026-10-03T10:00:15Z"
+  }
+]

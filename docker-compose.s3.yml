@@ -5,8 +5,11 @@ version: '3.8'
 services:
   s3-agent:
     build:
-      context: ./audit-agent-s3
-      dockerfile: Dockerfile
+      # Контекст — корень репо: агент импортирует пакет shared/ (event_schema),
+      # поэтому context: ./audit-agent-s3 приводит к ошибке сборки
+      # «failed to calculate checksum ... /shared: not found».
+      context: .
+      dockerfile: audit-agent-s3/Dockerfile
     container_name: dcap-s3-agent
     environment:
       S3_ENDPOINT: ${S3_ENDPOINT:-https://s3.amazonaws.com}
@@ -16,6 +19,16 @@ services:
       S3_SECRET_KEY: ${S3_SECRET_KEY}
       S3_POLL_INTERVAL: ${S3_POLL_INTERVAL:-60}
       S3_MAX_FILES_PER_POLL: ${S3_MAX_FILES_PER_POLL:-100}
+      # Ниже — параметры, на которые ссылается config.json, но которые раньше
+      # не пробрасывались: агент читал их из env как есть и молча получал
+      # дефолт из config.json, из-за чего S3_VERIFY_SSL=false и MAX_ERROR_DELAY
+      # из .env не влияли на поведение (Блок 6.3, фикс BUG-120).
+      S3_VERIFY_SSL: ${S3_VERIFY_SSL:-true}
+      S3_SOURCE_TYPE: ${S3_SOURCE_TYPE:-s3}
+      MAX_ERROR_DELAY: ${MAX_ERROR_DELAY:-300}
+      MANAGER_TIMEOUT: ${MANAGER_TIMEOUT:-30}
+      MANAGER_MAX_RETRIES: ${MANAGER_MAX_RETRIES:-3}
+      MANAGER_RETRY_DELAY: ${MANAGER_RETRY_DELAY:-5}
       MANAGER_URL: ${MANAGER_URL:-http://manager:8000}
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
     volumes:

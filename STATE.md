@@ -5,7 +5,7 @@
 **Обновлено:** 03.10.2026
 **Текущая версия:** v3.13.28
 **Целевая версия:** v3.0.0 (релиз)
-**Статус:** 🟢 Блоки 1, 2, 3, 4, 5, 7, 8, **9 (Безопасность)** — ✅ ЗАКРЫТЫ. Фикс-спринт Блок 9 (10 багов) ✅ v3.13.28. Следующий шаг — Блок 6 (Агенты).
+**Статус:** 🟢 Блоки 1, 2, 3, 4, 5, 6, 7, 8, 9 — ✅ ЗАКРЫТЫ. Следующий шаг — дотестировать Linux-агент (метрики, сквозной поток), затем Блок 6.5 (сбор прав Windows), затем Scanner (S3-коннектор).
 
 ---
 
@@ -13,11 +13,11 @@
 
 | Параметр | Значение |
 |----------|----------|
-| Текущий день | Фикс-спринт Блок 9 (10 багов безопасности) — Блок 9 закрыт |
+| Текущий день | 52 (Блок 6 — Агенты) — закрыт |
 | Статус дня | ✅ Выполнен |
-| Последний принятый отчёт | `block9_fix_sprint_v31328_report.md` (v3.13.28) |
-| Следующий шаг | Блок 6 (Агенты) — 3-5 ч |
-| Открытые вопросы к архитектору | 1) 3 новые BACKLOG (094, 096, 093); 2) 13 TEST-NOTE (5.2…5.13, 7.1…7.5); 3) BUG-083, 085 — минорные, в v3.1.0; 4) SQLAlchemy не закреплён в requirements — см. «Открытые проблемы» |
+| Последний принятый отчёт | `block6_agents_full_report.md` (v3.13.28) |
+| Следующий шаг | Linux-агент (метрики, сквозной поток) → Блок 6.5 → Scanner |
+| Открытые вопросы к архитектору | 1) BUG-123 (сбор прав Windows) — Блок 6.5; 2) BUG-125 (MANAGER_URL); 3) BUG-130 (backoff); 4) BUG-135 (BOM в JSON); 5) Scanner S3-коннектор — тестирование |
 
 ---
 
@@ -49,138 +49,146 @@
 | 48.2 (BUG-095) | Аудит аутентификации и управления пользователями | **v3.13.24** | `day_48.2_bug095_auth_audit_report.md` |
 | 48.3 (BUG-096/096b/097) | `/false-positives` 500, устаревшие E2E, зависшие задания | **v3.13.25** | `day_48.3_bug096_097_report.md` |
 | 49 (BUG-098…101, 101b) | PATCH/bulk/DELETE аудит, reset review, FP-пагинация, FP `file_path` | **v3.13.26** | `day_49_bug098_101_report.md` |
-| **50 (BUG-102)** | **Retention + sweep падали на Mapper[Finding] ... 'User' (фикс в 6 модулях)** | **v3.13.27** | `day_50_bug102_celery_mapper_report.md` |
-| **Фикс-спринт Блок 9** | **10 багов безопасности: BUG-103/105/106/107/108/110/111/114/115/116 + фикс регресса psycopg** | **v3.13.28** | `block9_fix_sprint_v31328_report.md` |
+| 50 (BUG-102) | Retention + sweep падали на Mapper[Finding] ... 'User' | **v3.13.27** | `day_50_bug102_celery_mapper_report.md` |
+| **51 (Блок 9)** | **Фикс-спринт Блок 9 (Безопасность)** — 10 BUG | **v3.13.28** | `block9_fix_sprint_v31328_report.md` |
+| **52 (Блок 6)** | **Блок 6 (Агенты): Windows + Linux + S3 + MinIO** | **v3.13.28** | `block6_agents_full_report.md` |
 
 ---
 
 ## 🔴 Открытые проблемы
 
-### 🟡 Важные (не блокеры v3.0.0)
+### 🔴 Критичные (v3.0.0 / v3.1.0)
 
 | ID | Проблема | Статус | Приоритет |
 |----|----------|--------|-----------|
-| BACKLOG-094 | WebUI/Manager не пересобирается автоматически при `up -d` | 📋 v3.0.0 | 🟡 |
-| TEST-NOTE-5.5 | Осиротевшие сканеры после обновления | 📋 v3.0.0 | 🟡 |
-| TEST-NOTE-5.11 | E2E `_assign_task` конкурирует с живым сканером | 📋 v3.0.0 | 🟡 |
-| TEST-NOTE-5.12 | `--remove-orphans` сносит основной стек | 📋 v3.0.0 | 🟡 |
-| BACKLOG-046 | Полный E2E-прогон на CI (seed + изоляция сканера) | 📋 v3.0.0 | 🔴 |
-| NEW (v3.13.28) | SQLAlchemy не закреплён в requirements — смена мажорной версии ломает запуск на PG. Пока обойдено `_normalize_url()`, но стоит закрепить версию | 📋 v3.0.0 | 🟡 |
-| NEW (v3.13.28) | Manager не маскирует `context_*_masked` сам — доверяет суффиксу. Сканер-компромисс положит сырые секреты в БД (проверено вручную) | 📋 v3.0.0 | 🟡 |
-| **NEW (v3.13.28)** | **Потолок параллелизма = 15, а не 30.** `AuthMiddleware.dispatch` держит сессию открытой через весь `call_next` (`middleware.py:232` — `return` внутри `try`, `finally: db.close()` срабатывает после хендлера). Итого 2 соединения на авторизованный запрос: пул `10 + 20 = 30` делится пополам. При 16 потоках — `QueuePool limit ... reached`, 30-секундные таймауты. `tests/load/test_api_load.py::test_get_findings_load` (20 потоков) не может пройти. Фикс: eagerly грузить роли (`selectinload(User.roles)`) и закрывать сессию в middleware — `DetachedInstanceError` из BUG-048b не вернётся | 📋 **v3.1.0** | 🔴 |
+| **BUG-117** | Manager не маскирует контексты сам (defense-in-depth) | 📋 v3.0.0 hotfix | 🔴 |
+| **BUG-118** | Auth middleware держит 2 соединения → потолок 15 | 📋 v3.1.0 | 🔴 |
+| **BUG-135** | S3-агент: `json.loads` падает на BOM (UTF-8 BOM) | 📋 v3.1.0 | 🟡 |
+| **BUG-123** | Windows-агент: сбор прав = 0 (2 бага) | 📋 Блок 6.5 | 🟡 |
+| **BUG-130** | Linux-агент: retry без backoff при ошибке отправки прав | 📋 v3.1.0 | 🟡 |
+| **BACKLOG-044** | `/metrics` публичный | 📋 v3.0.0 production | 🟡 |
 
-### 🟢 Минорные (v3.1.0)
+### 🟡 Важные (не блокеры v3.0.0)
 
-| ID | Проблема | Приоритет |
-|----|----------|-----------|
-| BUG-060 | BOM ломает маскирование email | 🟢 v3.1.0 |
-| BUG-061 | Сканер не восстанавливает HTTP после падения Manager | 🟡 v3.1.0 |
-| BUG-076 | Scanner: `current_task` не сбрасывается | 🟢 v3.1.0 |
-| BUG-083 | `order_by=severity` — лексикографический | 🟢 v3.1.0 |
-| BUG-085 | `/fragment` для text_line → 400 | 🟢 v3.1.0 |
-| BACKLOG-076 | Manager: `findings_updated` | 🟡 v3.1.0 |
-| BACKLOG-077 | Сканер: heartbeat до инициализации | 🟢 v3.1.0 |
-| BACKLOG-085 | OCR bbox (tesseract tsv) | 🟢 v3.1.0 |
-| BACKLOG-087 | Дедупликация фрагментов | 🟢 v3.1.0 |
-| BACKLOG-088 | Шифрование `fragment_data` | 🟡 v3.1.0 |
-| BACKLOG-089 | Cython-оптимизация | 🟡 v3.1.0 |
-| BACKLOG-090 | Быстрые regex: `cre`/`re2` | 🟡 v3.1.0 |
-| BACKLOG-091 | TruffleHog — верификация credentials | 🟡 v3.1.0+ |
-| BACKLOG-092 | Гибрид Cython + Rust | 🟡 v3.1.0+ |
-| BACKLOG-093 | Редизайн WebUI (визуал) | 🟢 v3.1.0 |
-| BACKLOG-096 | `run_scanner.py` — `start_metrics_server` | 🟢 v3.1.0 |
-| TEST-NOTE-5.3 | Export CSV BOM | 🟢 v3.1.0 |
-| TEST-NOTE-5.9 | `by_detector` отсутствует в `/stats` | 🟢 v3.1.0 |
-| TEST-NOTE-5.13 | Stale-сканеры в БД | 🟢 v3.1.0 |
-| TEST-NOTE-7.2 | `retention.state` — в файле воркера | 📋 v3.1.0 |
-| TEST-NOTE-7.3 | `findings.ttl_days=180` — без архивации | 📋 v3.1.0 |
-| TEST-NOTE-7.5 | Flower не видит worker'ов | 🟢 v3.1.0 |
+| ID | Проблема | Статус |
+|----|----------|--------|
+| BUG-121 | README Windows-агента: неверный SACL (`icacls /audit` не существует) | 📋 v3.1.0 |
+| BUG-122 | Linux-агент: unit-файл не portable | ✅ **fixed v3.13.28** |
+| BUG-124 | `docker-compose.s3.yml` конфликт по `container_name` | 📋 v3.1.0 |
+| BUG-125 | Linux-агент: `MANAGER_URL` env игнорируется | 📋 v3.1.0 |
+| BUG-126 | S3-агент: `verify_ssl` строковый, не bool | 📋 v3.1.0 |
+| BUG-127 | Windows-агент: «Manager недоступен?» при отправке прав | 📋 вместе с BUG-123 |
+| BUG-128 | Кириллица в логах (UTF-8 vs PowerShell 5.1) | 📋 док |
+| BUG-129 | Windows-агент: шум от собственного чтения Security Log | 📋 v3.1.0 |
+| BUG-131 | WSL → Manager: `localhost:8000` терялся при зависании Docker | ✅ **само-исправился после перезагрузки** |
+| BUG-132 | S3-агент не переустанавливает соединение после перезагрузки Docker | 🟢 v3.1.0 |
+| BUG-134 | `mc.exe` без alias → файл в локальную папку (не баг DCAP) | 🟢 док |
+| BACKLOG-094 | WebUI/Manager не пересобирается автоматически при `up -d` | 📋 v3.0.0 |
+| BACKLOG-046 | Полный E2E-прогон на CI | 📋 v3.0.0 |
+| TEST-NOTE-5.5 | Осиротевшие сканеры после обновления | 📋 v3.0.0 |
+| TEST-NOTE-5.11 | E2E `_assign_task` конкурирует с живым сканером | 📋 v3.0.0 |
+| TEST-NOTE-5.12 | `--remove-orphans` сносит основной стек | 📋 v3.0.0 |
 
-### 📋 Документация
+### 📝 TEST-NOTE (Блок 6)
 
-| ID | Проблема |
+| ID | Название |
 |----|----------|
-| TEST-NOTE-5.2 | ARCHITECTURE.md: имена полей API |
-| TEST-NOTE-5.4 | `catalog_entries` пуста |
-| TEST-NOTE-5.6 | `GET /api/findings` без `task_id` смешивает задачи |
-| TEST-NOTE-5.7 | `event_type=finding_reveal` vs `metadata.action=finding_revealed` |
-| TEST-NOTE-5.8 | Сканер не перезапускается автоматически |
-| TEST-NOTE-5.10 | Глобальная статистика включает устаревшие findings |
-| TEST-NOTE-7.1 | `findings_archive` — legacy-таблица |
-| TEST-NOTE-7.4 | `run` (sync) ≠ `start` (Celery) |
+| TEST-NOTE-6.1 | MinIO через нативные бинарники (registry proxy) |
+| TEST-NOTE-6.2 | `sudo` требует пароль в WSL — обход через `pip --user` |
+| TEST-NOTE-6.3 | CloudTrail-формат seed-логов не поддерживается конвертером |
+| TEST-NOTE-6.4 | Linux-агент использует `watchdog`, не `inotifywait` |
+| TEST-NOTE-6.5 | Проверка прав — в PostgreSQL, не в SQLite |
+| TEST-NOTE-6.6 | Счётчик S3 `events_sent=16` при 9 валидных (историч.) |
+| TEST-NOTE-6.7 | Python 3.13 DeprecationWarning на `datetime.utcnow()` |
+| TEST-NOTE-6.8 | Кириллица в логах — PowerShell 5.1 читает ANSI |
+| TEST-NOTE-6.9 | Docker Desktop зависает после длительной работы |
+| TEST-NOTE-6.10 | Rate-limit 300/60s мешает интенсивному тестированию |
+
+### 📝 TEST-NOTE (Блок 9, ранее)
+
+| ID | Название |
+|----|----------|
+| TEST-NOTE-9.1 | Rate-limit per-IP, whitelist не параметризован |
+| TEST-NOTE-9.2 | Prometheus → Manager plain HTTP |
+| TEST-NOTE-9.3 | Prometheus 5/6 при незапущенном сканере |
+| TEST-NOTE-9.5 | `check_hostname=False` на клиентском контексте |
+| TEST-NOTE-9.7 | `from_env_or_default` без fail-fast |
+| TEST-NOTE-9.8 | `SecretsManager` — мёртвый код |
+| TEST-NOTE-9.9 | Ротация ключей не реализована (техдолг ТЗ 40.1) |
+| TEST-NOTE-9.10 | Артефакты старых E2E в `audit_logs` |
+| TEST-NOTE-9.11 | ORM PK ≠ БД PK (`audit_logs`) |
+| TEST-NOTE-9.12 | `default={}` (mutable) в модели AuditLog |
+| TEST-NOTE-9.13 | `source_host` = IP WebUI, не клиента |
+| TEST-NOTE-9.15 | `commit` на каждое событие аудита |
+| TEST-NOTE-9.16 | `action` ≠ `event_type` в audit_logs |
+| TEST-NOTE-9.17 | `require_viewer` не используется, = `require_auth` |
+| TEST-NOTE-9.18 | `user_roles` без PK/CASCADE |
 
 ---
 
 ## 🎯 Ключевые решения
 
-**Findings Refactor:**
-- Findings = строка/фрагмент, гибрид masked + AES-256-GCM.
-- HMAC-SHA256 fingerprint.
-- Ключи — только ENV (`FINDINGS_ENCRYPTION_KEY`, `FINDINGS_HMAC_KEY`).
-- Scanner fail-fast без ключей.
-- Дедупликация Manager — глобальная по fingerprint.
+**Агенты (Блок 6, v3.13.28):**
+- **Windows-агент:** служба `DCAPAuditAgent` (Automatic), читает Security Log через `wevtutil`, отправляет события 4663/4656/4660.
+- **Linux-агент:** развёрнут в WSL 2 (Ubuntu 22.04), systemd-user (`~/.config/systemd/user/dcap-audit-agent.service`), переживает restart WSL, использует `watchdog` (не `inotifywait`).
+- **S3-агент:** работает с MinIO (нативный, `E:\Dev\MinIO`), читает access-логи JSON/CSV, отправляет в Manager.
+- **BUG-120 fixed:** S3-агент переключён с AWS на MinIO.
+- **BUG-122 fixed:** systemd-unit Linux-агента portable через плейсхолдеры.
 
-**Аудит:**
-- Reveal: `event_type=finding_reveal`.
-- PATCH/bulk: `finding_confirmed`/`finding_false_positive`/`finding_archived`/`finding_reset` + `via=patch|bulk`.
-- DELETE: `finding_deleted` (создаётся до `db.delete`).
-- Fragment: `fragment_accessed` (RBAC — Auditor+).
-- Auth: 9 event_type (BUG-095), `_sanitize` от паролей/токенов, fail-open.
-- ⚠️ SQL: `"user"` — **в кавычках** (иначе PostgreSQL → `CURRENT_USER`).
-
-**Scanner:**
-- На хосте, не в Docker.
-- Heartbeat-thread (30 с), backoff 5→10→30→60→120.
-- Graceful shutdown SIGINT/SIGBREAK.
-- OCR bbox до v3.1.0 = None; `/fragment` — embedded-first.
-- Встроенные фрагменты в БД (BACKLOG-086).
-- Masking контекстов: `_CONTEXT_PATTERNS` (21 паттерн).
-- Offline-буфер: `SubmitStatus` (OK/RETRY/LOST).
-
-**WebUI:**
-- Прокси пробрасывает заголовки (`forwarded_headers`): `X-Total-Count`, `X-Fragment-*`, `Content-Disposition`.
-- Бинарные данные — `fetch() + Blob + Bearer`.
-- Фильтры: CSV-категории, `detector`, `fragment_type`, `search`, `order_by=id`.
-- FastAPI 0.137 gotcha: `BeforeValidator` в `Annotated` теряется при `Query()` в default.
-- `_clamp_int` + `OptInt` для числовых query-параметров.
-
-**Retention (v3.13.27):**
-- Политики: audit 90+365, findings 180 (без архивации), tasks 30, logs rotate 30/100 МБ.
-- Интервал: 24 ч.
-- `audit_logs` партиционирована (RANGE по `created_at`, 13 месяцев + default).
-- **BUG-102 fix:** Celery-воркер падал на `Mapper[Finding] ... 'User'` — импорт `User` из `auth.models` в 6 модулях.
-- `run` — sync в Manager; `start` — Celery.
-- `last_run` — в памяти воркера (не в БД).
-
-**Безопасность (v3.13.28):**
-- Порядок middleware: `Metrics → RateLimit → Auth → CORS` (Metrics outermost — видит 401).
-- Метка `endpoint` в метриках — шаблон маршрута, не сырой путь (нет cardinality по ID).
-- mTLS: CRL проверяется на TLS-уровне (`VERIFY_CRL_CHECK_LEAF`) и в `_check_mtls()` (DER).
-- Machine-эндпоинты (`/api/scanner*`, `/api/audit/agents/*`, `/api/audit/events`) не публичные, но пропускаются без JWT — только mTLS.
-- `postgresql://` нормализуется в `postgresql+psycopg2://` (`_normalize_url`) — иначе SQLAlchemy 2.1 тянет отсутствующий psycopg v3.
-
-**Оптимизация (v3.1.0+):**
-- Cython для горячих функций.
-- `cre` / `re2` для regex.
-- Rust — только CIFS/NFS + параллелизм.
-- TruffleHog — верификация credentials.
+**Безопасность (Блок 9, v3.13.28):**
+- mTLS strict → `CERT_REQUIRED` (BUG-108).
+- CRL enforce на 2 уровнях: TLS + middleware (BUG-107).
+- Volume PKI: `./certs:/app/certs:ro` (BUG-105).
+- Machine-endpoints: mTLS до `_is_public` (BUG-106).
+- MetricsMiddleware — outermost + нормализация endpoint (BUG-103).
+- Reveal при ошибке → 409 + аудит (BUG-110).
+- Rotate keys: пересчёт fingerprint + dedup (BUG-116).
+- SQLAlchemy pinned `==2.0.54` (регресс).
 
 ---
 
 ## 📁 Последние использованные файлы
 
-- `manager/src/auth/middleware.py` — BUG-106: machine ≠ public, вызов `_check_mtls()`.
-- `manager/src/core/security.py` — BUG-107/108: CRL, `_to_pem`, `_apply_crl`, `_env_bool`.
-- `run_manager.py` — BUG-108: `get_server_ssl_context()`, `_resolve_env`.
-- `manager/src/metrics.py`, `manager/src/main.py` — BUG-103: порядок middleware, нормализация endpoint.
-- `manager/src/api/findings.py` — BUG-110/111/114/115: reveal 409, masked fallback, аудит экспорта, `require_auth`.
-- `scripts/reencrypt_findings.py`, `webui/templates/findings.html`, `webui/static/js/findings.js` — BUG-116: dedup + статус `duplicate`.
-- `manager/src/db/session.py`, `manager/src/db/migrations/env.py` — `_normalize_url()` (фикс регресса psycopg).
-- `tests/unit/test_security_block9_v31328.py` (42), `tests/e2e/test_security_block9_e2e_v31328.py` (5).
-- `docker-compose.yml`, `.env`, `.env.example` — VERSION 3.13.28, `./certs` mount.
+### Блок 6 (v3.13.28)
+- `audit-agent-windows/config.json` — обновлён (hostname, paths).
+- `audit-agent-windows/logs/audit_agent.log` — UTF-8.
+- `audit-agent-linux/service/dcap-audit-agent.service` — плейсхолдеры.
+- `audit-agent-linux/service/install.sh` — подстановка.
+- `audit-agent-s3/src/collector.py` — ⚠️ BUG-135 (BOM).
+- `scripts/minio-seed/access-logs/*` — seed-логи.
+- `docker-compose.yml` — env s3_agent.
+- `.env` — S3_ENDPOINT=host.docker.internal:9000.
+
+### Блок 9 (v3.13.28)
+- `manager/src/auth/middleware.py` — BUG-106, 107.
+- `manager/src/core/security.py` — BUG-107, 108.
+- `run_manager.py` — BUG-108.
+- `manager/src/api/findings.py` — BUG-110, 111, 114, 115.
+- `manager/src/metrics.py`, `main.py` — BUG-103.
+- `scripts/reencrypt_findings.py` — BUG-116.
+- `manager/src/db/session.py`, `db/migrations/env.py` — psycopg fix.
+- `docker-compose.yml`, `.env`, `.env.example` — VERSION 3.13.28.
+
+### Тесты
+- `tests/unit/test_security_block9_v31328.py` (42 теста) — NEW.
+- `tests/e2e/test_security_block9_v31328.py` (5 тестов) — NEW.
+
+---
+
+## 📌 Рекомендации архитектору
+
+1. **Linux-агент — дотестировать** в новой сессии:
+   - Метрики `:9102` из WSL.
+   - Сквозной поток после restart WSL.
+   - BUG-130 (backoff).
+2. **BUG-135** (BOM в JSON S3-агента) — фикс в v3.1.0.
+3. **BUG-123** (сбор прав Windows) — Блок 6.5.
+4. **Scanner** — тестировать S3-коннектор (`s3_connector.py`).
+5. **Rate-limit** — увеличить до 10000 для тестов через `.env`.
+6. **SQLAlchemy** — закрепить в `requirements.txt` (уже сделано в v3.13.28).
 
 ---
 
 **Актуально на:** 03.10.2026
 **Версия:** v3.13.28
-**Следующий шаг:** Блок 6 (Агенты)
+**Следующий шаг:** Linux-агент (метрики, сквозной поток) → Блок 6.5 → Scanner

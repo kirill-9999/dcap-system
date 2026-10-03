@@ -1,11 +1,11 @@
-🔒 Security Checklist — DCAP Production
+# 🔒 Security Checklist — DCAP Production
 
 > **Чеклист для ввода в production.**
 > Политика безопасности — в [SECURITY.md](../SECURITY.md).
 > Полное руководство — в [docs/admin-guide/05-security.md](admin-guide/05-security.md).
 
-**Обновлено:** 19.09.2026
-**Версия:** v3.13.8
+**Обновлено:** 03.10.2026
+**Версия:** v3.13.28
 
 ---
 
@@ -30,6 +30,7 @@
 - [ ] `JWT_SECRET_KEY` — уникальный, ≥32 байт
 - [ ] `MTLS_ENABLED=true`, `MTLS_STRICT=true` (production)
 - [ ] Сертификаты сгенерированы (`generate_certs.py`)
+- [ ] **Volume `./certs:/app/certs:ro`** — BUG-105, v3.13.28
 - [ ] `DATABASE_URL` с `sslmode=require`
 - [ ] `REDIS_PASSWORD` установлен
 - [ ] Rate-limit настроен
@@ -63,7 +64,7 @@
 - [ ] **На хосте** (не в Docker)
 - [ ] Ключи `FINDINGS_*` **ИДЕНТИЧНЫ** ключам Manager
 - [ ] `key_id` совпадает с Manager
-- [ ] Fail-fast включён (`DCAP_ALLOW_LEGACY_SCANNER=false`)
+- [ ] Fail-fast включён (`DCAP_ALLOW_LEGACY_SCANNER=false` или переменная отсутствует)
 - [ ] Tesseract + spaCy + Presidio установлены
 - [ ] Доступ к сканируемым путям
 - [ ] Запуск через systemd (Linux) / службу (Windows)
@@ -81,11 +82,14 @@
 
 ## ✅ Мониторинг
 
-- [ ] Prometheus собирает метрики (все targets UP)
+- [ ] Prometheus собирает метрики (6/6 targets UP при запущенном сканере)
 - [ ] Grafana дашборды открываются
-- [ ] Alertmanager настроен (email/Slack)
+- [ ] Alertmanager настроен
 - [ ] Алерты: `ScannerInactive`, `TaskFailed`, `HighErrorRate`, `CeleryQueueBacklog`
-- [ ] Метрики `/metrics` защищены (JWT/basic_auth — BACKLOG-044)
+- [ ] **MetricsMiddleware снаружи всех** — BUG-103, v3.13.28
+- [ ] **Метка `endpoint` нормализована (`{id}`)** — BUG-103, v3.13.28
+- [ ] **401-ответы видны в метриках** — BUG-103, v3.13.28
+- [ ] Метрики `/metrics` защищены (JWT/basic_auth) — BACKLOG-044, v3.0.0 production
 - [ ] Логи ротация
 
 ---
@@ -94,25 +98,21 @@
 
 ### Ключи (ENV-only)
 
-- [ ] Ключи Findings сгенерированы **один раз** на Manager-хосте (`generate_findings_keys.py`)
+- [ ] Ключи Findings сгенерированы **один раз** на Manager-хосте
 - [ ] Manager имеет ENV: `FINDINGS_ENCRYPTION_KEY`, `FINDINGS_HMAC_KEY`, `FINDINGS_KEY_ID`
 - [ ] **Все** Scanner'ы имеют **ИДЕНТИЧНЫЕ** `FINDINGS_*` ENV
-- [ ] `key_id` **совпадает** на Manager и **всех** Scanner'ах
-- [ ] Fail-fast включён: `DCAP_ALLOW_LEGACY_SCANNER=false` (или переменная **отсутствует**)
-- [ ] **Инвентаризация** сканеров ведётся (Scanner ID → key_id → дата выдачи)
-- [ ] Резервная копия ключей — **ОТДЕЛЬНО** от БД (offline / Vault)
-- [ ] Доступ к ENV ограничен: `chmod 600` на systemd-файлы, ограничение `docker inspect`
-- [ ] Ключи **не коммитятся** в git (`secrets/` в `.gitignore`)
+- [ ] `key_id` **совпадает** на Manager и всех Scanner'ах
+- [ ] Fail-fast включён: `DCAP_ALLOW_LEGACY_SCANNER=false` (или переменная отсутствует)
+- [ ] **`fail_if_missing=True`** — default (BUG-057 fix)
+- [ ] **Инвентаризация** сканеров ведётся
+- [ ] Резервная копия ключей — **ОТДЕЛЬНО** от БД
+- [ ] Доступ к ENV ограничен (`chmod 600`, ограничение `docker inspect`)
+- [ ] Ключи **не коммитятся** в git
 - [ ] Ротация запланирована (90 дней)
+- [ ] **`reencrypt_findings.py` пересчитывает FP** — BUG-116, v3.13.28
+- [ ] **`reencrypt_findings.py --dedup`** — дубликаты помечаются/удаляются
 
-### Ключи Findings сгенерированы **один раз**
-
-- [ ] `scripts/generate_findings_keys.py` запущен на Manager-хосте
-- [ ] Значения переданы **всем** компонентам (Manager + N Scanner)
-- [ ] Старые ключи (если были) — сохранены в offline-хранилище
-- [ ] **Категорически нельзя** передавать ключи через email/chat
-
-### Ключи Findings передаются **только через ENV**
+### Ключи Findings передаются только через ENV
 
 - [ ] Manager: `.env` (Docker Compose) или `EnvironmentFile` (systemd)
 - [ ] Scanner: `EnvironmentFile` (systemd) или `AppEnvironmentExtra` (NSSM)
@@ -121,18 +121,34 @@
 ### Шифрование и маскирование
 
 - [ ] Reveal доступен **только Auditor+**
-- [ ] Аудит reveal работает (`audit_logs` → `finding_revealed`)
-- [ ] Маскирование работает (проверить API)
+- [ ] Аудит успешного reveal работает (`finding_revealed`)
+- [ ] **Аудит ошибки reveal работает (`finding_reveal_failed`)** — BUG-110, v3.13.28
+- [ ] Маскирование работает
 - [ ] **MD5 не используется** (BACKLOG-066)
-- [ ] `line_text_encrypted` заполняется (BUG-057 fix: сканер без ключей не стартует)
+- [ ] `line_text_encrypted` заполняется (BUG-057 fix)
 - [ ] Legacy-режим отключён (ключи заданы)
 
 ### Ротация ключей
 
-- [ ] Процедура задокументирована (см. `docs/admin-guide/05-security.md` §3.8)
+- [ ] Процедура задокументирована
 - [ ] `scripts/reencrypt_findings.py` — доступен
 - [ ] Планируемое окно downtime согласовано
 - [ ] Тест ротации проведён на stage
+- [ ] **Fingerprint пересчитывается** — BUG-116, v3.13.28
+
+---
+
+## ✅ mTLS
+
+- [ ] `MTLS_ENABLED=true`, `MTLS_STRICT=true` (production)
+- [ ] Сертификаты сгенерированы (`generate_certs.py`)
+- [ ] **Volume certs: `./certs:/app/certs:ro`** — BUG-105, v3.13.28
+- [ ] **`run_manager.py` использует `CertificateManager`** — BUG-108, v3.13.28
+- [ ] **Strict → `CERT_REQUIRED`** — BUG-108, v3.13.28
+- [ ] **CRL enforce: `VERIFY_CRL_CHECK_LEAF`** — BUG-107, v3.13.28
+- [ ] **Machine-эндпоинты в strict без сертификата → 401** — BUG-106, v3.13.28
+- [ ] **`is_revoked` вызывается в `_check_mtls`** — BUG-107, v3.13.28
+- [ ] CRL обновляется регулярно (`rotate_certs.py --revoke <serial>`)
 
 ---
 
@@ -161,18 +177,18 @@
 
 ## ✅ Аутентификация и RBAC
 
-- [ ] `admin` — только для bootstrap, потом отключить/сменить
+- [ ] `admin` — только для bootstrap
 - [ ] Минимум Admin-пользователей
 - [ ] AD-интеграция (если production)
-- [ ] Маппинг AD-групп на роли (`DCAP_Admins` и т.д.)
+- [ ] Маппинг AD-групп на роли
 - [ ] Регулярный аудит пользователей
 - [ ] Ротация JWT (refresh token)
 - [ ] Блокировка после N неудачных логинов
 
 **Cookie (JWT):**
-- [ ] `HttpOnly: True` — проверено (`curl -i` → `Set-Cookie`)
+- [ ] `HttpOnly: True` — проверено
 - [ ] `SameSite=Lax` — проверено
-- [ ] `Secure: True` при HTTPS (env `COOKIE_SECURE=true` или авто)
+- [ ] `Secure: True` при HTTPS
 
 ---
 
@@ -180,7 +196,9 @@
 
 - [ ] `audit_logs` пишутся
 - [ ] Reveal находок логируется (`finding_revealed`)
+- [ ] **Reveal при ошибке логируется (`finding_reveal_failed`)** — BUG-110, v3.13.28
 - [ ] Изменения статусов логируются
+- [ ] **Экспорт логируется с `source_host`** — BUG-114, v3.13.28
 - [ ] Логи не содержат секретов
 - [ ] PII в логах маскированы
 - [ ] Ротация логов
@@ -202,7 +220,8 @@
 
 ## ✅ Перед релизом
 
-- [ ] Все тесты проходят (`pytest tests/ -v`)
+- [ ] Все тесты проходят (`pytest` без аргументов — 408 passed, 17 skipped) — BUG-119, v3.13.28
+- [ ] **SQLAlchemy pinned `==2.0.54`** — v3.0.0
 - [ ] CI настроен (GitHub Actions)
 - [ ] `STATE.md` актуален
 - [ ] `ROADMAP.md` актуален
@@ -210,9 +229,10 @@
 - [ ] `SECURITY.md` актуален
 - [ ] `docs/admin-guide/05-security.md` актуален
 - [ ] `CHANGELOG.md` актуален
-- [ ] Документация админа готова (`docs/admin-guide/`)
-- [ ] LICENSE выбран
+- [ ] Документация админа готова
+- [ ] **LICENSE выбран** — v3.0.0 GitHub-пакет
 - [ ] README актуален
+- [ ] **BUG-117 (Manager-маскирование) закрыт** — v3.0.0 hotfix
 
 ---
 
@@ -225,6 +245,7 @@
 5. **Проверить** логи:
    ```bash
    grep "finding_revealed" audit_logs.log
+   grep "finding_reveal_failed" audit_logs.log
    grep "auth_failed" audit_logs.log
 Уведомить пользователей (если PII скомпрометированы)
 
@@ -243,5 +264,5 @@ docs/monitoring.md — мониторинг
 
 docs/admin-guide/05-security.md — руководство админа
 
-Последнее обновление: 19.09.2026
-Версия: v3.13.8
+Последнее обновление: 03.10.2026
+Версия: v3.13.28

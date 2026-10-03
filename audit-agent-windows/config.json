@@ -1,14 +1,14 @@
 {
     "manager_url": "http://localhost:8000",
     "agent_name": "audit-agent-01",
-    "hostname": "SERVER01",
+    "hostname": "DESKTOP-9TI677N",
     "read_interval": 60,
     "batch_size": 100,
     "buffer_size": 10000,
     "heartbeat_interval": 30,
     "permissions_interval": 3600,
     "event_filters": [4656, 4660, 4663, 4670, 5140, 5145],
-    "paths": ["D:\\test_audit"],
+    "paths": ["E:\\test_audit"],
     "log_level": "INFO",
     "service": {
         "display_name": "DCAP Audit Agent",
