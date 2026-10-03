@@ -67,14 +67,13 @@ class AuthMiddleware(BaseHTTPMiddleware):
         ]
 
     def _is_public(self, path: str) -> bool:
-        if any(path.startswith(p) for p in self.public_paths):
-            return True
-        # /api/scanner/* НЕ публичный здесь: он попадает в _is_machine_endpoint,
-        # где JWT извлекается и request.state.user устанавливается (BUG-048b),
-        # чтобы RBAC-dependency (require_admin и т.п.) получала корректного user.
-        if any(path.startswith(p) for p in self.machine_prefixes):
-            return True
-        return False
+        """Только реально публичные эндпоинты.
+
+        BUG-106 (v3.13.28): machine_prefixes больше НЕ входят сюда — иначе
+        dispatch() уходил в call_next до _check_mtls(), и mTLS strict
+        не проверялся никогда (мертвый код).
+        """
+        return any(path.startswith(p) for p in self.public_paths)
 
     def _is_machine_endpoint(self, path: str) -> bool:
         if any(path.startswith(p) for p in self.machine_prefixes):
@@ -89,6 +88,9 @@ class AuthMiddleware(BaseHTTPMiddleware):
         Если mTLS недоступен (relaxed, нет сертификатов) — пропускаем (None).
         Если сертификат есть — проверяем через CertificateManager.
         Возвращает None при успехе или error-ответ.
+
+        BUG-107 (v3.13.28): добавлена явная проверка отзыва через CRL.
+        Раньше is_revoked/verify_client_cert были объявлены, но не вызывались.
         """
         if not self.cert_manager or not self.cert_manager.is_available:
             return None
@@ -106,8 +108,8 @@ class AuthMiddleware(BaseHTTPMiddleware):
                 )
             return None
 
-        peer_cert = ssl_object.getpeercert()
-        if not peer_cert:
+        der = ssl_object.getpeercert(binary_form=True)
+        if not der:
             if self.cert_manager.strict:
                 return JSONResponse(
                     status_code=401,
@@ -115,17 +117,31 @@ class AuthMiddleware(BaseHTTPMiddleware):
                 )
             return None
 
+        # BUG-107: проверка отзыва (CRL). Работает в обоих режимах —
+        # relaxed и strict: отозванный сертификат не должен проходить.
+        if self.cert_manager.crl_path.exists():
+            try:
+                revoked = self.cert_manager.is_revoked(der)
+            except Exception as e:
+                # CRL не читается — fail-closed в strict, fail-open в relaxed
+                logger.warning("CRL check failed: %s", e)
+                revoked = self.cert_manager.strict
+            if revoked:
+                logger.warning("Revoked client certificate rejected")
+                return JSONResponse(
+                    status_code=401,
+                    content={"detail": "Client certificate revoked"},
+                )
+
         # Извлекаем CN и сохраняем в состояние
         try:
             cn = None
+            peer_cert = ssl_object.getpeercert() or {}
             for subj in peer_cert.get("subject", ()):
                 for oid, val in subj:
                     if oid == "commonName":
                         cn = val
-            if cn:
-                request.state.client_cert_cn = cn
-            else:
-                request.state.client_cert_cn = None
+            request.state.client_cert_cn = cn
         except Exception:
             request.state.client_cert_cn = None
 

@@ -2,10 +2,10 @@
 > Единственный источник правды о текущем состоянии проекта.
 > План и бэклог — в `ROADMAP.md`. Архитектура — в `ARCHITECTURE.md`.
 
-**Обновлено:** 01.10.2026
-**Текущая версия:** v3.13.27
+**Обновлено:** 03.10.2026
+**Текущая версия:** v3.13.28
 **Целевая версия:** v3.0.0 (релиз)
-**Статус:** 🟢 Блоки 1, 2, 3, 4, 5, 7, 8 — ✅ ЗАКРЫТЫ. BUG-102 (Retention + sweep) ✅ v3.13.27. Следующий шаг — Блок 9 (Безопасность) или Блок 6 (Агенты).
+**Статус:** 🟢 Блоки 1, 2, 3, 4, 5, 7, 8, **9 (Безопасность)** — ✅ ЗАКРЫТЫ. Фикс-спринт Блок 9 (10 багов) ✅ v3.13.28. Следующий шаг — Блок 6 (Агенты).
 
 ---
 
@@ -13,11 +13,11 @@
 
 | Параметр | Значение |
 |----------|----------|
-| Текущий день | 50 (BUG-102 — Celery mapper) — Блок 7 закрыт |
+| Текущий день | Фикс-спринт Блок 9 (10 багов безопасности) — Блок 9 закрыт |
 | Статус дня | ✅ Выполнен |
-| Последний принятый отчёт | `day_50_bug102_celery_mapper_report.md` (v3.13.27) |
-| Следующий шаг | Блок 9 (Безопасность) — 1-2 ч, или Блок 6 (Агенты) — 3-5 ч |
-| Открытые вопросы к архитектору | 1) 3 новые BACKLOG (094, 096, 093); 2) 13 TEST-NOTE (5.2…5.13, 7.1…7.5); 3) BUG-083, 085 — минорные, в v3.1.0 |
+| Последний принятый отчёт | `block9_fix_sprint_v31328_report.md` (v3.13.28) |
+| Следующий шаг | Блок 6 (Агенты) — 3-5 ч |
+| Открытые вопросы к архитектору | 1) 3 новые BACKLOG (094, 096, 093); 2) 13 TEST-NOTE (5.2…5.13, 7.1…7.5); 3) BUG-083, 085 — минорные, в v3.1.0; 4) SQLAlchemy не закреплён в requirements — см. «Открытые проблемы» |
 
 ---
 
@@ -50,6 +50,7 @@
 | 48.3 (BUG-096/096b/097) | `/false-positives` 500, устаревшие E2E, зависшие задания | **v3.13.25** | `day_48.3_bug096_097_report.md` |
 | 49 (BUG-098…101, 101b) | PATCH/bulk/DELETE аудит, reset review, FP-пагинация, FP `file_path` | **v3.13.26** | `day_49_bug098_101_report.md` |
 | **50 (BUG-102)** | **Retention + sweep падали на Mapper[Finding] ... 'User' (фикс в 6 модулях)** | **v3.13.27** | `day_50_bug102_celery_mapper_report.md` |
+| **Фикс-спринт Блок 9** | **10 багов безопасности: BUG-103/105/106/107/108/110/111/114/115/116 + фикс регресса psycopg** | **v3.13.28** | `block9_fix_sprint_v31328_report.md` |
 
 ---
 
@@ -64,6 +65,9 @@
 | TEST-NOTE-5.11 | E2E `_assign_task` конкурирует с живым сканером | 📋 v3.0.0 | 🟡 |
 | TEST-NOTE-5.12 | `--remove-orphans` сносит основной стек | 📋 v3.0.0 | 🟡 |
 | BACKLOG-046 | Полный E2E-прогон на CI (seed + изоляция сканера) | 📋 v3.0.0 | 🔴 |
+| NEW (v3.13.28) | SQLAlchemy не закреплён в requirements — смена мажорной версии ломает запуск на PG. Пока обойдено `_normalize_url()`, но стоит закрепить версию | 📋 v3.0.0 | 🟡 |
+| NEW (v3.13.28) | Manager не маскирует `context_*_masked` сам — доверяет суффиксу. Сканер-компромисс положит сырые секреты в БД (проверено вручную) | 📋 v3.0.0 | 🟡 |
+| **NEW (v3.13.28)** | **Потолок параллелизма = 15, а не 30.** `AuthMiddleware.dispatch` держит сессию открытой через весь `call_next` (`middleware.py:232` — `return` внутри `try`, `finally: db.close()` срабатывает после хендлера). Итого 2 соединения на авторизованный запрос: пул `10 + 20 = 30` делится пополам. При 16 потоках — `QueuePool limit ... reached`, 30-секундные таймауты. `tests/load/test_api_load.py::test_get_findings_load` (20 потоков) не может пройти. Фикс: eagerly грузить роли (`selectinload(User.roles)`) и закрывать сессию в middleware — `DetachedInstanceError` из BUG-048b не вернётся | 📋 **v3.1.0** | 🔴 |
 
 ### 🟢 Минорные (v3.1.0)
 
@@ -148,6 +152,13 @@
 - `run` — sync в Manager; `start` — Celery.
 - `last_run` — в памяти воркера (не в БД).
 
+**Безопасность (v3.13.28):**
+- Порядок middleware: `Metrics → RateLimit → Auth → CORS` (Metrics outermost — видит 401).
+- Метка `endpoint` в метриках — шаблон маршрута, не сырой путь (нет cardinality по ID).
+- mTLS: CRL проверяется на TLS-уровне (`VERIFY_CRL_CHECK_LEAF`) и в `_check_mtls()` (DER).
+- Machine-эндпоинты (`/api/scanner*`, `/api/audit/agents/*`, `/api/audit/events`) не публичные, но пропускаются без JWT — только mTLS.
+- `postgresql://` нормализуется в `postgresql+psycopg2://` (`_normalize_url`) — иначе SQLAlchemy 2.1 тянет отсутствующий psycopg v3.
+
 **Оптимизация (v3.1.0+):**
 - Cython для горячих функций.
 - `cre` / `re2` для regex.
@@ -158,22 +169,18 @@
 
 ## 📁 Последние использованные файлы
 
-- `manager/src/workers/tasks.py` — BUG-102: импорт `User` до моделей.
-- `manager/src/workers/celery_app.py` — `configure_mappers()` (страховка).
-- `manager/src/retention/{archiver,cleaner,exporter}.py` — импорт `User`.
-- `manager/src/services/access_service.py` — импорт `User`.
-- `tests/unit/test_celery_mapper_v31327.py` (13), `tests/e2e/test_retention_e2e.py` (1).
-- `manager/src/api/findings.py` — BUG-098…101: `_log_finding_status_change`, `_apply_status`, `_clamp_int`.
-- `scanner/src/encryption.py` — `_CONTEXT_PATTERNS` (BUG-086).
-- `scanner/src/heartbeat.py` — backoff (BUG-080).
-- `scanner/src/managed_scanner.py` — graceful shutdown (BUG-081), `SubmitStatus` (BUG-097).
-- `scanner/src/encryption.py` — `mask_context` (BUG-086).
-- `webui/api/routes.py` — `forwarded_headers`.
-- `webui/static/js/finding_detail.js`, `findings.js` — fetch+blob.
-- `docker-compose.yml`, `.env`, `.env.example` — VERSION 3.13.27.
+- `manager/src/auth/middleware.py` — BUG-106: machine ≠ public, вызов `_check_mtls()`.
+- `manager/src/core/security.py` — BUG-107/108: CRL, `_to_pem`, `_apply_crl`, `_env_bool`.
+- `run_manager.py` — BUG-108: `get_server_ssl_context()`, `_resolve_env`.
+- `manager/src/metrics.py`, `manager/src/main.py` — BUG-103: порядок middleware, нормализация endpoint.
+- `manager/src/api/findings.py` — BUG-110/111/114/115: reveal 409, masked fallback, аудит экспорта, `require_auth`.
+- `scripts/reencrypt_findings.py`, `webui/templates/findings.html`, `webui/static/js/findings.js` — BUG-116: dedup + статус `duplicate`.
+- `manager/src/db/session.py`, `manager/src/db/migrations/env.py` — `_normalize_url()` (фикс регресса psycopg).
+- `tests/unit/test_security_block9_v31328.py` (42), `tests/e2e/test_security_block9_e2e_v31328.py` (5).
+- `docker-compose.yml`, `.env`, `.env.example` — VERSION 3.13.28, `./certs` mount.
 
 ---
 
-**Актуально на:** 01.10.2026
-**Версия:** v3.13.27
-**Следующий шаг:** Блок 9 (Безопасность) или Блок 6 (Агенты)
+**Актуально на:** 03.10.2026
+**Версия:** v3.13.28
+**Следующий шаг:** Блок 6 (Агенты)

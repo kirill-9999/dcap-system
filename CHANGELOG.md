@@ -8,7 +8,92 @@
 ## [Unreleased] — v3.0.0 (release)
 
 **Осталось:** Блок 5 (WebUI, п.2.4), Блок 6 (Агенты), GitHub-пакет.
-(Блок 7 — Retention — закрыт в v3.13.27.)
+(Блок 7 — Retention — закрыт в v3.13.27. Фикс-спринт Блок 9 — закрыт в v3.13.28.)
+
+---
+
+## [3.13.28] — 2026-10-03 — Фикс-спринт Блок 9: 10 багов безопасности (BUG-103/105/106/107/108/110/111/114/115/116)
+
+### Fixed
+
+- **BUG-115 🟡 medium — `/api/findings/count` без явного `require_auth`** — 📁 `manager/src/api/findings.py`
+  Эндпоинт не декларировал `Depends(require_auth)`, полагаясь только на
+  `AuthMiddleware`, закрывающий `/api/*`. Анонимный доступ фактически
+  блокировался middleware (проверено на v3.13.27: 401 c
+  `WWW-Authenticate: Negotiate`), поэтому это **эшелонированная защита**, а не
+  открытая утечка: при любом ослаблении/пробросе middleware (например, через
+  WebUI-прокси) маршрут оставался без собственной проверки.
+  **Решение:** `Depends(require_auth)` на маршрут.
+
+- **BUG-110 🔴 critical — reveal падал в 500 при недоступном ключе расшифровки** — 📁 `manager/src/api/findings.py`
+  Ошибка `decrypt()` пробрасывалась наружу. **Решение:** отлов `ValueError`,
+  ответ `409 Conflict` (не 500) + аудит-событие `finding_reveal_failed`.
+  Успешный reveal остался `200`.
+
+- **BUG-114 🟠 high — экспорт находок не аудировался** — 📁 `manager/src/api/findings.py`
+  Событие создавалось, но без `source_host`, из-за чего источник выгрузки
+  установить было невозможно; `file_path` писался одним значением вместо списка.
+  **Решение:** `request` в сигнатуре, `source_host` из клиента, агрегация
+  `file_path` (до 10 путей, остальные сворачиваются в `...`).
+
+- **BUG-111 🟠 high — ошибка расшифровки роняла список находок** — 📁 `manager/src/api/findings.py`
+  `_resolve_text()` не перехватывал исключение: одна «битая» находка валила
+  весь `GET /api/findings`. **Решение:** `except Exception` → masked-заглушка,
+  листинг остаётся доступным.
+
+- **BUG-107 🟠 high — CRL не проверялся по TLS** — 📁 `manager/src/core/security.py`, `manager/src/auth/middleware.py`
+  Сертификаты не сверялись со списком отзыва. **Решение:** `VERIFY_CRL_CHECK_LEAF`,
+  проверка DER через `getpeercert(binary_form=True)` → `is_revoked()` в
+  `_check_mtls()`, конвертация DER↔PEM (`_to_pem`).
+
+- **BUG-108 🟠 high — `run_manager.py` игнорировал `CertificateManager`** — 📁 `run_manager.py`
+  Собственный `ssl.SSLContext` без проверки CRL и без единой точки конфигурации.
+  **Решение:** единый `get_server_ssl_context()`; strict → `CERT_REQUIRED`,
+  relaxed → `CERT_OPTIONAL`; `${VAR:-default}` через `_resolve_env`.
+
+- **BUG-106 🟡 medium — machine-эндпоинты не проходили mTLS-проверку** — 📁 `manager/src/auth/middleware.py`
+  `_is_public()` помечал `/api/scanner*`, `/api/audit/agents/*`,
+  `/api/audit/events` публичными, и `_check_mtls()` не вызывался в `dispatch()`.
+  **Решение:** machine-prefixes исключены из public, `_check_mtls()` вызывается
+  явно, CN клиента попадает в `request.state.client_cert_cn`.
+
+- **BUG-105 🟡 medium — контейнер Manager монтировал неверный каталог PKI** — 📁 `docker-compose.yml`
+  Было `./manager/certs:/app/certs`, при генерации `scripts/generate_certs.py`
+  кладёт сертификаты в `./certs`. При `mtls_enabled=true` Manager не находил PKI.
+  **Решение:** `./certs:/app/certs:ro`.
+
+- **BUG-103 🟡 medium — метрики не видели 401 и раздували cardinality** — 📁 `manager/src/metrics.py`, `manager/src/main.py`
+  `MetricsMiddleware` стоял **внутри** `AuthMiddleware`, поэтому отказы
+  авторизации не попадали в `dcap_http_requests_total`; кроме того, метка
+  `endpoint` бралась из сырого пути, и каждый `/api/findings/{id}` создавал
+  новую серию. **Решение:** middleware зарегистрирован последним (outermost);
+  нормализация через шаблон маршрута с regex-fallback (`{id}`, `{uuid}`, `{hash}`).
+
+- **BUG-116 🟡 medium — повторный прогон reencrypt ломал дедупликацию** — 📁 `scripts/reencrypt_findings.py`, `webui/templates/findings.html`, `webui/static/js/findings.js`
+  После ротации `hmac_key` все fingerprint'ы пересчитывались, но дубликаты
+  не помечались, а UI не знал о статусе `duplicate`. **Решение:** пересчёт FP
+  новым ключом с использованием `Resource.path`, флаги `--dedup` /
+  `--delete-duplicates`, статус `duplicate` + фильтр и badge в WebUI.
+
+### Added
+- 📁 `tests/unit/test_security_block9_v31328.py` — 42 unit-теста на все 10 багов.
+- 📁 `tests/e2e/test_security_block9_e2e_v31328.py` — 5 E2E-тестов против живого Manager.
+
+### Fixed (вне scope Блока 9, найдено при прогоне E2E)
+- **Регресс зависимости — свежая сборка падала на `ModuleNotFoundError: No module named 'psycopg'`** — 📁 `manager/src/db/session.py`, `manager/src/db/migrations/env.py`
+  `requirements.txt` не закрепляет SQLAlchemy; в свежей сборке подтянулся
+  SQLAlchemy 2.1.3, где голая схема `postgresql://` по умолчанию тянет
+  отсутствующий psycopg v3 (проект ставит `psycopg2-binary`). Рабочий образ
+  содержал SQLAlchemy 2.0.54 и поэтому маскировал проблему.
+  **Решение:** `_normalize_url()` — явная схема `postgresql+psycopg2://`;
+  используется в `session.py` и в Alembic `env.py`. Явные драйверы
+  (`+psycopg`, `+pg8000`) не трогаются.
+
+### Тесты
+- `tests/unit`: **359 passed** (было 317 + 42 новых), регрессий нет.
+- `tests/e2e`: **46 passed, 12 skipped** против живого Manager на `:18000`.
+- `manager/tests`: 44 passed, 1 пре-существующее падение (`test_retention.py::test_archiver_findings`,
+  `Finding.file_path` → `fragment_path`, не связано со спринтом).
 
 ---
 

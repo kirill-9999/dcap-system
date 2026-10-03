@@ -32,7 +32,22 @@ def _resolve_database_url() -> str:
     return f"sqlite:///{_default_sqlite_path()}"
 
 
-DATABASE_URL = _resolve_database_url()
+def _normalize_url(url: str) -> str:
+    """Явно фиксирует DBAPI-драйвер в схеме URL.
+
+    Проект ставит psycopg2-binary (requirements.txt), но SQLAlchemy >= 2.1
+    для голой схемы "postgresql://" по умолчанию пытается импортировать
+    psycopg (v3) и падает с ModuleNotFoundError. Явная схема
+    "postgresql+psycopg2://" работает одинаково во всех версиях
+    SQLAlchemy 2.x. Явно указанные драйверы (+psycopg, +pg8000, ...)
+    не трогаем.
+    """
+    if not url.startswith("postgresql://"):
+        return url
+    return "postgresql+psycopg2://" + url[len("postgresql://"):]
+
+
+DATABASE_URL = _normalize_url(_resolve_database_url())
 
 _IS_SQLITE = DATABASE_URL.startswith("sqlite")
 

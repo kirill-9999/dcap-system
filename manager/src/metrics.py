@@ -45,9 +45,52 @@ celery_queue_size = Gauge("dcap_celery_queue_size", "Celery queue size", ["queue
 
 _scrape_lock = threading.Lock()
 
+# BUG-103 (v3.13.28): без нормализации каждый ID в пути (/api/findings/12345)
+# создавал новую временную серию — бесконтрольный рост памяти Prometheus.
+import re as _re
+
+_NUM_SEG = _re.compile(r"^\d+$")
+_UUID_SEG = _re.compile(
+    r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"
+)
+_LONG_HEX_SEG = _re.compile(r"^[0-9a-fA-F]{16,}$")
+
+
+def _normalize_endpoint(request) -> str:
+    """Приводит путь к шаблону маршрута, чтобы исключить cardinality.
+
+    Приоритет — template маршрута из scope (точный, бесплатный: FastAPI
+    знает путь как "/api/findings/{finding_id}"). Если маршрут не найден
+    (404, обработчик исключения) — путь нормализуется regex'ом: числовые
+    сегменты → {id}, UUID → {uuid}.
+    """
+    scope = getattr(request, "scope", None) or {}
+    route = scope.get("route")
+    route_path = getattr(route, "path", None)
+    if route_path:
+        return str(route_path)
+
+    path = scope.get("path") or request.url.path
+    parts = []
+    for seg in str(path).split("/"):
+        if _NUM_SEG.match(seg):
+            parts.append("{id}")
+        elif _UUID_SEG.match(seg):
+            parts.append("{uuid}")
+        elif _LONG_HEX_SEG.match(seg):
+            parts.append("{hash}")
+        else:
+            parts.append(seg)
+    return "/".join(parts)
+
 
 class MetricsMiddleware(BaseHTTPMiddleware):
-    """ASGI-middleware: наполняет http_requests_total / http_request_duration."""
+    """ASGI-middleware: наполняет http_requests_total / http_request_duration.
+
+    BUG-103 (v3.13.28): добавлен в main.py ПОСЛЕ AuthMiddleware/RateLimitMiddleware,
+    чтобы стоять снаружи и учитывать в т.ч. 401/403/429, которые возвращаются
+    до роутера.
+    """
 
     async def dispatch(self, request, call_next):
         start = time.perf_counter()
@@ -59,7 +102,7 @@ class MetricsMiddleware(BaseHTTPMiddleware):
             raise
         finally:
             try:
-                endpoint = request.url.path
+                endpoint = _normalize_endpoint(request)
                 http_requests_total.labels(
                     method=request.method, endpoint=endpoint, status=str(status)
                 ).inc()

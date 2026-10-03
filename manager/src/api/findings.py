@@ -278,8 +278,13 @@ def get_findings_count_legacy(
     scanner_id: OptInt = None,
     task_id: OptInt = None,
     db: Session = Depends(get_db),
+    user: User = Depends(require_auth),
 ):
-    """Количество находок с фильтрацией (WebUI-формат, legacy)."""
+    """Количество находок с фильтрацией (WebUI-формат, legacy).
+
+    BUG-115 (v3.13.28): эндпоинт требовал аутентификации — без require_auth
+    количество находок отдавалось анонимному клиенту (утечка объёма данных).
+    """
     from manager.src.db.models import ScanTask
     q = db.query(Finding)
     # BUG-090 (TASK-057): CSV-список категорий, как в /api/findings.
@@ -354,6 +359,7 @@ def list_false_positives(
 
 @router.get("/export")
 async def export_findings(
+    request: Request,
     format: str = Query("csv", pattern="^(csv|json)$"),
     reveal: bool = Query(False),
     status: Optional[str] = None,
@@ -397,27 +403,46 @@ async def export_findings(
     limit_v = _clamp_int(limit, 10000, 1, 100000)
     findings = q.order_by(desc(Finding.first_seen_at)).limit(limit_v).all()
 
-    # Аудит
+    # Аудит (BUG-114: source_host + file_path)
     _log_export(db, current_user, format, reveal, findings, {
         "status": status, "finding_type": finding_type,
         "category": category, "severity": severity, "detector": detector,
         "task_id": task_id, "resource_id": resource_id,
-    })
+    }, request=request)
 
     if format == "csv":
         return _export_csv(findings, reveal)
     return _export_json(findings, reveal)
 
 
-def _log_export(db, user, export_format, reveal, findings, filters):
-    """Пишет запись в audit_logs (findings_exported)."""
+def _log_export(db, user, export_format, reveal, findings, filters, request=None):
+    """Пишет запись в audit_logs (findings_exported).
+
+    BUG-114 (v3.13.28): в запись не попадали source_host (IP экспортировавшего)
+    и file_path (что именно выгружали). Без них невозможно установить источник
+    утечки. Теперь source_host берётся из request.client, а file_path —
+    агрегированный список путей фрагментов (до 10, иначе счётчик).
+    """
     try:
         from manager.src.db.models import AuditLog
+
+        paths = [f.fragment_path for f in findings if f.fragment_path]
+        if paths:
+            unique_paths = sorted(set(paths))
+            file_path = (
+                ", ".join(unique_paths[:10])
+                if len(unique_paths) <= 10
+                else "{} (+{} more)".format(", ".join(unique_paths[:10]), len(unique_paths) - 10)
+            )
+        else:
+            file_path = "/"
+
         log = AuditLog(
             event_type="findings_exported",
             event_source="api",
-            user=user.username,
-            file_path="/",
+            user=user.username if user else None,
+            file_path=file_path,
+            source_host=request.client.host if (request and request.client) else None,
             metadata_json={
                 "format": export_format,
                 "reveal": reveal,
@@ -434,11 +459,25 @@ def _log_export(db, user, export_format, reveal, findings, filters):
 
 
 def _resolve_text(finding: Finding, field: str, reveal: bool) -> str:
-    """masked → reveal при необходимости."""
+    """masked → reveal при необходимости.
+
+    BUG-111 (v3.13.28): раньше исключение из decrypt() (смена ключа, битая
+    запись, смена HMAC) пробрасывалось наружу и валило экспорт с 500.
+    Теперь при ошибке расшифровки отдаётся маскированный текст, а причина
+    логируется — экспорт не должен падать из-за одной строки.
+    """
     if reveal:
         encrypted = getattr(finding, f"{field}_encrypted", None)
         if encrypted:
-            return get_encryption().decrypt(encrypted)
+            try:
+                return get_encryption().decrypt(encrypted)
+            except Exception as e:
+                logger.warning(
+                    "Failed to decrypt finding %s field %s, falling back to masked: %s",
+                    getattr(finding, "id", "?"),
+                    field,
+                    e,
+                )
     return getattr(finding, f"{field}_masked", "") or ""
 
 
@@ -740,8 +779,13 @@ def reveal_finding(
     try:
         match_text = enc.decrypt(finding.match_text_encrypted) if finding.match_text_encrypted else None
         line_text = enc.decrypt(finding.line_text_encrypted) if finding.line_text_encrypted else None
-    except ValueError:
-        raise HTTPException(500, "Decryption failed")
+    except ValueError as e:
+        # BUG-110 (v3.13.28): ошибка расшифровки — это конфликт данных
+        # (смена ключа / битая запись), а не внутренняя ошибка сервера.
+        # 500 заставлял клиента ретраить и маскировал реальную причину.
+        logger.warning("Reveal decryption failed for finding %s: %s", finding_id, e)
+        _log_reveal_failed(db, user, finding, request, str(e))
+        raise HTTPException(409, "Decryption failed: finding encrypted with unavailable key")
 
     revealed_at = datetime.utcnow()
 
@@ -757,6 +801,36 @@ def reveal_finding(
         "revealed_at": revealed_at,
         "revealed_by": user.username,
     }
+
+
+def _log_reveal_failed(db, user, finding, request, error: str) -> None:
+    """BUG-110 (v3.13.28): аудит неудачной попытки reveal.
+
+    Попытка расшифровки фиксируется, даже если данные не были отданы —
+    это сигнал о ротации ключей или повреждении данных.
+    """
+    try:
+        from manager.src.db.models import AuditLog
+        log = AuditLog(
+            event_type="finding_reveal_failed",
+            event_source="api",
+            user=user.username if user else None,
+            file_path=finding.fragment_path or f"finding:{finding.id}",
+            source_host=request.client.host if request.client else None,
+            metadata_json={
+                "finding_id": finding.id,
+                "category": finding.category,
+                "finding_type": finding.finding_type,
+                "encryption_key_id": finding.encryption_key_id,
+                "action": "finding_reveal_failed",
+                "error": error[:200],
+            },
+        )
+        db.add(log)
+        db.commit()
+    except Exception as e:
+        logger.warning("Failed to log reveal failure: %s", e)
+        db.rollback()
 
 
 def _log_reveal(db, user, finding, revealed_at, request):

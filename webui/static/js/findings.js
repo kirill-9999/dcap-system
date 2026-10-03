@@ -169,6 +169,8 @@ const FindingsPage = {
       confirmed: '<span class="badge bg-success">✅ confirmed</span>',
       false_positive: '<span class="badge bg-danger">❌ false_positive</span>',
       archived: '<span class="badge bg-secondary">📦 archived</span>',
+      // BUG-116 (v3.13.28): дубли после ротации ключа Findings
+      duplicate: '<span class="badge bg-warning text-dark">♻️ duplicate</span>',
     }[f.status] || escapeHtml(f.status);
 
     const typeBadge = {

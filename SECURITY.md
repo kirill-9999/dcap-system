@@ -69,6 +69,34 @@ Manager ↔ Scanner
 
 Manager ↔ агенты (Windows, Linux, S3)
 
+**Проверка отзыва (CRL) — v3.13.28:**
+
+До v3.13.28 CRL была сгенерирована, но фактически **не проверялась**: ни на
+TLS-уровне, ни в middleware. Отозванный сертификат принимался как валидный.
+
+| Уровень | Механизм |
+|---------|----------|
+| TLS | `ssl.VERIFY_CRL_CHECK_LEAF` в `get_server_ssl_context()` |
+| Middleware | `_check_mtls()`: `getpeercert(binary_form=True)` → `is_revoked(der)` |
+
+Отозванный клиентский сертификат получает **401**. Конвертация DER↔PEM —
+`_to_pem()` в `manager/src/core/security.py`.
+
+**Machine-эндпоинты — v3.13.28:**
+
+`/api/scanner*`, `/api/audit/agents/*`, `/api/audit/events` **не являются
+публичными**. Раньше они попадали в список публичных, и mTLS-проверка для них
+не выполнялась. Сейчас: JWT не требуется (это machine-вызовы), но клиентский
+сертификат проверяется, а его CN попадает в `request.state.client_cert_cn`.
+В режиме `strict` запрос без сертификата отклоняется.
+
+**Путь к PKI в контейнере — v3.13.28:**
+
+Manager монтирует `./certs:/app/certs:ro` (каталог, куда пишет
+`scripts/generate_certs.py`). Прежний mount `./manager/certs` приводил к
+тому, что при `mtls_enabled=true` Manager не находил PKI. WebUI mTLS не
+использует и монтируется без сертификатов.
+
 2. Шифрование находок (Findings Refactor)
 Модель: гибрид — маскированное (по умолчанию) + зашифрованное (AES-256-GCM).
 

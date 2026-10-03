@@ -16,7 +16,6 @@ from manager.src.api.audit import router as audit_router
 from manager.src.api.webui import router as webui_router
 from manager.src.api.retention import router as retention_router
 from manager.src.metrics import metrics_endpoint, MetricsMiddleware
-
 from manager.src.config import get_config
 from manager.src.auth.manager import AuthManager
 from manager.src.auth.middleware import AuthMiddleware
@@ -61,9 +60,6 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
-# Prometheus-метрики HTTP (День 39)
-app.add_middleware(MetricsMiddleware)
 
 # ============================================================
 # АУТЕНТИФИКАЦИЯ (День 30)
@@ -150,6 +146,16 @@ app.add_middleware(
     max_requests=int(os.getenv("RATE_LIMIT_MAX_REQUESTS", str(_rl.get("max_requests", 300)))),
     window_seconds=int(os.getenv("RATE_LIMIT_WINDOW_SECONDS", str(_rl.get("window_seconds", 60)))),
 )
+
+# ============================================================
+# PROMETHEUS-МЕТРИКИ HTTP (День 39) — ПОСЛЕДНИМ, САМЫМ ВНЕШНИМ
+# ============================================================
+# BUG-103 (v3.13.28): Starlette строит стек middleware в обратном порядке
+# (последний add_middleware — самый внешний). Раньше MetricsMiddleware
+# регистрировался ДО AuthMiddleware, поэтому оказывался ВНУТРИ него и не видел
+# 401/403 от аутентификации и 429 от rate-limit: в метриках не было ни одного
+# отказа. Теперь он оборачивает весь стек.
+app.add_middleware(MetricsMiddleware)
 
 
 # ============================================================

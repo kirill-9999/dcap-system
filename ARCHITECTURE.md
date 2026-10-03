@@ -177,12 +177,13 @@ dcap-system/
 
 ### mTLS
 
-- **relaxed** (по умолчанию) — если сертификаты не найдены, работает на plain HTTP; `run_manager.py` передаёт в uvicorn `ssl_cert_reqs=ssl.CERT_OPTIONAL`.
-- **strict** — Manager не стартует без PKI (`CertificateManager.is_available` → raise).
-- CRL для отзыва сертификатов (`CertificateManager.is_revoked`).
+- **relaxed** (по умолчанию) — если сертификаты не найдены, работает на plain HTTP; `run_manager.py` передаёт в uvicorn контекст из `CertificateManager.get_server_ssl_context()` (`ssl_cert_reqs=ssl.CERT_OPTIONAL`).
+- **strict** — Manager не стартует без PKI (`CertificateManager.is_available` → raise), `ssl_cert_reqs=ssl.CERT_REQUIRED`.
+- CRL для отзыва сертификатов. **v3.13.28:** проверяется на двух уровнях — `ssl.VERIFY_CRL_CHECK_LEAF` в TLS-контексте и `is_revoked(DER)` в `AuthMiddleware._check_mtls`; отозванный клиент получает 401.
 - Клиентский CN извлекается в `AuthMiddleware._check_mtls` → `request.state.client_cert_cn`.
+- Контейнер Manager монтирует `./certs:/app/certs:ro` — **BUG-105 (v3.13.28)**; прежний `./manager/certs` не совпадал с каталогом, куда пишет `scripts/generate_certs.py`.
 
-> ⚠️ Machine-эндпоинты в `auth/middleware.py` (`public_paths`): `/api/scanner/register`, `/api/scanner/heartbeat`, `/api/scanner/tasks*`, `/api/audit/agents/register`, `/api/audit/agents/heartbeat`, `/api/audit/events`, `/api/audit/permissions`. Остальные `/api/scanner/*` — в `machine_prefixes`: JWT не требуется, но в `strict` без клиентского сертификата → 401.
+> ⚠️ **BUG-106 (v3.13.28):** machine-эндпоинты (`AuthMiddleware.machine_prefixes`) — `/api/scanner/register`, `/api/scanner/heartbeat`, `/api/scanner/tasks*`, `/api/audit/agents/register`, `/api/audit/agents/heartbeat`, `/api/audit/events`, `/api/audit/permissions` — **не входят в `public_paths`** (раньше входили, из-за чего mTLS-проверка для них пропускалась). JWT для них не требуется, но `_check_mtls()` вызывается явно: в `strict` без клиентского сертификата → 401.
 
 ### Шифрование находок (Findings Refactor, v3.9.0-v3.10.0)
 
@@ -590,6 +591,16 @@ hmac.new(hmac_key, msg, hashlib.sha256).hexdigest()
 |-------|----------|------------|
 | GET | `/metrics` | Prometheus-метрики Manager (публичный, вне `/api/*`) |
 | GET | `/api/health` | Healthcheck (исключён из rate-limit) |
+
+**Порядок middleware (BUG-103, v3.13.28):** `Metrics → RateLimit → Auth → CORS`.
+`MetricsMiddleware` регистрируется **последним**, поэтому в uvicorn он outermost
+и видит ответы `AuthMiddleware`, включая 401. Раньше он стоял внутри, и отказы
+авторизации в `dcap_http_requests_total` не попадали.
+
+**Метка `endpoint`:** берётся шаблон маршрута (`/api/findings/{id}`), а не сырой
+путь. Если шаблон недоступен (запрос отклонён до роутинга) — regex-fallback
+`_ID_RE` подставляет `{id}` / `{uuid}` / `{hash}`. Это исключает рост cardinality
+на неограниченном числе ID.
 
 ---
 

@@ -34,4 +34,10 @@ markers = [
     "requires_docker: Требует Docker",
     "requires_scanner: Требует запущенный Scanner",
 ]
-addopts = "-v --strict-markers --tb=short"
+# --import-mode=importlib обязателен: tests/unit/test_scanner_findings.py и
+# tests/e2e/test_scanner_findings.py (а также test_webui_block5_v31322.py)
+# имеют одинаковые базовые имена. В режиме prepend pytest импортирует первый
+# файл под общим именем модуля, и сборка второго падает с "import file
+# mismatch" — голый `pytest` (testpaths = tests) не запускался вовсе.
+# sys.path для `fixtures.*` добавляется в tests/conftest.py.
+addopts = "-v --strict-markers --tb=short --import-mode=importlib"

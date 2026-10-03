@@ -28,17 +28,21 @@ target_metadata = Base.metadata
 
 def _database_url() -> str:
     url = os.environ.get("DATABASE_URL")
-    if url:
-        return url
-    try:
-        from manager.src.config import get_config
+    if not url:
+        try:
+            from manager.src.config import get_config
 
-        cfg_url = get_config().get("database", {}).get("url")
-        if cfg_url:
-            return cfg_url
-    except Exception:
-        pass
-    return config.get_main_option("sqlalchemy.url")
+            url = get_config().get("database", {}).get("url")
+        except Exception:
+            url = None
+    if not url:
+        url = config.get_main_option("sqlalchemy.url")
+
+    # Тот же фикс, что в manager/src/db/session.py: под SQLAlchemy >= 2.1
+    # голая схема "postgresql://" тянет отсутствующий psycopg (v3).
+    from manager.src.db.session import _normalize_url
+
+    return _normalize_url(url)
 
 
 def run_migrations_offline() -> None:
