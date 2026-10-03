@@ -7,8 +7,66 @@
 
 ## [Unreleased] — v3.0.0 (release)
 
-**Осталось:** Блок 5 (WebUI, п.2.4), Блок 6.5 (сбор прав Windows, BUG-123/127), дотест Linux-агента (метрики с хоста, сквозной поток после restart WSL, BUG-130), Scanner (S3-коннектор), Блок 11, GitHub-пакет.
-(Блок 7 — Retention — закрыт в v3.13.27. Фикс-спринт Блок 9 — закрыт в v3.13.28. Блок 6 — закрыт в v3.13.28 на 5 из 6 под-блоков.)
+**Осталось:** Блок 5 (WebUI, п.2.4), Блок 6.5 (сбор прав Windows, BUG-123/127), дотест Linux-агента (метрики с хоста, сквозной поток после restart WSL, BUG-130), BACKLOG-097 части 2–3 (53.1b/53.2/53.3 — Scanner S3), Блок 11, GitHub-пакет.
+(Блок 7 — Retention — закрыт в v3.13.27. Фикс-спринт Блок 9 — закрыт в v3.13.28. Блок 6 — закрыт в v3.13.28 на 5 из 6 под-блоков. BACKLOG-097 часть 1 (Manager) — закрыта в v3.13.29.)
+
+---
+
+## [3.13.29] — 2026-10-03 — День 53.1a: `source_type` для S3-ресурсов (BACKLOG-097, часть 1: Manager)
+
+### Added
+
+- 📁 `manager/src/db/migrations/versions/006_add_source_type.py` — колонка
+  `scan_tasks.source_type VARCHAR(20) NOT NULL DEFAULT 'filesystem'` + индекс
+  `ix_scan_tasks_source_type`. Идемпотентная (inspect-guard, как 002/005): на
+  свежих БД колонка создаётся из `Base.metadata`, `add_column` пропускается.
+- 📁 `manager/src/db/models.py` — `ScanTask.source_type`
+  (`String(20), default="filesystem", nullable=False, index=True`) сразу после
+  `source_path`.
+- `POST /api/resources` — создание **S3/MinIO-ресурсов**: query-параметры
+  `type` (`s3` | `minio`), `endpoint`, `secure`, `use_path_style`, `region`;
+  `path` вида `s3://bucket[/prefix]`. В `scan_config` добавляется секция
+  `connector.s3` (`endpoint` / `bucket` / `prefix` / `secure` /
+  `use_path_style` / `region`). Дефолтный endpoint — `S3_DEFAULT_ENDPOINT`
+  или `host.docker.internal:9000` (MinIO Блока 6).
+- `GET /api/scanner/tasks/pending` — в payload задачи появился **`source_type`**
+  (fallback-цепочка `task.source_type → resource.type → 'filesystem'`),
+  чтобы сканер выбирал коннектор явно, а не угадывал по префиксу `s3://`.
+
+### Fixed
+
+- 📁 `manager/src/api/resources.py` — **регрессия BUG-059:** уникальность
+  ресурса проверялась только по `path`, хотя миграция
+  `004_resources_path_type_unique` разрешает одинаковый `path` с разным
+  `type`. Теперь проверяется пара `(path, type)`.
+- Валидация типа ресурса: whitelist `filesystem` / `s3` / `minio`, всё
+  остальное → `400`. Раньше произвольный `type` молча попадал в БД.
+- Валидация S3-пути: схема должна быть `s3://` / `minio://`, `bucket`
+  (netloc) — непустой, иначе `400`.
+
+### Changed
+
+- `POST /api/resources/{id}/scan` — в `ScanTask` прописывается
+  `source_type` из `Resource.type` (в `lowercase`).
+- Секреты S3 в `scan_config` **не пишутся** — только ENV на хосте сканера
+  (`S3_ACCESS_KEY` / `S3_SECRET_KEY`), единая политика TASK-018.
+
+### Тесты
+
+- 📁 `tests/unit/test_s3_resource_v31329.py` — **19 unit-тестов**: создание
+  filesystem/s3/minio-ресурсов, дефолты и кастомный endpoint, endpoint из ENV,
+  валидация пути, уникальность `(path, type)`, `source_type` в задаче,
+  `source_type` в payload пендинга (включая нормализацию регистра и
+  приоритет `task.source_type` над `resource.type`).
+- `tests/unit` — **378 passed** (было 359 + 19 новых), регрессий нет.
+- Миграция 006 проверена на SQLite **и** PostgreSQL: `upgrade head`,
+  `downgrade → upgrade` (round-trip), повторный `upgrade head` (идемпотентность).
+
+### Not fixed (требует отдельного ТЗ)
+
+- Сканер по-прежнему игнорирует `source_type` и создаёт `FilesystemConnector`
+  жёстко — это **53.1b** (фабрика коннекторов, `_text_scanner.py`, boto3).
+- WebUI-форма добавления S3-ресурса отсутствует (только API/Swagger) — **53.3**.
 
 ---
 

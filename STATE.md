@@ -3,9 +3,9 @@
 > План и бэклог — в `ROADMAP.md`. Архитектура — в `ARCHITECTURE.md`.
 
 **Обновлено:** 03.10.2026
-**Текущая версия:** v3.13.28
+**Текущая версия:** v3.13.29
 **Целевая версия:** v3.0.0 (релиз)
-**Статус:** 🟢 Блоки 1, 2, 3, 4, 5, 6, 7, 8, 9 — ✅ ЗАКРЫТЫ. Следующий шаг — дотестировать Linux-агент (метрики, сквозной поток), затем Блок 6.5 (сбор прав Windows), затем Scanner (S3-коннектор).
+**Статус:** 🟢 Блоки 1, 2, 3, 4, 5, 6, 7, 8, 9 — ✅ ЗАКРЫТЫ. BACKLOG-097 (S3-коннектор) — часть 1 из 3 выполнена (Manager). Следующий шаг — 53.1b: ядро сканера (фабрика коннекторов, `_text_scanner.py`, boto3, `source_type` в `managed_scanner.py`).
 
 ---
 
@@ -13,11 +13,11 @@
 
 | Параметр | Значение |
 |----------|----------|
-| Текущий день | 52 (Блок 6 — Агенты) — закрыт |
+| Текущий день | 53.1a (BACKLOG-097, часть 1: Manager `source_type` + S3-ресурсы) — выполнен |
 | Статус дня | ✅ Выполнен |
-| Последний принятый отчёт | `block6_agents_full_report.md` (v3.13.28) |
-| Следующий шаг | Linux-агент (метрики, сквозной поток) → Блок 6.5 → Scanner |
-| Открытые вопросы к архитектору | 1) BUG-123 (сбор прав Windows) — Блок 6.5; 2) BUG-125 (MANAGER_URL); 3) BUG-130 (backoff); 4) BUG-135 (BOM в JSON); 5) Scanner S3-коннектор — тестирование |
+| Последний принятый отчёт | `day_53_1a_report.md` (v3.13.29) |
+| Следующий шаг | 53.1b: Scanner — фабрика коннекторов, `_text_scanner.py`, boto3, `source_type` в `managed_scanner.py` |
+| Открытые вопросы к архитектору | 1) BUG-123 (сбор прав Windows) — Блок 6.5; 2) BUG-125 (MANAGER_URL); 3) BUG-130 (backoff); 4) BUG-135 (BOM в JSON); 5) 53.1b — нужен `S3_VERIFY_SSL` (TEST-NOTE-6.11)? |
 
 ---
 
@@ -52,6 +52,7 @@
 | 50 (BUG-102) | Retention + sweep падали на Mapper[Finding] ... 'User' | **v3.13.27** | `day_50_bug102_celery_mapper_report.md` |
 | **51 (Блок 9)** | **Фикс-спринт Блок 9 (Безопасность)** — 10 BUG | **v3.13.28** | `block9_fix_sprint_v31328_report.md` |
 | **52 (Блок 6)** | **Блок 6 (Агенты): Windows + Linux + S3 + MinIO** | **v3.13.28** | `block6_agents_full_report.md` |
+| **53.1a (BACKLOG-097)** | **Manager: `ScanTask.source_type` + S3/MinIO-ресурсы, миграция 006** | **v3.13.29** | `day_53_1a_report.md` |
 
 ---
 
@@ -135,6 +136,14 @@
 - **BUG-120 fixed:** S3-агент переключён с AWS на MinIO.
 - **BUG-122 fixed:** systemd-unit Linux-агента portable через плейсхолдеры.
 
+**S3-коннектор сканера (BACKLOG-097, v3.13.29):**
+- Часть 1 (53.1a, ✅) — Manager: `ScanTask.source_type` (filesystem | s3 | minio) + миграция 006; `POST /api/resources` учится создавать S3/MinIO-ресурсы (`path = s3://bucket[/prefix]`).
+- Тип источника **явный** в задании и в payload `GET /api/scanner/tasks/pending` — сканер больше не угадывает коннектор по префиксу пути.
+- `minio` трактуется как `s3`; различие только в `endpoint`.
+- Уникальность ресурсов — по `(path, type)` (регрессия BUG-059, ранее проверялся только `path`).
+- **Секреты S3 в `scan_config` не пишутся** — только ENV на хосте сканера (`S3_ACCESS_KEY` / `S3_SECRET_KEY`), единая политика TASK-018.
+- Части 2 (53.1b) и 3 (53.2/53.3) — 📋 фабрика коннекторов, `_text_scanner.py`, boto3, S3-пайплайн находок, WebUI-форма.
+
 **Безопасность (Блок 9, v3.13.28):**
 - mTLS strict → `CERT_REQUIRED` (BUG-108).
 - CRL enforce на 2 уровнях: TLS + middleware (BUG-107).
@@ -148,6 +157,13 @@
 ---
 
 ## 📁 Последние использованные файлы
+
+### День 53.1a — BACKLOG-097 (v3.13.29)
+- `manager/src/db/migrations/versions/006_add_source_type.py` — NEW, `scan_tasks.source_type` + индекс, идемпотентная.
+- `manager/src/db/models.py` — `ScanTask.source_type` (default `filesystem`, index).
+- `manager/src/api/resources.py` — S3/MinIO-ресурсы, валидация `s3://`, уникальность `(path, type)`, `source_type` в задаче.
+- `manager/src/api/scanner.py` — `source_type` в payload `GET /api/scanner/tasks/pending`.
+- `tests/unit/test_s3_resource_v31329.py` — NEW, 19 тестов.
 
 ### Блок 6 (v3.13.28)
 - `audit-agent-windows/config.json` — обновлён (hostname, paths).
@@ -170,6 +186,7 @@
 - `docker-compose.yml`, `.env`, `.env.example` — VERSION 3.13.28.
 
 ### Тесты
+- `tests/unit/test_s3_resource_v31329.py` (19 тестов) — NEW.
 - `tests/unit/test_security_block9_v31328.py` (42 теста) — NEW.
 - `tests/e2e/test_security_block9_v31328.py` (5 тестов) — NEW.
 
@@ -177,18 +194,18 @@
 
 ## 📌 Рекомендации архитектору
 
-1. **Linux-агент — дотестировать** в новой сессии:
-   - Метрики `:9102` из WSL.
+1. **53.1b — следующий день:** Scanner: фабрика коннекторов, `_text_scanner.py`, `boto3` в `scanner/requirements.txt`, использование `source_type` в `managed_scanner.py`.
+2. **Linux-агент — дотестировать** в новой сессии:
+   - Метрики `:9102` из WSL и с хоста.
    - Сквозной поток после restart WSL.
    - BUG-130 (backoff).
-2. **BUG-135** (BOM в JSON S3-агента) — фикс в v3.1.0.
-3. **BUG-123** (сбор прав Windows) — Блок 6.5.
-4. **Scanner** — тестировать S3-коннектор (`s3_connector.py`).
+3. **BUG-135** (BOM в JSON S3-агента) — фикс в v3.1.0.
+4. **BUG-123** (сбор прав Windows) — Блок 6.5.
 5. **Rate-limit** — увеличить до 10000 для тестов через `.env`.
 6. **SQLAlchemy** — закрепить в `requirements.txt` (уже сделано в v3.13.28).
 
 ---
 
 **Актуально на:** 03.10.2026
-**Версия:** v3.13.28
-**Следующий шаг:** Linux-агент (метрики, сквозной поток) → Блок 6.5 → Scanner
+**Версия:** v3.13.29
+**Следующий шаг:** 53.1b — Scanner: фабрика коннекторов, `_text_scanner.py`, boto3, `source_type` в `managed_scanner.py`

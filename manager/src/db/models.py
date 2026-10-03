@@ -92,6 +92,10 @@ class ScanTask(Base):
     resource_id = Column(Integer, ForeignKey("resources.id"))
     scanner_id = Column(Integer, ForeignKey("scanners.id"), nullable=True)
     source_path = Column(String(500), nullable=False)
+    # День 53.1a (BACKLOG-097): тип источника — сканер выбирает коннектор
+    # по source_type, не угадывая по префиксу source_path ('s3://...').
+    # filesystem | s3 | minio (lowercase — как Resource.type).
+    source_type = Column(String(20), default="filesystem", nullable=False, index=True)
     status = Column(String(20), default="pending")
     created_at = Column(DateTime, default=datetime.utcnow)
     assigned_at = Column(DateTime, nullable=True)

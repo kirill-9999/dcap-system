@@ -342,7 +342,11 @@ def get_pending_task(
             "id": task.id,
             "resource_id": task.resource_id,
             "path": resource.path,
-            "scan_config": scan_config
+            # День 53.1a (BACKLOG-097): явный тип источника для выбора коннектора
+            # в сканере. Fallback-цепочка: task.source_type → resource.type →
+            # 'filesystem' (для задач, созданных до миграции 006).
+            "source_type": (task.source_type or resource.type or "filesystem").lower(),
+            "scan_config": scan_config,
         }
     }
 

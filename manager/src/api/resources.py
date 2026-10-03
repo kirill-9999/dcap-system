@@ -1,3 +1,6 @@
+import os
+from urllib.parse import urlparse
+
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 from typing import Optional
@@ -73,25 +76,64 @@ def list_resources(
 @router.post("")
 def create_resource(
     path: str = Query(..., min_length=1),
-    type: str = Query("FILESYSTEM"),
+    type: str = Query("FILESYSTEM"),  # noqa: A002
+    endpoint: Optional[str] = Query(None, description="S3/MinIO endpoint (host:port)"),
+    secure: bool = Query(False, description="S3: HTTPS"),
+    use_path_style: bool = Query(True, description="S3: path-style addressing"),
+    region: str = Query("us-east-1"),
     db: Session = Depends(session.get_db),
     user: User = Depends(require_admin),
 ):
-    """Создать новый ресурс (только Admin, BUG-046). BUG-059: type нормализуется."""
+    """Создать новый ресурс (только Admin, BUG-046).
+
+    День 53.1a (BACKLOG-097): поддержка S3/MinIO-ресурсов.
+    - type нормализуется в lowercase (BUG-059);
+    - уникальность по (path, type), а не только по path (uq_resources_path_type);
+    - для type in (s3, minio) path = 's3://bucket[/prefix]', добавляется
+      scan_config.connector.s3 с endpoint/secure/use_path_style/region;
+    - секреты S3 в scan_config НЕ пишутся — только ENV на хосте сканера
+      (S3_ACCESS_KEY / S3_SECRET_KEY), единая политика TASK-018.
+    """
     type = type.lower()  # noqa: A001
-    # Проверяем, не существует ли уже
-    existing = db.query(models.Resource).filter(models.Resource.path == path).first()
+    if type not in ("filesystem", "s3", "minio"):
+        raise HTTPException(400, f"Unsupported resource type: {type!r}")
+
+    # BUG-059 + uq_resources_path_type: уникальность по (path, type).
+    existing = db.query(models.Resource).filter(
+        models.Resource.path == path,
+        models.Resource.type == type,
+    ).first()
     if existing:
-        raise HTTPException(400, f"Resource with path '{path}' already exists")
-    
+        raise HTTPException(
+            400,
+            f"Resource with path '{path}' and type '{type}' already exists",
+        )
+
+    scan_config = get_default_config()
+
+    if type in ("s3", "minio"):
+        parsed = urlparse(path)
+        if parsed.scheme not in ("s3", "minio") or not parsed.netloc:
+            raise HTTPException(400, "S3 path must be 's3://bucket[/prefix]'")
+        scan_config["connector"] = scan_config.get("connector", {})
+        scan_config["connector"]["s3"] = {
+            "endpoint": endpoint
+            or os.environ.get("S3_DEFAULT_ENDPOINT", "host.docker.internal:9000"),
+            "bucket": parsed.netloc,
+            "prefix": parsed.path.lstrip("/"),
+            "secure": secure,
+            "use_path_style": use_path_style,
+            "region": region,
+        }
+
     resource = models.Resource(
         path=path,
         type=type,
         status="ACTIVE",
         enabled=True,
-        scan_config=get_default_config(),
+        scan_config=scan_config,
         scan_interval=3600,
-        schedule_enabled=False
+        schedule_enabled=False,
     )
     db.add(resource)
     db.commit()
@@ -144,8 +186,10 @@ def scan_resource(
     task = models.ScanTask(
         resource_id=resource_id,
         source_path=resource.path,
+        # День 53.1a: тип источника из ресурса (lowercase — как Resource.type).
+        source_type=(resource.type or "filesystem").lower(),
         status="pending",
-        created_at=datetime.utcnow()
+        created_at=datetime.utcnow(),
     )
     db.add(task)
     db.commit()
