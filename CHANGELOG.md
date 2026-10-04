@@ -7,8 +7,65 @@
 
 ## [Unreleased] — v3.0.0 (release)
 
-**Осталось:** Блок 5 (WebUI, п.2.4), Блок 6.5 (сбор прав Windows, BUG-123/127), дотест Linux-агента (метрики с хоста, сквозной поток после restart WSL, BUG-130), BACKLOG-097 части 2–3 (53.1b/53.2/53.3 — Scanner S3), Блок 11, GitHub-пакет.
-(Блок 7 — Retention — закрыт в v3.13.27. Фикс-спринт Блок 9 — закрыт в v3.13.28. Блок 6 — закрыт в v3.13.28 на 5 из 6 под-блоков. BACKLOG-097 часть 1 (Manager) — закрыта в v3.13.29.)
+**Осталось:** Блок 5 (WebUI, п.2.4), Блок 6.5 (сбор прав Windows, BUG-123/127), дотест Linux-агента (метрики с хоста, сквозной поток после restart WSL, BUG-130), BACKLOG-097 часть 3 (53.2/53.3 — `S3LineConnector` + WebUI-форма S3 + E2E MinIO), Блок 11, GitHub-пакет.
+(Блок 7 — Retention — закрыт в v3.13.27. Фикс-спринт Блок 9 — закрыт в v3.13.28. Блок 6 — закрыт в v3.13.28 на 5 из 6 под-блоков. BACKLOG-097 часть 1 (Manager) — закрыта в v3.13.29, часть 2 (ядро сканера) — в v3.13.30.)
+
+---
+
+## [3.13.30] — 2026-10-04 — День 53.1b: фабрика коннекторов + общий `_text_scanner` (BACKLOG-097, часть 2: Scanner)
+
+### Added
+
+- 📁 `scanner/connectors/_text_scanner.py` — общий построчный пайплайн, вынесенный
+  из `FilesystemConnector`, чтобы `S3LineConnector` (53.2) переиспользовал ту же
+  логику без копипасты. Только функции, без состояния источника:
+  `is_supported_file` / `decode_text_bytes` / `file_pass_prefilter` / `scan_text` /
+  `extract_document_text` + константы `DEFAULT_TEXT_EXTENSIONS`,
+  `DOCUMENT_EXTENSIONS`, `IMAGE_EXTENSIONS`, `CRED_FILENAMES`. `extract_document_text`
+  принимает **байты** (не путь) — чтобы FS и S3 могли переиспользовать.
+- 📁 `scanner/connectors/factory.py` — реестр `source_type → фабрика`:
+  `register_line_connector()` / `create_line_connector()` / `registered_types()`.
+  В 53.1b зарегистрирован только `filesystem` (в конце `filesystem.py`).
+  Для `s3`/`minio` — `ValueError` с текстом «S3 support arrives in day 53.2»,
+  чтобы сканер упал с понятным сообщением, а не открывал `s3://bucket` как папку.
+- 📁 `scanner/src/config_loader.py` — `S3ConnectorConfig`
+  (`endpoint`/`bucket`/`prefix`/`secure`/`use_path_style`/`region`) и опциональное
+  поле `ConnectorConfig.s3`. **Секретов нет** — только ENV `S3_ACCESS_KEY` /
+  `S3_SECRET_KEY` на хосте сканера.
+- 📁 `scanner/config/scanner_config.json` — секция `connector.s3` (дефолтный шаблон,
+  перекрывается payload'ом задачи от Manager).
+- 📁 `scanner/requirements.txt` — `boto3>=1.34.0` (код в 53.1b его не импортирует).
+- 📁 3 файла unit-тестов (24 теста): `test_factory_v31330.py`,
+  `test_text_scanner_extract_v31330.py`, `test_catalog_entries_s3_v31330.py`.
+
+### Changed
+
+- ♻️ `scanner/connectors/filesystem.py` — рефакторинг на `_text_scanner`
+  (**поведение не меняется**): удалены `_scan_text`, `_file_pass_prefilter`,
+  `_extract_document`; `_is_supported` → `is_supported_file`; `scan_file` читает
+  байты и зовёт `extract_document_text` + `shared_scan_text`; `_read_text`
+  использует `decode_text_bytes`. Осталось FS-специфичное: `_discover_files`,
+  `_within_size`, `scan_path` (ThreadPool), `scan_file` (диспетчер по расширению).
+- ♻️ `scanner/src/managed_scanner.py` — коннектор выбирается по `source_type` из
+  payload задачи через фабрику (`_init_line_pipeline` → `create_line_connector`);
+  добавлено поле `_current_source_type`; коннектор пересоздаётся на каждой задаче;
+  новый helper `_parent_of_path()` корректно вычисляет родителя для
+  `s3://bucket/key` (`Path(...).parent` давал `s3:/bucket`).
+
+### Tests
+
+- `tests/unit/`: **402 passed** (было 378, +24), регрессий нет.
+- Обновлён `tests/unit/test_ocr_bbox_v31317.py`: моки переведены с удалённых
+  приватных методов (`_extract_document`, `_scan_text`) на функции-модули
+  (`fs_mod.extract_document_text`, `fs_mod.shared_scan_text`). Проверяемая логика
+  BUG-077 в `scan_file` не менялась.
+
+### Известные ограничения
+
+- Сканер по-прежнему **не умеет S3** — это граница 53.1b. Задача `source_type=s3`
+  завершается `failed` с сообщением «S3 support arrives in day 53.2».
+- `scanner/connectors/s3_connector.py` (247 строк, `ISourceConnector`) не тронут и
+  не используется — его место займёт новый `S3LineConnector` в 53.2.
 
 ---
 

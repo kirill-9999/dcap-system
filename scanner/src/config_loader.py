@@ -58,6 +58,32 @@ DEFAULT_SKIP_DIRS = [
 
 
 @dataclass
+class S3ConnectorConfig:
+    """Конфигурация S3/MinIO-коннектора (день 53.1b, BACKLOG-097).
+
+    Секреты (access_key / secret_key) НЕ хранятся здесь — только ENV
+    на хосте сканера: S3_ACCESS_KEY / S3_SECRET_KEY (политика TASK-018).
+    """
+    endpoint: str = "host.docker.internal:9000"
+    bucket: str = ""
+    prefix: str = ""
+    secure: bool = False
+    use_path_style: bool = True
+    region: str = "us-east-1"
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> 'S3ConnectorConfig':
+        return cls(
+            endpoint=data.get("endpoint", "host.docker.internal:9000"),
+            bucket=data.get("bucket", ""),
+            prefix=data.get("prefix", ""),
+            secure=bool(data.get("secure", False)),
+            use_path_style=bool(data.get("use_path_style", True)),
+            region=data.get("region", "us-east-1"),
+        )
+
+
+@dataclass
 class ConnectorConfig:
     """Конфигурация коннектора"""
     extensions: list = field(default_factory=lambda: list(DEFAULT_EXTENSIONS))
@@ -68,6 +94,9 @@ class ConnectorConfig:
     max_text_chars: int = 200000
     context_lines: int = 2  # <-- ДОБАВЛЕНО (день 40.2)
     max_parallel_files: int = 1  # <-- ДОБАВЛЕНО (день 42, параллельный скан)
+    # День 53.1b (BACKLOG-097): опциональная секция S3/MinIO (без секретов).
+    # None, если в конфиге секции connector.s3 нет.
+    s3: Optional['S3ConnectorConfig'] = None
 
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> 'ConnectorConfig':
@@ -80,6 +109,7 @@ class ConnectorConfig:
             max_text_chars=data.get("max_text_chars", 200000),
             context_lines=data.get("context_lines", 2),  # <-- ДОБАВЛЕНО
             max_parallel_files=data.get("max_parallel_files", 1),  # <-- ДОБАВЛЕНО
+            s3=S3ConnectorConfig.from_dict(data["s3"]) if data.get("s3") else None,
         )
 
 

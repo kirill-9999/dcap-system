@@ -12,6 +12,7 @@ for _p in (str(ROOT), str(SCANNER_DIR)):
         sys.path.insert(0, _p)
 
 from scanner.connectors.filesystem import FilesystemConnector  # noqa: E402
+import scanner.connectors.filesystem as fs_mod  # noqa: E402
 from scanner.src.finding import Finding  # noqa: E402
 
 
@@ -35,8 +36,10 @@ class TestOcrBoundingBox:
         png = tmp_path / "dummy.png"
         png.write_bytes(b"\x89PNG\r\n\x1a\nfake")
         connector = FilesystemConnector({})
-        with patch.object(connector, "_extract_document", return_value="email: test@example.com"):
-            with patch.object(connector, "_scan_text", return_value=[_fake_finding()]):
+        # День 53.1b: построчный пайплайн вынесен в _text_scanner, поэтому
+        # мокаем функции-модули, а не приватные методы коннектора.
+        with patch.object(fs_mod, "extract_document_text", return_value="email: test@example.com"):
+            with patch.object(fs_mod, "shared_scan_text", return_value=[_fake_finding()]):
                 findings = connector.scan_file(str(png), classifiers=[])
         assert len(findings) == 1
         f = findings[0]
@@ -50,7 +53,7 @@ class TestOcrBoundingBox:
         txt.write_text("email: test@example.com", encoding="utf-8")
         connector = FilesystemConnector({})
         with patch.object(connector, "_read_text", return_value="email: test@example.com"):
-            with patch.object(connector, "_scan_text", return_value=[_fake_finding()]):
+            with patch.object(fs_mod, "shared_scan_text", return_value=[_fake_finding()]):
                 findings = connector.scan_file(str(txt), classifiers=[])
         assert len(findings) == 1
         assert findings[0].fragment_type == "text_line"

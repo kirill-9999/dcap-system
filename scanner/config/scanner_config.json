@@ -61,7 +61,16 @@
             "pem", "key", "crt", "csr", "cert", "p12", "pfx", "jks",
             "pdf", "doc", "docx", "xls", "xlsx", "png", "jpg", "jpeg",
             "gif", "bmp", "tiff", "webp"
-        ]
+        ],
+        "_comment_s3": "День 53.1b (BACKLOG-097): дефолтный шаблон S3/MinIO-коннектора. Реальные endpoint/bucket/prefix приходят в payload задачи от Manager и перекрывают эти значения. Секреты (access_key/secret_key) НЕ хранятся здесь — только ENV S3_ACCESS_KEY / S3_SECRET_KEY на хосте сканера.",
+        "s3": {
+            "endpoint": "host.docker.internal:9000",
+            "bucket": "",
+            "prefix": "",
+            "secure": false,
+            "use_path_style": true,
+            "region": "us-east-1"
+        }
     },
     "logging": {
         "level": "INFO",

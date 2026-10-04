@@ -49,6 +49,8 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 from scanner.core.orchestrator import Orchestrator
 from scanner.core.base import FileContext, ClassificationResult, ClassificationFinding, DataCategory
 from scanner.connectors.filesystem import FileSystemConnector, FilesystemConnector
+# День 53.1b (BACKLOG-097): коннектор выбирается по source_type из payload задачи
+from scanner.connectors.factory import create_line_connector
 from scanner.handlers.finding_collector import FindingCollector
 from scanner.src.config_loader import AppConfig
 from scanner.src.heartbeat import HeartbeatThread
@@ -495,6 +497,9 @@ class ManagedScanner:
         self.heartbeat_thread: Optional[HeartbeatThread] = None
         # Построчный конвейер (день 40.2)
         self._connector: Optional[FilesystemConnector] = None
+        # День 53.1b (BACKLOG-097): тип источника текущей задачи
+        # (filesystem | s3 | minio) — из payload Manager.
+        self._current_source_type: str = "filesystem"
         self._enc = None
         self._load_classifiers()
     
@@ -654,6 +659,25 @@ class ManagedScanner:
         state_path.mkdir(parents=True, exist_ok=True)
         return state_path
 
+    def _parent_of_path(self, file_path: str) -> str:
+        """Родительская папка файла (поддерживает FS-пути и s3://bucket/key).
+
+        Path('s3://bucket/key').parent даст 's3:/bucket' — сломано. Для s3://
+        используем urlparse + posixpath.dirname.
+        """
+        if not file_path:
+            return ""
+        if file_path.startswith(("s3://", "minio://")):
+            from urllib.parse import urlparse
+            import posixpath
+            parsed = urlparse(file_path)
+            parent_dir = posixpath.dirname(parsed.path.lstrip("/"))
+            bucket = parsed.netloc
+            if parent_dir:
+                return f"{parsed.scheme}://{bucket}/{parent_dir}"
+            return f"{parsed.scheme}://{bucket}"
+        return str(Path(file_path).parent)
+
     def _collect_catalog_entries(self, resource_path: str, findings: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         """Собрать записи каталога - папки, в которых есть находки."""
         catalog_entries = {}
@@ -663,7 +687,7 @@ class ManagedScanner:
             if not file_path:
                 continue
             
-            folder_path = str(Path(file_path).parent)
+            folder_path = self._parent_of_path(file_path)
             category = finding.get("category", "unknown")
             
             if folder_path not in catalog_entries:
@@ -702,7 +726,8 @@ class ManagedScanner:
     def _init_line_pipeline(self) -> bool:
         """Инициализация построчного конвейера (день 40.2).
 
-        Загружает шифрование (по ключам), строит FilesystemConnector.
+        Загружает шифрование (по ключам), строит коннектор через фабрику
+        (день 53.1b — по source_type задачи).
         Возвращает True, если есть классификаторы со scan_line.
         """
         line_capable = [
@@ -726,7 +751,20 @@ class ManagedScanner:
             else True
         )
         connector_cfg["ocr_enabled"] = ocr_enabled
-        self._connector = FilesystemConnector(connector_cfg)
+        # День 53.1b (BACKLOG-097): коннектор выбирается по source_type задачи,
+        # а не жёстко. Для s3/minio в 53.1b фабрика бросает ValueError —
+        # S3LineConnector появится в 53.2.
+        try:
+            self._connector = create_line_connector(self._current_source_type, connector_cfg)
+            logger.info(
+                "[LineScan] Connector created: source_type=%s, type=%s",
+                self._current_source_type,
+                type(self._connector).__name__,
+            )
+        except ValueError as exc:
+            logger.error("[LineScan] %s", exc)
+            self._connector = None
+            return False
 
         logger.info(
             "[LineScan] Построчный конвейер готов: %d классификаторов, keys=%s",
@@ -984,7 +1022,10 @@ class ManagedScanner:
             self.heartbeat_thread.set_task(task_id)
             self.heartbeat_thread.set_progress(0, None)
 
-        logger.info(f"[Scanner] Построчное сканирование {resource_path} (task {task_id})")
+        logger.info(
+            "[Scanner] Построчное сканирование %s (task %d, source_type=%s)",
+            resource_path, task_id, self._current_source_type,
+        )
 
         scan_result = self._scan_line_by_line(resource_path)
         findings_objects = scan_result["findings"]
@@ -1096,7 +1137,17 @@ class ManagedScanner:
         resource_path = task["path"]
         scan_config = task.get("scan_config", {})
         
-        logger.info(f"[Scanner] Executing task {task_id} on {resource_path}")
+        # День 53.1b (BACKLOG-097): тип источника из payload Manager.
+        # Fallback на filesystem — если задача создана до 53.1a.
+        self._current_source_type = (task.get("source_type") or "filesystem").lower()
+        # Коннектор пересоздаём на каждой задаче: дешёво (только конфиг) и
+        # исключает переиспользование коннектора от другого source_type.
+        self._connector = None
+
+        logger.info(
+            f"[Scanner] Executing task {task_id} on {resource_path} "
+            f"(source_type={self._current_source_type})"
+        )
         
         collector = FindingCollector()
         collector_config = self._get_collector_config()
