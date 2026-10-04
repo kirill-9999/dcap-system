@@ -12,6 +12,39 @@
 
 ---
 
+## [3.13.32] — 2026-10-04 — День 53.3: E2E на MinIO + форма S3/MinIO в WebUI (BACKLOG-097, часть 4)
+
+### Added
+
+- 📄 `tests/e2e/test_s3_e2e.py` — E2E-цикл S3/MinIO на живом стенде: создание ресурса →
+  запуск задачи → ожидание `completed` → проверка `file_path LIKE 's3://%'` → cleanup.
+  Маркеры: `e2e`, `requires_manager`, `requires_minio` (новый маркер в `pyproject.toml`).
+  Авто-skip: MinIO недоступен (healthcheck) или нет активного сканера.
+- 📄 `docs/admin-guide/06-scanner.md` — раздел «8. S3/MinIO-сканирование» (endpoint, формат
+  пути, bucket/prefix, секреты через ENV, MinIO-настройки), S3-переменные в ENV-таблице,
+  S3-строки в Troubleshooting.
+
+### Changed
+
+- 🌐 `webui/templates/resources.html` — единая форма ресурса: типы `filesystem` / `s3` / `minio`,
+  блок S3-параметров (`endpoint`, `region`, `secure`, `use_path_style`) с авто-подсказкой по
+  MinIO, отправка через REST `POST /api/resources` (query-параметры) вместо legacy
+  `/api/resources/create`. Секреты не вводятся в форму — только `S3_ACCESS_KEY` /
+  `S3_SECRET_KEY` в ENV сканера (TASK-018).
+- 🌐 `manager/src/api/resources.py` — **вариант B**: `endpoint` из query → `S3_DEFAULT_ENDPOINT`
+  из ENV → иначе `400` с внятным сообщением. Убран неявный hardcode
+  `host.docker.internal:9000` (иначе MinIO на другой хост/порт был бы недостижим).
+- 📝 `.env.example` — секция `SCANNER: S3/MinIO` (`S3_DEFAULT_ENDPOINT`, `S3_ACCESS_KEY`,
+  `S3_SECRET_KEY`) с пояснениями про хост-сканирование и приоритет ENV над config.
+- 📝 `tests/unit/test_s3_resource_v31329.py` — autouse-фикстура `S3_DEFAULT_ENDPOINT`,
+  проверки `400` без endpoint для `s3`/`minio`, ENV-endpoint, приоритет явного endpoint.
+
+### Тесты
+
+- `tests/unit` — 427 passed (22 в `test_s3_resource_v31329.py`).
+- `tests/e2e` — 53 passed, 7 skipped (в т. ч. 2 в `test_s3_e2e.py`); стенд
+  `docker-compose.test.yml` (Manager :18000 / WebUI :18001) + MinIO + Scanner на хосте.
+
 ## [3.13.31] — 2026-10-04 — День 53.2: `S3LineConnector` (streaming, ENV-секреты, OCR/документы) + BUG-136
 
 ### Added

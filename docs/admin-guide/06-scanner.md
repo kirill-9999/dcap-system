@@ -3,8 +3,8 @@
 > **Руководство администратора DCAP.**
 > Раздел «Сканер»: установка, настройка, ENV, ключи Findings, FP-фильтр.
 
-**Обновлено:** 20.09.2026
-**Версия:** v3.13.10
+**Обновлено:** 04.10.2026
+**Версия:** v3.13.32
 
 ---
 
@@ -17,7 +17,8 @@
 5. [Ключи Findings (обязательно)](#5-ключи-findings-обязательно)
 6. [Запуск](#6-запуск)
 7. [Интеграция с Manager](#7-интеграция-с-manager)
-8. [Troubleshooting](#8-troubleshooting)
+8. [S3/MinIO-сканирование](#8-s3minio-сканирование)
+9. [Troubleshooting](#9-troubleshooting)
 
 ---
 
@@ -76,15 +77,25 @@ MANAGER_URL — URL Manager.
 
 LOG_LEVEL — уровень логирования.
 
-4. ENV-переменные
-Переменная	Обязательна	Назначение
-FINDINGS_ENCRYPTION_KEY	✅	AES-256-GCM ключ (base64, 32 байта)
-FINDINGS_HMAC_KEY	✅	HMAC-SHA256 ключ (base64, ≥32 байта)
-FINDINGS_KEY_ID	⚠️ Рекомендуется	ID ключа (напр. key-2026-09)
-MANAGER_URL	❌	URL Manager (override config)
-LOG_LEVEL	❌	Уровень логов (DEBUG/INFO/WARNING)
-DCAP_ALLOW_LEGACY_SCANNER	❌	Только для dev — разрешает запуск без ключей
-⚠️ FINDINGS_* должны быть ИДЕНТИЧНЫ ключам Manager. Иначе Manager не расшифрует match_text.
+## 4. ENV-переменные
+
+| Переменная | Обязательна | Назначение |
+|------------|-------------|------------|
+| `FINDINGS_ENCRYPTION_KEY` | ✅ | AES-256-GCM ключ (base64, 32 байта) |
+| `FINDINGS_HMAC_KEY` | ✅ | HMAC-SHA256 ключ (base64, ≥32 байта) |
+| `FINDINGS_KEY_ID` | ⚠️ Рекомендуется | ID ключа (напр. `key-2026-09`) |
+| `MANAGER_URL` | ❌ | URL Manager (override config) |
+| `LOG_LEVEL` | ❌ | Уровень логов (DEBUG/INFO/WARNING) |
+| `DCAP_ALLOW_LEGACY_SCANNER` | ❌ | Только для dev — разрешает запуск без ключей |
+| `S3_ACCESS_KEY` | Для S3-ресурсов | Access key MinIO/S3 (политика TASK-018) |
+| `S3_SECRET_KEY` | Для S3-ресурсов | Secret key MinIO/S3 (политика TASK-018) |
+| `S3_DEFAULT_ENDPOINT` | ❌ | Дефолтный endpoint (вариант B: без query и без ENV → 400) |
+
+⚠️ `FINDINGS_*` должны быть ИДЕНТИЧНЫ ключам Manager. Иначе Manager не расшифрует `match_text`.
+
+⚠️ `S3_DEFAULT_ENDPOINT` нужен на **хосте Manager** (дефолт при создании ресурса),
+`S3_ACCESS_KEY` / `S3_SECRET_KEY` — на **хосте сканера** (политика TASK-018).
+Не путать с секцией «S3/MinIO аудит-агент» в `.env.example` — это другой процесс.
 
 5. Ключи Findings (обязательно)
 С v3.13.9 (после фикса BUG-057) Scanner НЕ СТАРТУЕТ без ключей.
@@ -231,28 +242,110 @@ middleware Manager'а теперь **всегда пытается извлеч�
 scanner-эндпоинт с ролью: только `admin`; viewer получает 403, не-аутентифицированный — 401.
 Удаление сканера из WebUI/API идёт именно через этот эндпоинт.
 
-8. Troubleshooting
-Симптом	Причина	Fix
-FINDINGS_ENCRYPTION_KEY not set	Ключи не заданы	Задать ENV (§5)
-SCANNER IN LEGACY MODE в логах	DCAP_ALLOW_LEGACY_SCANNER=true	Убрать флаг в prod
-Manager не расшифровывает match_text	Ключ Scanner ≠ Manager	Сверить base64, сверить key_id
-Scanner не регистрируется	Manager недоступен	curl http://localhost:8000/api/health
-Heartbeat timeout	STALE_THRESHOLD_MINUTES < 2	Проверить heartbeat_interval
-Задание «зависло» в running	Scanner упал	Перезапустить Scanner; задача станет failed через 2 мин
-Логи:
+## 8. S3/MinIO-сканирование
 
-bash
+> **С v3.13.31 (BACKLOG-097).** Сканер умеет сканировать S3-совместимые
+> хранилища (MinIO, AWS S3, Wasabi и др.) построчно — так же, как файловую
+> систему. Коннектор: `scanner/connectors/s3_line_connector.py`.
+
+### 8.1. Как работает
+
+- **Секреты — только ENV на хосте сканера:** `S3_ACCESS_KEY` / `S3_SECRET_KEY`.
+  В форму WebUI и в payload задачи секреты не попадают (политика TASK-018).
+- **Endpoint/bucket/prefix/secure/use_path_style/region** приходят в payload
+  задачи от Manager (`scan_config.connector.s3`); регистрируются при создании
+  ресурса: `POST /api/resources?type=s3&path=s3://bucket/prefix`.
+- **Endpoint** (вариант B): если не задан в query при создании ресурса и не
+  выставлен `S3_DEFAULT_ENDPOINT` на Manager-хосте → 400.
+- **Формат пути:** `s3://bucket[/prefix]` (схема также `minio://`).
+- **Рекурсия — всегда:** объекты обходятся по всему поддереву prefix
+  (S3 — плоское хранилище, `list_objects_v2(Prefix=...)` возвращает всё
+  поддерево). Опции `recursive=false` для S3 нет намеренно — чтобы не
+  пропустить вложенные объекты при ошибке конфигурации.
+- **Streaming:** объекты читаются по чанкам (`Body.iter_chunks`, 1 МБ),
+  а не целиком в память.
+- **Документы/изображения** — скачиваются во временный файл, извлекаются
+  через `DocumentExtractor` (PDF/Office — текст; изображения — OCR).
+- **Кодировки:** UTF-8 → CP1251 → UTF-8 с отбрасыванием невалидных байт
+  (BUG-136, фикс v3.13.31).
+
+### 8.2. Создание S3-ресурса
+
+Через WebUI: **Ресурсы → Добавить ресурс → Тип: S3**, заполнить `path`
+(`s3://bucket/prefix`), опционально `endpoint`, `secure`, `use_path_style`,
+`region`.
+
+Через API:
+
+```bash
+curl -X POST "http://localhost:8000/api/resources?path=s3://bucket/prefix&type=s3" \
+     -H "Authorization: Bearer <TOKEN>"
+```
+
+- `endpoint` (`host:port`) — если не задан, берётся `S3_DEFAULT_ENDPOINT` из ENV
+  Manager'а; если нет обоих — 400 `endpoint is required for S3/MinIO resources`.
+- `secure=false` (дефолт) — HTTP; `secure=true` — HTTPS.
+- `use_path_style=true` (дефолт) — адресация `<endpoint>/<bucket>/<key>`
+  (нужно для MinIO и IP-эндпоинтов AWS).
+- `region` — дефолт `us-east-1`.
+
+### 8.3. Находки
+
+- `file_path` в findings = `s3://bucket/key` (не локальный путь).
+- `catalog_entries.path` = `s3://bucket/prefix` (без `//`, без `s3:/bucket`).
+- Fingerprint (дедупликация) считается от `s3://bucket/key|line|match|type` —
+  стабилен между сканами, если ключ не меняется.
+- Находки шифруются на хосте сканера и маскируются Manager'ом — как для ФС.
+
+### 8.4. Ограничения
+
+| Ограничение | Описание |
+|-------------|----------|
+| `secure=false` = `verify=False` | При HTTP-endpoint сертификат не проверяется (TEST-NOTE-6.11). Для production — `secure=true`. |
+| Секреты — per-host, не per-task | Разные credentials на разные S3 — отдельные инстансы сканера. |
+| Параллелизм — последовательный | `S3LineConnector.scan_path` обрабатывает объекты по одному. `max_parallel_files > 1` — v3.1.0. |
+| `s3_connector.py` (ISourceConnector) | Существует отдельно (для Orchestrator), сканером не используется. |
+| Все bucket'ы одной задачей | Не поддерживается — на каждый bucket создаётся отдельный Resource. |
+
+### 8.5. Масштабирование
+
+Подробно — в отдельном дне документации (53.4). Кратко: один инстанс сканера =
+одна задача за раз. Несколько bucket'ов — несколько Resource, сканер
+обработает их последовательно. Для параллелизма — N инстансов сканера
+(Manager разводит задачи между ними через `/api/scanner/tasks/pending`).
+
+## 9. Troubleshooting
+| Симптом | Причина | Fix |
+|---------|---------|-----|
+| `FINDINGS_ENCRYPTION_KEY not set` | Ключи не заданы | Задать ENV (§5) |
+| `SCANNER IN LEGACY MODE` в логах | `DCAP_ALLOW_LEGACY_SCANNER=true` | Убрать флаг в prod |
+| Manager не расшифровывает `match_text` | Ключ Scanner ≠ Manager | Сверить base64, сверить `key_id` |
+| Scanner не регистрируется | Manager недоступен | `curl http://localhost:8000/api/health` |
+| Heartbeat timeout | `STALE_THRESHOLD_MINUTES` < 2 | Проверить `heartbeat_interval` |
+| Задание «зависло» в `running` | Scanner упал | Перезапустить Scanner; задача станет `failed` через 2 мин |
+| S3-задача failed с «No files found» | `_connector is None` или `source_type` не распознан | Проверить логи сканера: должно быть `Connector created: source_type=s3` |
+| `S3LineConnector: задайте S3_ACCESS_KEY / S3_SECRET_KEY в ENV` | Секреты не заданы на хосте сканера | Задать ENV (§4) |
+| `endpoint is required for S3/MinIO resources` при создании ресурса | Не задан `endpoint` в query и не выставлен `S3_DEFAULT_ENDPOINT` | Задать `endpoint` в форме или ENV на Manager-хосте |
+| `ClientError: NoSuchBucket` | Bucket не существует или неверный endpoint | Проверить `mc ls <alias>/<bucket>` |
+| `secure=False` — HTTPS-проверка сертификата отключена | Endpoint по HTTP, `secure=false` | Ожидаемо для MinIO dev; для production — `secure=true` |
+| Кириллица в S3-объектах отображается мусором | Объект в не-UTF8 кодировке | С v3.13.31 поддерживается cp1251 (BUG-136 fix) |
+
+**Логи:**
+
+```bash
 tail -f logs/scanner.log
+```
+
 Метрики: http://localhost:9101/metrics (Prometheus).
 
-📚 См. также
-05-security.md — безопасность (ключи Findings, ENV)
+### 📚 См. также
 
-docs/deployment.md — развёртывание
+- `05-security.md` — безопасность (ключи Findings, ENV)
+- `docs/deployment.md` — развёртывание
+- `docs/monitoring.md` — мониторинг
+- `ARCHITECTURE.md` — архитектура Scanner (раздел S3/MinIO-коннектор)
 
-docs/monitoring.md — мониторинг
+---
 
-ARCHITECTURE.md — архитектура Scanner
-
-Последнее обновление: 19.09.2026
-Версия: v3.13.8
+**Последнее обновление:** 04.10.2026
+**Версия:** v3.13.32
