@@ -8,10 +8,50 @@
     <div class="modal-content">
         <div class="modal-header"><h3>Добавить ресурс</h3><button class="btn btn-sm" onclick="closeModal('create-resource-modal')">&times;</button></div>
         <div class="modal-body">
-            <div class="mb-3"><label class="form-label">Путь *</label><input type="text" class="form-control" id="resource-path" placeholder="D:\\data или /home/user/data"></div>
-            <div class="mb-3"><label class="form-label">Тип</label><select class="form-select" id="resource-type"><option value="FILESYSTEM">FILESYSTEM</option></select></div>
-            <div class="mb-3"><label class="form-label">Расширения</label><input type="text" class="form-control" id="resource-extensions" value="txt,pdf,docx,xlsx,png,jpg,jpeg"></div>
-            <div class="d-flex gap-2"><button class="btn btn-primary" onclick="createResource()">Создать</button><button class="btn btn-outline-secondary" onclick="closeModal('create-resource-modal')">Отмена</button></div>
+            <div class="mb-3">
+                <label class="form-label">Тип</label>
+                <select class="form-select" id="resource-type" onchange="onResourceTypeChange()">
+                    <option value="filesystem">FILESYSTEM</option>
+                    <option value="s3">S3</option>
+                    <option value="minio">MINIO</option>
+                </select>
+            </div>
+            <div class="mb-3">
+                <label class="form-label">Путь *</label>
+                <input type="text" class="form-control" id="resource-path" placeholder="D:\data или /home/user/data">
+                <div class="form-text" id="resource-path-hint"></div>
+            </div>
+            <div id="s3-fields" style="display:none;">
+                <div class="mb-3">
+                    <label class="form-label">Endpoint</label>
+                    <input type="text" class="form-control" id="resource-endpoint" placeholder="host.docker.internal:9000">
+                    <div class="form-text">Оставьте пустым, если на Manager-хосте задан <code>S3_DEFAULT_ENDPOINT</code></div>
+                </div>
+                <div class="mb-3">
+                    <label class="form-label">Region</label>
+                    <input type="text" class="form-control" id="resource-region" value="us-east-1">
+                </div>
+                <div class="form-check mb-2">
+                    <input class="form-check-input" type="checkbox" id="resource-secure">
+                    <label class="form-check-label" for="resource-secure">Secure (HTTPS)</label>
+                </div>
+                <div class="form-check mb-3">
+                    <input class="form-check-input" type="checkbox" id="resource-path-style" checked>
+                    <label class="form-check-label" for="resource-path-style">Path-style addressing</label>
+                </div>
+                <div class="alert alert-info small">
+                    Секреты S3 (<code>S3_ACCESS_KEY</code>, <code>S3_SECRET_KEY</code>) задаются на хосте сканера в ENV — в форму не вводятся.
+                </div>
+            </div>
+            <div class="mb-3">
+                <label class="form-label">Расширения</label>
+                <input type="text" class="form-control" id="resource-extensions" value="txt,pdf,docx,xlsx,png,jpg,jpeg" disabled>
+                <div class="form-text">Справочно: список берётся из конфигурации сканера, поле не отправляется (REST <code>POST /api/resources</code>).</div>
+            </div>
+            <div class="d-flex gap-2">
+                <button class="btn btn-primary" onclick="createResource()">Создать</button>
+                <button class="btn btn-outline-secondary" onclick="closeModal('create-resource-modal')">Отмена</button>
+            </div>
         </div>
     </div>
 </div>
@@ -20,11 +60,62 @@
 <script>
 function showModal(id) { document.getElementById(id).classList.add('show'); }
 function closeModal(id) { document.getElementById(id).classList.remove('show'); }
+
+// День 53.3 (BACKLOG-097): переключение типа ресурса — S3/MinIO показывают
+// endpoint/region/secure/use_path_style; секреты в форму не вводятся (ENV).
+function onResourceTypeChange() {
+    var t = document.getElementById('resource-type').value;
+    var s3 = document.getElementById('s3-fields');
+    var hint = document.getElementById('resource-path-hint');
+    var path = document.getElementById('resource-path');
+    if (t === 's3' || t === 'minio') {
+        s3.style.display = '';
+        hint.innerHTML = 'Формат: <code>s3://bucket[/prefix]</code>';
+        path.placeholder = 's3://bucket/prefix';
+    } else {
+        s3.style.display = 'none';
+        hint.innerHTML = '';
+        path.placeholder = 'D:\\data или /home/user/data';
+    }
+}
+
+// День 53.3: единый REST-эндпоинт POST /api/resources (параметры в query).
+// Раньше форма ходила в легаси POST /api/resources/create (только FILESYSTEM).
 async function createResource() {
     var path = document.getElementById('resource-path')?.value?.trim();
     if (!path) { alert('Укажите путь'); return; }
-    var res = await api.post('/api/resources/create', {type:document.getElementById('resource-type')?.value||'FILESYSTEM', path:path, enabled:true, extensions:document.getElementById('resource-extensions')?.value||''});
-    if (res.success) { closeModal('create-resource-modal'); loadResources(); } else alert(res.detail || 'Ошибка');
+    var type = document.getElementById('resource-type')?.value || 'filesystem';
+
+    var params = new URLSearchParams({ path: path, type: type });
+    if (type === 's3' || type === 'minio') {
+        var endpoint = document.getElementById('resource-endpoint')?.value?.trim();
+        if (endpoint) params.append('endpoint', endpoint);
+        params.append('secure', document.getElementById('resource-secure')?.checked ? 'true' : 'false');
+        params.append('use_path_style', document.getElementById('resource-path-style')?.checked ? 'true' : 'false');
+        var region = document.getElementById('resource-region')?.value?.trim();
+        if (region) params.append('region', region);
+    }
+
+    try {
+        const r = await fetch('/api/resources?' + params.toString(), {
+            method: 'POST',
+            headers: api._headers(),
+        });
+        if (r.status === 401) {
+            if (typeof Auth !== 'undefined') Auth.setToken(null);
+            window.location.href = '/login';
+            return;
+        }
+        if (!r.ok) {
+            const err = await r.json().catch(() => ({ detail: r.statusText }));
+            alert(err.detail || ('HTTP ' + r.status));
+            return;
+        }
+        closeModal('create-resource-modal');
+        loadResources();
+    } catch (e) {
+        alert('Ошибка: ' + e.message);
+    }
 }
 async function rescanResource(id) {
     if (!confirm('Запустить сканирование #' + id + '?')) return;

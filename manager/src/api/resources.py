@@ -91,6 +91,8 @@ def create_resource(
     - уникальность по (path, type), а не только по path (uq_resources_path_type);
     - для type in (s3, minio) path = 's3://bucket[/prefix]', добавляется
       scan_config.connector.s3 с endpoint/secure/use_path_style/region;
+    - endpoint для S3/MinIO обязателен: query-параметр или ENV
+      S3_DEFAULT_ENDPOINT на хосте Manager, иначе 400 (день 53.3, вариант B);
     - секреты S3 в scan_config НЕ пишутся — только ENV на хосте сканера
       (S3_ACCESS_KEY / S3_SECRET_KEY), единая политика TASK-018.
     """
@@ -116,9 +118,18 @@ def create_resource(
         if parsed.scheme not in ("s3", "minio") or not parsed.netloc:
             raise HTTPException(400, "S3 path must be 's3://bucket[/prefix]'")
         scan_config["connector"] = scan_config.get("connector", {})
+        # День 53.3 (BACKLOG-097, вариант B): убран неявный хардкод
+        # host.docker.internal:9000. Endpoint — либо явно в query, либо из
+        # ENV S3_DEFAULT_ENDPOINT на хосте Manager; иначе 400.
+        resolved_endpoint = endpoint or os.environ.get("S3_DEFAULT_ENDPOINT")
+        if not resolved_endpoint:
+            raise HTTPException(
+                400,
+                "endpoint is required for S3/MinIO resources "
+                "(or set S3_DEFAULT_ENDPOINT in env)",
+            )
         scan_config["connector"]["s3"] = {
-            "endpoint": endpoint
-            or os.environ.get("S3_DEFAULT_ENDPOINT", "host.docker.internal:9000"),
+            "endpoint": resolved_endpoint,
             "bucket": parsed.netloc,
             "prefix": parsed.path.lstrip("/"),
             "secure": secure,

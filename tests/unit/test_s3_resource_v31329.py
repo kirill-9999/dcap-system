@@ -71,6 +71,17 @@ def client(db_session):
     return TestClient(app)
 
 
+@pytest.fixture(autouse=True)
+def _default_endpoint_env(monkeypatch):
+    """День 53.3 (вариант B): endpoint обязателен для S3/MinIO.
+
+    Тестам, которые явно передают endpoint в query, значение не мешает
+    (query имеет приоритет). Тестам, проверяющим 400 без endpoint,
+    monkeypatch.delenv внутри теста перекрывает его.
+    """
+    monkeypatch.setenv("S3_DEFAULT_ENDPOINT", "host.docker.internal:9000")
+
+
 # ---------- Создание ресурсов ----------
 
 def test_create_filesystem_resource_default(client, db_session):
@@ -83,7 +94,9 @@ def test_create_filesystem_resource_default(client, db_session):
     assert res.type == "filesystem"
 
 
-def test_create_s3_resource_with_defaults(client, db_session):
+def test_create_s3_resource_with_defaults(client, db_session, monkeypatch):
+    """Ресурс создаётся; endpoint берётся из ENV, если не задан явно."""
+    monkeypatch.setenv("S3_DEFAULT_ENDPOINT", "host.docker.internal:9000")
     r = client.post(
         "/api/resources",
         params={"path": "s3://dcap-audit-logs/", "type": "s3"},
@@ -99,10 +112,62 @@ def test_create_s3_resource_with_defaults(client, db_session):
     assert s3["secure"] is False
     assert s3["use_path_style"] is True
     assert s3["region"] == "us-east-1"
-    assert "endpoint" in s3
+    assert s3["endpoint"] == "host.docker.internal:9000"
     # Секретов в scan_config быть не должно.
     assert "access_key" not in s3
     assert "secret_key" not in s3
+
+
+def test_create_s3_resource_without_endpoint_and_env_returns_400(client, monkeypatch):
+    """День 53.3 (вариант B): без endpoint в query и без ENV → 400."""
+    monkeypatch.delenv("S3_DEFAULT_ENDPOINT", raising=False)
+    r = client.post(
+        "/api/resources",
+        params={"path": "s3://bucket/prefix", "type": "s3"},
+    )
+    assert r.status_code == 400
+    assert "endpoint is required" in r.json()["detail"]
+
+
+def test_create_minio_resource_without_endpoint_returns_400(client, monkeypatch):
+    """Тот же 400 для type=minio."""
+    monkeypatch.delenv("S3_DEFAULT_ENDPOINT", raising=False)
+    r = client.post(
+        "/api/resources",
+        params={"path": "minio://bucket/logs", "type": "minio"},
+    )
+    assert r.status_code == 400
+    assert "endpoint is required" in r.json()["detail"]
+
+
+def test_create_s3_resource_endpoint_from_env_works(client, db_session, monkeypatch):
+    """S3_DEFAULT_ENDPOINT в ENV → ресурс создаётся без явного endpoint."""
+    monkeypatch.setenv("S3_DEFAULT_ENDPOINT", "minio.local:9000")
+    r = client.post(
+        "/api/resources",
+        params={"path": "s3://bucket/prefix", "type": "s3"},
+    )
+    assert r.status_code == 200, r.text
+    res = db_session.query(models.Resource).filter(models.Resource.id == r.json()["id"]).first()
+    s3 = res.scan_config["connector"]["s3"]
+    assert s3["endpoint"] == "minio.local:9000"
+
+
+def test_create_s3_resource_explicit_endpoint_overrides_env(client, db_session, monkeypatch):
+    """Явный endpoint в query имеет приоритет над S3_DEFAULT_ENDPOINT."""
+    monkeypatch.setenv("S3_DEFAULT_ENDPOINT", "env.local:9000")
+    r = client.post(
+        "/api/resources",
+        params={
+            "path": "s3://bucket/prefix",
+            "type": "s3",
+            "endpoint": "explicit.local:9000",
+        },
+    )
+    assert r.status_code == 200, r.text
+    res = db_session.query(models.Resource).filter(models.Resource.id == r.json()["id"]).first()
+    s3 = res.scan_config["connector"]["s3"]
+    assert s3["endpoint"] == "explicit.local:9000"
 
 
 def test_create_s3_resource_with_custom_endpoint(client, db_session):
@@ -126,15 +191,6 @@ def test_create_s3_resource_with_custom_endpoint(client, db_session):
     assert s3["secure"] is True
     assert s3["use_path_style"] is False
     assert s3["region"] == "eu-west-1"
-
-
-def test_create_s3_resource_endpoint_from_env(client, db_session, monkeypatch):
-    """Без query-параметра endpoint берётся из S3_DEFAULT_ENDPOINT."""
-    monkeypatch.setenv("S3_DEFAULT_ENDPOINT", "minio.default:9999")
-    r = client.post("/api/resources", params={"path": "s3://bucket", "type": "s3"})
-    assert r.status_code == 200, r.text
-    res = db_session.query(models.Resource).filter(models.Resource.id == r.json()["id"]).first()
-    assert res.scan_config["connector"]["s3"]["endpoint"] == "minio.default:9999"
 
 
 def test_create_minio_resource_treated_as_s3(client, db_session):

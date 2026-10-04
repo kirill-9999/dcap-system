@@ -33,6 +33,7 @@ markers = [
     "requires_manager: Требует запущенный Manager",
     "requires_docker: Требует Docker",
     "requires_scanner: Требует запущенный Scanner",
+    "requires_minio: Требует запущенный MinIO (S3-совместимое хранилище)",
 ]
 # --import-mode=importlib обязателен: tests/unit/test_scanner_findings.py и
 # tests/e2e/test_scanner_findings.py (а также test_webui_block5_v31322.py)
