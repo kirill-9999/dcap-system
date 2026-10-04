@@ -500,6 +500,10 @@ class ManagedScanner:
         # День 53.1b (BACKLOG-097): тип источника текущей задачи
         # (filesystem | s3 | minio) — из payload Manager.
         self._current_source_type: str = "filesystem"
+        # День 53.2 (BACKLOG-097): scan_config текущей задачи (payload Manager).
+        # Нужен в _init_line_pipeline для merge scan_config.connector.s3 —
+        # там scan_config является локальной переменной.
+        self._current_scan_config: Dict[str, Any] = {}
         self._enc = None
         self._load_classifiers()
     
@@ -751,9 +755,17 @@ class ManagedScanner:
             else True
         )
         connector_cfg["ocr_enabled"] = ocr_enabled
-        # День 53.1b (BACKLOG-097): коннектор выбирается по source_type задачи,
-        # а не жёстко. Для s3/minio в 53.1b фабрика бросает ValueError —
-        # S3LineConnector появится в 53.2.
+        # День 53.2 (BACKLOG-097): для S3/MinIO параметры endpoint/bucket/prefix
+        # приходят в payload задачи (scan_config.connector.s3). Мержим поверх
+        # локального конфига — приоритет у payload (per-task конфиг).
+        self._current_scan_config = self._current_scan_config or {}
+        s3_payload = (
+            self._current_scan_config.get("connector", {}).get("s3", {}) or {}
+        )
+        if s3_payload:
+            connector_cfg.update(s3_payload)
+        # День 53.1b/53.2 (BACKLOG-097): коннектор выбирается по source_type
+        # задачи через фабрику (filesystem | s3 | minio).
         try:
             self._connector = create_line_connector(self._current_source_type, connector_cfg)
             logger.info(
@@ -1140,6 +1152,10 @@ class ManagedScanner:
         # День 53.1b (BACKLOG-097): тип источника из payload Manager.
         # Fallback на filesystem — если задача создана до 53.1a.
         self._current_source_type = (task.get("source_type") or "filesystem").lower()
+        # День 53.2 (BACKLOG-097): scan_config приходит per-task, а
+        # _init_line_pipeline вызывается из _execute_task_linewise, где
+        # scan_config — локальная переменная. Сохраняем в поле.
+        self._current_scan_config = scan_config or {}
         # Коннектор пересоздаём на каждой задаче: дешёво (только конфиг) и
         # исключает переиспользование коннектора от другого source_type.
         self._connector = None

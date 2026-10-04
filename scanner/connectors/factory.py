@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""Фабрика построчных коннекторов (день 53.1b, BACKLOG-097).
+"""Фабрика построчных коннекторов (день 53.1b / 53.2, BACKLOG-097).
 
 Регистрирует коннекторы, реализующие интерфейс FilesystemConnector
-(scan_path / scan_file). В 53.1b зарегистрирован только filesystem;
-S3LineConnector добавится в 53.2.
+(scan_path / scan_file). Зарегистрированы: filesystem (53.1b),
+s3 и minio (53.2, S3LineConnector).
 """
 import logging
 from typing import Any, Callable, Dict
@@ -23,16 +23,15 @@ def register_line_connector(source_type: str, factory: Callable[[Dict[str, Any]]
 def create_line_connector(source_type: str, config: Dict[str, Any]) -> Any:
     """Создать построчный коннектор по source_type.
 
-    В 53.1b зарегистрирован только 'filesystem'. Для 's3'/'minio' бросаем
-    ValueError — S3LineConnector появится в 53.2; главное, чтобы сканер
-    упал с понятным сообщением, а не пытался открыть 's3://bucket' как папку.
+    День 53.2 (BACKLOG-097): зарегистрированы 's3' и 'minio' → S3LineConnector.
+    Неизвестный source_type по-прежнему даёт понятный ValueError со списком
+    доступных — сканер упадёт с сообщением, а не откроет 's3://bucket' как папку.
     """
     st = (source_type or "filesystem").lower()
     if st not in _REGISTRY:
         raise ValueError(
             f"Line connector for source_type={st!r} not registered. "
-            f"Available: {sorted(_REGISTRY)}. "
-            "S3 support arrives in day 53.2."
+            f"Available: {sorted(_REGISTRY)}."
         )
     return _REGISTRY[st](config or {})
 
@@ -43,3 +42,11 @@ def registered_types() -> list:
 
 
 __all__ = ["register_line_connector", "create_line_connector", "registered_types"]
+
+
+# Регистрация S3/MinIO (день 53.2, BACKLOG-097).
+# s3_line_connector не импортирует factory — циклических импортов нет.
+from scanner.connectors.s3_line_connector import S3LineConnector  # noqa: E402
+
+register_line_connector("s3", lambda cfg: S3LineConnector(cfg))
+register_line_connector("minio", lambda cfg: S3LineConnector(cfg))

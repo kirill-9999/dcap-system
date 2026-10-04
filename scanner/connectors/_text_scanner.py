@@ -62,16 +62,21 @@ def is_supported_file(
 
 
 def decode_text_bytes(content: bytes) -> Optional[str]:
-    """Декодировать байты в текст (utf-8 → cp1251, fallback utf-8 ignore).
+    """Декодировать байты в текст (utf-8 strict → cp1251 strict → utf-8 ignore).
 
     Возвращает None, если это явно бинарный мусор (\x00 в первых 4 КБ).
+
+    BUG-136 (день 53.2): раньше цикл использовал errors="ignore" на первой
+    итерации (utf-8), из-за чего ветка cp1251 была недостижима — файлы в
+    cp1251 декодировались в мусор («пустую строку»). Теперь — строгий декод,
+    и только если оба провалились, fallback на utf-8 с errors="ignore".
     """
     if content[:4096] and b"\x00" in content[:4096]:
         return None
     for encoding in ("utf-8", "cp1251"):
         try:
-            return content.decode(encoding, errors="ignore")
-        except Exception:
+            return content.decode(encoding)  # strict — падает на несовпадении
+        except UnicodeDecodeError:
             continue
     return content.decode("utf-8", errors="ignore")
 

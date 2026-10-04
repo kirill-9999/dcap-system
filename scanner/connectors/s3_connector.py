@@ -4,6 +4,7 @@
 DCAP Agent - S3/MinIO Connector
 """
 
+import logging
 import os
 from datetime import datetime
 from pathlib import Path
@@ -11,6 +12,8 @@ from typing import Dict, Any, Iterator, Optional
 
 from core.base import SourceType, FileContext
 from connectors.base import BaseConnector
+
+logger = logging.getLogger("dcap-scanner")
 
 try:
     import boto3
@@ -49,8 +52,23 @@ class S3Connector(BaseConnector):
         # Все параметры ТОЛЬКО из конфига
         self.endpoint = config.get("endpoint")
         self.bucket = config.get("bucket")
-        self.access_key = config.get("access_key")
-        self.secret_key = config.get("secret_key")
+        # День 53.2 (BUG-136/TASK-120): секреты — сначала ENV (политика TASK-018).
+        # Оставлено чтение из config для обратной совместимости (этот коннектор
+        # используется не только сканером).
+        env_access = os.environ.get("S3_ACCESS_KEY")
+        env_secret = os.environ.get("S3_SECRET_KEY")
+        if config.get("access_key") and not env_access:
+            logger.warning(
+                "[S3] access_key в config — устаревший способ, используйте "
+                "ENV S3_ACCESS_KEY"
+            )
+        if config.get("secret_key") and not env_secret:
+            logger.warning(
+                "[S3] secret_key в config — устаревший способ, используйте "
+                "ENV S3_SECRET_KEY"
+            )
+        self.access_key = env_access or config.get("access_key")
+        self.secret_key = env_secret or config.get("secret_key")
         self.secure = config.get("secure")
         self.use_path_style = config.get("use_path_style")
         self._extensions = config.get("extensions")

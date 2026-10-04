@@ -7,8 +7,76 @@
 
 ## [Unreleased] — v3.0.0 (release)
 
-**Осталось:** Блок 5 (WebUI, п.2.4), Блок 6.5 (сбор прав Windows, BUG-123/127), дотест Linux-агента (метрики с хоста, сквозной поток после restart WSL, BUG-130), BACKLOG-097 часть 3 (53.2/53.3 — `S3LineConnector` + WebUI-форма S3 + E2E MinIO), Блок 11, GitHub-пакет.
-(Блок 7 — Retention — закрыт в v3.13.27. Фикс-спринт Блок 9 — закрыт в v3.13.28. Блок 6 — закрыт в v3.13.28 на 5 из 6 под-блоков. BACKLOG-097 часть 1 (Manager) — закрыта в v3.13.29, часть 2 (ядро сканера) — в v3.13.30.)
+**Осталось:** Блок 5 (WebUI, п.2.4), Блок 6.5 (сбор прав Windows, BUG-123/127), дотест Linux-агента (метрики с хоста, сквозной поток после restart WSL, BUG-130), BACKLOG-097 часть 3 (53.3 — E2E на MinIO + WebUI-форма S3), Блок 11, GitHub-пакет.
+(Блок 7 — Retention — закрыт в v3.13.27. Фикс-спринт Блок 9 — закрыт в v3.13.28. Блок 6 — закрыт в v3.13.28 на 5 из 6 под-блоков. BACKLOG-097 части 1-3 (Manager, ядро сканера, `S3LineConnector`) — закрыты в v3.13.29/30/31.)
+
+---
+
+## [3.13.31] — 2026-10-04 — День 53.2: `S3LineConnector` (streaming, ENV-секреты, OCR/документы) + BUG-136
+
+### Added
+
+- 📁 `scanner/connectors/s3_line_connector.py` — построчный сканер S3/MinIO
+  (интерфейс `FilesystemConnector`: `scan_path` / `scan_file`):
+  - листинг объектов через `list_objects_v2` с пагинацией по `ContinuationToken`;
+  - фильтры: `is_supported_file` (расширения + credential-имена), лимит
+    `max_file_size_mb`, пропуск «папок» (ключи с `/` на конце);
+  - **streaming**-чтение текста через `Body.iter_chunks(chunk_size=buffer_size)`
+    с обрывом на `max_text_chars` — объект не читается в память целиком;
+  - документы/изображения — во временный файл → `_text_scanner.extract_document_text`;
+    для изображений находки помечаются `fragment_type=image_region`,
+    `detector=ocr`, `bounding_box=None` (как в FS);
+  - `fragment_path` находок = `s3://bucket/key` — корректный fingerprint и
+    `/fragment` в Manager;
+  - секреты **только из ENV** `S3_ACCESS_KEY` / `S3_SECRET_KEY` (политика
+    TASK-018): если секреты есть в config — WARNING и они игнорируются,
+    когда ENV задан; `bucket` обязателен (`ValueError`);
+  - `verify=False` при `secure=false` + WARNING в лог (TEST-NOTE-6.11);
+  - `stop_event` проверяется между объектами, `progress_callback(stage, current,
+    total, key)` — на каждый объект.
+- 📁 `tests/unit/test_s3_line_connector_v31331.py` — 16 тестов (mock boto3):
+  фильтр расширений, `s3://` в `fragment_path`, prefix из аргумента, пагинация,
+  skip папок/oversize, кред-файл по имени, ENV-секреты, `ValueError` без
+  bucket/ENV, бинарный объект, OCR-поля изображений, progress_callback,
+  `stop_event`, игнор секретов из config.
+- 📁 `tests/unit/test_decode_text_cp1251_v31331.py` — 5 тестов на BUG-136.
+
+### Changed
+
+- 🐛 `scanner/connectors/_text_scanner.py` — **BUG-136 fixed**: `decode_text_bytes`
+  теперь `utf-8 strict → cp1251 strict → utf-8 errors='ignore'`. Раньше первая
+  итерация цикла использовала `errors="ignore"` и потому **никогда** не падала —
+  ветка cp1251 была недостижима, и русские тексты в cp1251 разбирались как
+  мусор (в т.ч. в FS-коннекторе).
+- `scanner/connectors/factory.py` — регистрация `s3` и `minio` →
+  `S3LineConnector`; `registered_types()` теперь `["filesystem", "minio", "s3"]`.
+- `scanner/src/managed_scanner.py` — `scan_config.connector.s3` из payload
+  задачи мержатся поверх локального конфига коннектора (приоритет у payload);
+  scan_config текущей задачи сохраняется в `_current_scan_config`.
+- `scanner/connectors/s3_connector.py` (TASK-120, опционально из ТЗ) — секреты
+  сначала из ENV, config-fallback с WARNING (коннектор `ISourceConnector`,
+  сканером не используется).
+- `tests/unit/test_factory_v31330.py` — тесты s3/minio переписаны: вместо
+  `ValueError` теперь проверяется возврат `S3LineConnector`.
+- `tests/unit/test_text_scanner_extract_v31330.py` — тест, документировавший
+  баг cp1251, заменён на проверку исправленного поведения.
+
+### Tests
+
+- Целевые: **29 passed** (16 + 5 + 8 factory).
+- Полный unit-набор: **424 passed** (было 402, +22), регрессий нет.
+
+### Проверено на живом MinIO (native, bucket `dcap-audit-logs` + `storage1`)
+
+| Задача | Ресурс | Файлов | Находок | Итог |
+|--------|--------|--------|---------|------|
+| 193 | `s3://dcap-audit-logs/access-logs/` | 4 | 27 | ✅ completed |
+| 194 | `s3://dcap-scanner-smoke/` (cp1251-файл) | 1 | 9 | ✅ completed — BUG-136 подтверждён на живых данных |
+| 195 | `s3://storage1/test_files/` (txt + PDF + PNG/OCR) | 8 | 25 | ✅ completed, OCR-findings с `detector=ocr` |
+
+`catalog_entries.path` = `s3://dcap-audit-logs/access-logs` (без `s3:/bucket`
+и без `//`), находки в БД лежат с `fragment_path` вида
+`s3://storage1/test_files/PII_in_PDF.pdf`.
 
 ---
 
