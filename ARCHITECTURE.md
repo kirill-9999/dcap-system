@@ -3,8 +3,8 @@
 > **Обновляется архитектором при изменениях архитектуры.**
 > Текущее состояние — в `STATE.md`. План и бэклог — в `ROADMAP.md`.
 
-**Обновлено:** 01.10.2026
-**Версия архитектуры:** v3.13.27 (в процессе — Блок 5, 7 закрыты)
+**Обновлено:** 04.10.2026
+**Версия архитектуры:** v3.13.33 (в процессе — Блок 5, 7 закрыты; S3-коннектор сканера — части 1–4 + fix-s3-bucket)
 
 ---
 
@@ -16,6 +16,7 @@ dcap-system/
 │ └── src/
 │ ├── main.py # точка входа
 │ ├── config.py # загрузка конфига (config.json + env)
+│ ├── metrics.py # Prometheus /metrics
 │ ├── api/ # resources, tasks, findings (+schemas_findings),
 │ │ # catalog, scanner, permissions, audit, retention, webui
 │ ├── auth/ # JWT, AD, RBAC
@@ -28,33 +29,41 @@ dcap-system/
 │ │ └── schemas.py, rate_limit.py
 │ ├── core/ # security (mTLS), secrets, rate_limit, encryption,
 │ │ # csv_utils, hex_dump, image_fragment
-│ ├── retention/ # архивация и очистка данных
+│ ├── retention/ # archiver, cleaner, exporter, policies, runtime, state
 │ ├── connectors/
-│ │ ├── permissions/ # local, remote, ad (Mixed — внутри ad.py), factory, cache
+│ │ ├── permissions/ # base, local, remote, ad, factory, cache
 │ │ └── audit/ # windows_audit
 │ ├── services/ # access_service, access_config
 │ ├── db/ # models.py, session.py, init_roles.py
-│ │ └── migrations/ # Alembic (001…005)
+│ │ └── migrations/ # Alembic 001…006 + run_migration.py
 │ ├── cache/ # redis_client.py (кэш/rate-limit, fail-open)
-│ ├── workers/ # Celery app/tasks/beat_schedule
-│ └── metrics.py # Prometheus
+│ └── workers/ # Celery app/tasks/beat_schedule
 │
 ├── scanner/ # Python-сканер (тяжёлый, на хосте)
-│ └── src/
-│ ├── managed_scanner.py # main loop, submit_results_status, _fail_task_safely
-│ ├── heartbeat.py # HeartbeatThread (backoff 5→10→30→60→120)
-│ ├── metrics.py # Prometheus :9101
-│ ├── config_loader.py # конфиг + env-override
-│ ├── finding.py # dataclass Finding (строка/фрагмент)
-│ ├── encryption.py # AES-256-GCM + HMAC + маскирование
-│ │ # _CONTEXT_PATTERNS (22 паттерна, BUG-086)
-│ ├── modes/ # base, hybrid, managed, standalone
-│ ├── offline/ # queue, storage (оффлайн-батчи)
-│ ├── core/ # orchestrator, state_manager, metrics
-│ ├── classifiers/ # PII, Credentials, Code, OCR
+│ ├── src/
+│ │ ├── managed_scanner.py # main loop, submit_results_status,
+│ │ │ # _fail_task_safely, _parent_of_path (S3)
+│ │ ├── heartbeat.py # HeartbeatThread (backoff 5→10→30→60→120)
+│ │ ├── metrics.py # Prometheus :9101
+│ │ ├── config_loader.py # конфиг + env-override; S3ConnectorConfig
+│ │ ├── finding.py # dataclass Finding (строка/фрагмент)
+│ │ ├── encryption.py # AES-256-GCM + HMAC + маскирование
+│ │ │ # _CONTEXT_PATTERNS (22 паттерна, BUG-086)
+│ │ ├── modes/ # base, hybrid, managed, standalone
+│ │ └── offline/ # queue, storage (оффлайн-батчи)
+│ ├── connectors/ # коннекторы источников (BACKLOG-097)
+│ │ ├── base.py # ISourceConnector / BaseConnector
+│ │ ├── filesystem.py # FS-коннектор, построчное чтение (53.1b)
+│ │ ├── s3_connector.py # старый ISourceConnector (list_files/get_content),
+│ │ │ # сканером не используется
+│ │ ├── s3_line_connector.py # построчный S3/MinIO (53.2, 53.3-fix)
+│ │ ├── _text_scanner.py # общий построчный пайплайн (53.1b)
+│ │ └── factory.py # реестр source_type → коннектор (53.1b)
+│ ├── core/ # orchestrator, state_manager, metrics, base,
+│ │ # catalog_manager, adaptive_cache_manager, memory_manager, logger
+│ ├── classifiers/ # PII, Credentials, Code, OCR (ocr_worker)
 │ │ # scan_line(line, num) → list[Finding]
-│ ├── connectors/ # filesystem.py (построчное чтение + контекст)
-│ └── handlers/ # finding_collector.py
+│ ├── handlers/ # finding_collector.py
 │ ├── utils/ # document_extractor, file_hasher, ocr_engine,
 │ │ # performance_monitor
 │ └── config/scanner_config.json
@@ -64,14 +73,14 @@ dcap-system/
 │ ├── service.py # Windows-служба
 │ └── config.json
 │
-├── audit-agent-linux/ # Linux-агент (inotify)
+├── audit-agent-linux/ # Linux-агент (inotify/watchdog)
 │ ├── main.py, collector.py, buffer.py, sender.py
 │ ├── metrics.py # Prometheus :9102
-│ ├── service/ # systemd unit + install/uninstall
+│ ├── service/ # dcap-audit-agent.service + install/uninstall(.cron).sh
 │ └── start.sh, stop.sh, status.sh
 │
-├── audit-agent-s3/ # S3/MinIO агент
-│ ├── src/ # main, collector, buffer, sender,
+├── audit-agent-s3/ # S3/MinIO агент аудита
+│ ├── src/ # main, collector, buffer, sender, config_loader,
 │ │ # converters, heartbeat, state, metrics
 │ ├── config/
 │ ├── scripts/
@@ -81,7 +90,8 @@ dcap-system/
 │ ├── main.py # FastAPI (Jinja2)
 │ ├── config.py # загрузка конфига
 │ ├── api/ # routes.py (прокси, forwarded_headers), schemas.py
-│ ├── static/ # CSS, JS, vendor
+│ ├── static/ # css (main, variables, theme-dark, findings, components/),
+│ │ # js, vendor (Bootstrap/Font Awesome/Chart.js — локально, без CDN)
 │ ├── templates/ # Jinja2: base, login, dashboard, resources,
 │ │ # findings, finding_detail, catalog, false_positives,
 │ │ # audit, scanners, access, roles, users, settings
@@ -99,6 +109,7 @@ dcap-system/
 │ ├── deploy.sh, stop.sh, logs.sh, status.sh, healthcheck.sh
 │ ├── monitoring-status.sh
 │ ├── test-up.sh, test-down.sh, run-tests.sh
+│ ├── seed_minio.sh, minio-seed/access-logs/* # seed-логи для MinIO
 │ └── init_ad_test_data.py, create_test_share.ps1
 │
 ├── monitoring/ # Prometheus/Grafana/Alertmanager
@@ -107,18 +118,22 @@ dcap-system/
 │ └── grafana/provisioning/
 │
 ├── tests/
-│ ├── unit/ # unit-тесты (317 passed на v3.13.27)
-│ ├── e2e/ # E2E тесты (47 passed / 6 skipped)
-│ ├── chaos/ # Chaos тесты
+│ ├── unit/ # unit-тесты (430 passed на v3.13.33)
+│ ├── e2e/ # E2E-тесты (53 passed / 7 skipped на v3.13.33)
+│ ├── chaos/ # Chaos-тесты
 │ ├── load/ # Нагрузочные
-│ └── fixtures/ # Общие фикстуры
+│ └── fixtures/ # Общие фикстуры (auth, db, manager, scanner, test_files)
 │
 ├── manager/tests/ # pytest-модули Manager (test_security,
 │ # test_retention, test_auth_ad, test_ad_permissions)
 │
 ├── docs/
+│ ├── DESIGN.md # ⚠️ НЕ существует — план 53.4e (BACKLOG-093);
+│ │ # сейчас есть только корневой DESIGN.md (референс Dovetail,
+│ │ # не закоммичен)
+│ ├── ui-screenshots/ # ⚠️ НЕ существует — план 53.4e (BACKLOG-093)
 │ ├── admin-guide/ # 04-authentication, 05-security,
-│ │ # 06-scanner, 10-troubleshooting
+│ │ # 06-scanner (+§8 S3/MinIO), 10-troubleshooting
 │ │ # (01,02,03,07,08,09,11 — ещё не написаны)
 │ ├── deployment.md
 │ ├── monitoring.md
@@ -130,19 +145,20 @@ dcap-system/
 │
 ├── run_all.py, run_manager.py, run_webui.py
 ├── run_scanner.py, run_audit_agent.py, run_audit_agent_linux.py
-├── init_db.py, fix_db.py, scan_folder.py
+├── init_db.py, init_db_data.py, fix_db.py, scan_folder.py
+├── start_scanner.bat, generate_test_tree.py
+├── test_models.py, test_parse.py, test_access_management.py
 ├── alembic.ini
 ├── docker-compose.yml, docker-compose.prod.yml
-├── docker-compose.test.yml, docker-compose.s3.yml
+├── docker-compose.test.yml, docker-compose.s3.yml, docker-compose.minio.yml
 ├── docker-compose.ad.yml.example
 ├── SECURITY.md, NOTICE.md
 ├── STATE.md, ROADMAP.md
 ├── ARCHITECTURE.md # этот файл
 ├── AGENTS.md, README.md, CHANGELOG.md
 ├── pyproject.toml, requirements.txt, requirements-dev.txt
-├── Diagram-ru.png, Diagram-en.png # схемы в корне
+├── Diagram-ru.png, Diagram-ru-1.png, Diagram-ru-2.png, Diagram-en.png
 └── LICENSE # ⚠️ отсутствует (NO LICENSE в репозитории)
-
 ```
 
 ---
@@ -400,6 +416,19 @@ class Finding(Base):
 
 > ⚠️ 5 колонок `fragment_*` добавлены миграцией `005_add_fragment_columns.py`, а не `003_findings_refactor.py`.
 
+### Модель `ScanTask` — `source_type` (v3.13.29, миграция 006)
+
+День 53.1a (BACKLOG-097): задание несёт **явный тип источника** — сканер выбирает коннектор по `source_type`, а не угадывает по префиксу `source_path` (`s3://…`).
+
+| Поле | Тип | Значение |
+|------|-----|----------|
+| `source_type` | `String(20)`, default `"filesystem"`, index | `filesystem` / `s3` / `minio` (lowercase — как `Resource.type`) |
+| `progress` | `JSON`, nullable | Прогресс из heartbeat (миграция 002) |
+
+`POST /api/resources/{id}/scan` проставляет `source_type = (resource.type or "filesystem").lower()`. Миграция `006_add_source_type` идемпотентна (inspect-guard).
+
+Для S3 `source_path` = `s3://bucket/prefix`, а `fragment_path` находки = `s3://bucket/key` (53.2) — стабильно между сканами, если ключ не меняется, поэтому дедупликация по fingerprint работает (проверено `tests/e2e/test_s3_e2e.py`: у всех находок `file_path` начинается с `s3://<bucket>/<prefix>/`).
+
 ### Дедупликация
 
 `manager/src/core/encryption.py`:
@@ -473,7 +502,140 @@ hmac.new(hmac_key, msg, hashlib.sha256).hexdigest()
 
 ---
 
+## 🗂️ S3-КОННЕКТОР СКАНЕРА (BACKLOG-097, v3.13.29–33)
+
+### Общая картина
+
+Сканер получил второй тип источника — S3/MinIO. Задание теперь содержит явный `source_type`, а не «угадывание» по префиксу пути.
+
+```text
+Manager:
+  POST /api/resources?type=s3&path=s3://bucket/prefix[&endpoint=...]
+    → Resource(type='s3', path='s3://bucket/prefix',
+               scan_config.connector.s3={endpoint,bucket,prefix,secure,use_path_style,region})
+  POST /api/resources/{id}/scan
+    → ScanTask(resource_id, source_path='s3://bucket/prefix',
+               source_type='s3')
+  GET /api/scanner/tasks/pending
+    → {task: {id, path, source_type, scan_config}}
+
+Scanner (managed_scanner.py):
+  _execute_task(task)
+    self._current_source_type = task.get("source_type") or "filesystem"
+    self._current_scan_config = task.get("scan_config") or {}
+    self._connector = None  # пересоздаём на каждой задаче
+  _init_line_pipeline()
+    connector_cfg = local defaults + scan_config.connector.s3 (merge)
+    self._connector = factory.create_line_connector(self._current_source_type, connector_cfg)
+  _execute_task_linewise → _scan_line_by_line → self._connector.scan_path(...)
+```
+
+### Модули
+
+| Файл | Роль | Версия |
+|------|------|---------|
+| `scanner/connectors/_text_scanner.py` | Общий построчный пайплайн (5 функций): `is_supported_file`, `decode_text_bytes`, `file_pass_prefilter`, `scan_text`, `extract_document_text` | 53.1b |
+| `scanner/connectors/factory.py` | Реестр `source_type` → фабрика, `create_line_connector(source_type, config)`; зарегистрированы `filesystem`, `s3`, `minio` | 53.1b + 53.2 |
+| `scanner/connectors/filesystem.py` | FS-коннектор `FilesystemConnector` (`scan_path` / `scan_file`), рефакторинг на `_text_scanner` | 53.1b |
+| `scanner/connectors/s3_line_connector.py` | Построчный S3/MinIO-коннектор `S3LineConnector`, интерфейс как у `FilesystemConnector`. Streaming через `Body.iter_chunks`, документы/OCR — через временный файл + `DocumentExtractor` | 53.2 + 53.3-fix |
+| `scanner/connectors/s3_connector.py` | Старый `S3Connector(BaseConnector)` — `list_files` / `get_content` для `Orchestrator`. **Сканером не используется**; в нём же `configure()` с fallback на config-секреты | — |
+| `scanner/connectors/base.py` | `ISourceConnector` / `BaseConnector` (ABC) | — |
+
+### Секреты S3
+
+Только ENV на хосте сканера: `S3_ACCESS_KEY`, `S3_SECRET_KEY` (политика TASK-018).
+
+- `S3LineConnector.__init__` — приоритет ENV над `config.access_key`/`secret_key`; если в config секреты есть, пишется WARNING; если нет ни ENV, ни config — `ValueError`;
+- **fallback на config сохранён** (чтобы не сломать существующие конфиги) — вынос в BACKLOG-103 (v3.1.0);
+- Manager никогда не передаёт секреты в payload задачи — только `endpoint`/`bucket`/`prefix`/`secure`/`use_path_style`/`region`.
+
+### Endpoint
+
+Вариант B (v3.13.32), на стороне Manager: `endpoint` (query) → `S3_DEFAULT_ENDPOINT` (ENV на хосте Manager) → `400`. Хардкод `host.docker.internal:9000` в `manager/src/api/resources.py` удалён.
+
+⚠️ На стороне сканера дефолт ещё есть: `S3LineConnector` при пустом `config["endpoint"]` подставляет `host.docker.internal:9000` (последний рубеж) — см. BACKLOG-103.
+
+### Рекурсия
+
+Всегда — без опции отключения. `list_objects_v2(Prefix=…)` без `Delimiter` возвращает всё поддерево (S3 — плоское хранилище). Опция `recursive=false` намеренно не поддерживается — чтобы не пропустить вложенные объекты при ошибке конфигурации.
+
+### Bucket (v3.13.33)
+
+Bucket — **всегда** из `scan_config.connector.s3.bucket` (payload задачи от Manager). `path` (`s3://bucket/prefix`) используется только как суффикс префикса; bucket в path игнорируется (53.3-fix-s3-bucket).
+
+| `path` в задании | Префикс для `list_objects_v2` |
+|------------------|-------------------------------|
+| `s3://other-bucket/logs/` | `logs` |
+| `s3://other-bucket/` | пусто → fallback на `config.prefix` (`_discover_keys`: `prefix or self._prefix`) |
+| `""` / `None` | `config.prefix` |
+| не `s3://` / `minio://` | весь `path` без ведущего `/` трактуется как префикс |
+
+Инвариант: bucket фиксируется при создании ресурса — смена bucket в `path` задания ничего не меняет (тест `test_bucket_in_path_is_ignored_and_config_wins`).
+
+### BUG-136 (v3.13.31)
+
+`decode_text_bytes` теперь выполняет strict-декод: `utf-8` → `cp1251` → fallback `utf-8` с `errors="ignore"`. Раньше первая итерация использовала `errors="ignore"`, из-за чего `UnicodeDecodeError` не поднимался и ветка `cp1251` была недостижима. Cp1251-файлы декодируются корректно (подтверждено на живых данных MinIO: 9 находок; тест `tests/unit/test_decode_text_cp1251_v31331.py`).
+
+### Ограничения S3
+
+| Ограничение | Описание | План |
+|-------------|----------|------|
+| `s3://*` (все bucket'ы одной задачей) | Не поддерживается — на каждый bucket создаётся отдельный `Resource` | — |
+| `recursive=false` | Не поддерживается (рекурсия всегда) | — |
+| Параллелизм S3 (`max_parallel_files > 1`) | `scan_path` последовательный | BACKLOG-100 (v3.1.0) |
+| `skip_prefixes` (аналог `skip_dirs`) | Не реализован | BACKLOG-099 (v3.1.0) |
+| Fallback на config-секреты | `S3LineConnector.__init__` берёт `config.access_key`/`secret_key`, если нет ENV | BACKLOG-103 (v3.1.0) |
+| Fallback `endpoint` в коннекторе | `host.docker.internal:9000` при пустом endpoint | BACKLOG-103 (v3.1.0) |
+| `secure=false` = `verify=False` | При HTTP-эндпоинте сертификат не проверяется | TEST-NOTE-6.11 → v3.1.0 |
+| Разные credentials на разные S3 | Нужны отдельные инстансы сканера (ENV per host) | v3.1.0 |
+
+---
+
+## 📐 СКАНЕР: ИНСТАНСЫ И ПАРАЛЛЕЛИЗМ
+
+### Модель выполнения
+
+1 инстанс сканера (`ManagedScanner.run_loop`) = 1 процесс = 1 задача за раз.
+
+1 задача (`ScanTask`) = 1 `Resource` = 1 bucket (S3) или 1 папка (FS).
+
+Много bucket'ов / папок — один инстанс обрабатывает их последовательно (FIFO по `created_at`), задачи забираются из `GET /api/scanner/tasks/pending`.
+
+### Параллелизм
+
+N инстансов сканера (N процессов на одном/разных хостах), у каждого свой `scanner_id` и свои `state_dir` / порт метрик.
+
+Manager распределяет задачи: первый, кто дёрнул `/tasks/pending`, забирает задачу (перевод в `assigned`).
+
+⚠️ Ограничение: N инстансов должны иметь уникальные `scanner_id` (иначе heartbeat перезапишет чужой) и уникальные `state_dir` (иначе гонка за `state.json`).
+
+### Endpoint / credentials
+
+- Endpoint — per-task (`payload scan_config.connector.s3`), поэтому один сканер может работать с разными endpoint (MinIO, AWS S3, Wasabi).
+- Секреты — per-host ENV. Разные credentials → разные инстансы сканера (или общий credential-set).
+
+### Что НЕ поддерживается (v3.0.0)
+
+- `Resource.path = s3://*` (все bucket'ы одной задачей) — на каждый bucket создаётся отдельный `Resource`.
+- Per-task credentials (чтение из ENV-файла, привязанного к задаче) — v3.1.0+.
+
+> 📌 Раздел «Масштабирование: сколько инстансов» в `docs/admin-guide/06-scanner.md` — отдельный день (после 53.4e).
+
+---
+
 ## 🔌 API ЭНДПОИНТЫ
+
+### Ресурсы (v3.13.32)
+
+| Метод | Эндпоинт | Роль | Назначение |
+|-------|----------|------|------------|
+| GET | `/api/resources` | `require_auth` | Список ресурсов |
+| POST | `/api/resources?path=…&type=…` | Admin | Создание ресурса. Для `type=s3`/`minio` дополнительно: `endpoint`, `secure`, `use_path_style`, `region`. `endpoint`: query → `S3_DEFAULT_ENDPOINT` → 400 |
+| DELETE | `/api/resources/{id}` | Admin | Удалить (каскадно findings/tasks/catalog_entries) |
+| POST | `/api/resources/{id}/scan` | Scanner+ | Создать `ScanTask` c `source_type` из `Resource.type` |
+| GET/PUT | `/api/resources/{id}/config` | Auth/Admin | Конфиг сканирования |
+
+`type` допускает `filesystem`, `s3`, `minio`. Для `s3`/`minio` `path` должен иметь схему `s3://`/`minio://` и непустой bucket; в `scan_config.connector.s3` сохраняются `endpoint`, `bucket`, `prefix`, `secure`, `use_path_style`, `region`.
 
 ### Находки (Findings Refactor, v3.9.0–v3.13.27)
 
@@ -537,6 +699,35 @@ hmac.new(hmac_key, msg, hashlib.sha256).hexdigest()
 | POST | `/api/scanner/tasks/{id}/fail` | Пометить задачу failed |
 | POST | `/api/scanner/tasks/{id}/cancel` | Отменить задачу |
 | POST | `/api/scanner/tasks/{id}/release` | Вернуть задачу в пул |
+
+#### Payload `GET /api/scanner/tasks/pending` (v3.13.29)
+
+```json
+{
+  "task": {
+    "id": 191,
+    "resource_id": 135,
+    "path": "s3://dcap-audit-logs/",
+    "source_type": "s3",
+    "scan_config": {
+      "classifiers": {},
+      "scan": {},
+      "connector": {
+        "s3": {
+          "endpoint": "host.docker.internal:9000",
+          "bucket": "dcap-audit-logs",
+          "prefix": "",
+          "secure": false,
+          "use_path_style": true,
+          "region": "us-east-1"
+        }
+      }
+    }
+  }
+}
+```
+
+Если задач нет — `{"task": null}`. Эндпоинт также освобождает «зависшие» задачи: `status='assigned'` с `assigned_at` старше `TASK_TIMEOUT_MINUTES` → снова `pending`.
 
 > ⚠️ `task_id` в heartbeat — это **id текущей (assigned/running) задачи**, а не `current_task_id`: `POST /api/scanner/heartbeat` ищет активную задачу через `task_id`/`current_task_id`, оба допустимы. Пустое значение = idle.
 > ⚠️ Все `/api/scanner/*` — **machine-эндпоинты**, публичные в terms of JWT (машина аутентифицируется опциональным mTLS; в `strict` без клиентского сертификата → 401).
@@ -917,6 +1108,17 @@ Python-сканер — узкое место на 100k+ строках. Про�
 | Cython + Rust (гибрид, **план**) | Cython — для горячих точек Python, Rust — для сетей/параллелизма |
 | SIEM-модуль `manager/src/siem/` (**план**) | Только CIFS/NFS + параллелизм (BACKLOG-036); классификаторы/PII — Python |
 | Retention: чистка по `created_at` | `DROP PARTITION` не используется — archive-таблицы + bulk DELETE |
+| `ScanTask.source_type` (явный, v3.13.29) | Сканер выбирает коннектор по `source_type`, не угадывая по префиксу `source_path` |
+| `_text_scanner.py` + `factory.py` (v3.13.30) | Общий построчный пайплайн — `S3LineConnector` не копипастит логику FS |
+| `S3LineConnector` — отдельный класс от `S3Connector` (v3.13.31) | SRP: `ISourceConnector` для `Orchestrator` vs построчный коннектор |
+| Секреты S3 — ENV-only (TASK-018) | Manager не хранит и не передаёт секреты; fallback на config — временно (BACKLOG-103) |
+| `endpoint` — вариант B (v3.13.32) | На стороне Manager нет хардкода: query → `S3_DEFAULT_ENDPOINT` → 400 |
+| Рекурсия S3 — всегда | Защита от пропуска вложенных объектов при ошибке конфигурации |
+| Bucket S3 — только из `scan_config` (v3.13.33) | `s3://bucket/prefix` — суффикс префикса; bucket фиксируется при создании ресурса |
+| BUG-136: strict-декод utf-8 → cp1251 → ignore | Ветка `cp1251` была недостижимой из-за `errors="ignore"` в первой итерации |
+| WebUI — редизайн Dovetail-style (**план**) | Dark-only, Inter + JetBrains Mono, `#6798ff`, 8px радиусы, zero-shadow — этапы 53.4a–53.4e, ещё не начаты (BACKLOG-093) |
+| Chart.js — монохром + акцент (**план**) | Single-chromatic accent — системное решение из `DESIGN.md` |
+| Grid-wireframe — везде (**план**) | Blueprint-мотив на тёмной поверхности |
 
 ### Технические
 
@@ -940,6 +1142,12 @@ Python-сканер — узкое место на 100k+ строках. Про�
 | `_apply_status` | Единая функция PATCH/bulk; сброс review при new (BUG-100) |
 | BUG-102: импорт `User` в 6 модулях | SQLAlchemy mapper init в Celery-контексте (`Finding.reviewer`) |
 | `run` (sync) ≠ `start` (Celery) | Dry-run через API без очереди; Celery-путь — отдельно |
+| `_parent_of_path` (в `managed_scanner.py`) для S3 | `Path('s3://bucket/key').parent` сломан (даёт `s3:/bucket`) → `urlparse` + `posixpath` |
+| `create_line_connector(source_type, config)` | Единая точка создания коннектора; `ValueError` со списком доступных для неизвестного типа |
+| `S3LineConnector.scan_path` — последовательный | Параллелизм S3 — v3.1.0 (BACKLOG-100) |
+| `decode_text_bytes` — strict → cp1251 → ignore | BUG-136 |
+| `endpoint` = query или `S3_DEFAULT_ENDPOINT` или 400 (Manager) | Вариант B |
+| CSS — `tokens.css`, `components.css`, `grid-wireframe.css` (**план**) | Сейчас `main.css`, `variables.css`, `theme-dark.css`, `findings.css`, `components/`; `main.css` — страничная специфика |
 
 ---
 
@@ -965,6 +1173,19 @@ Python-сканер — узкое место на 100k+ строках. Про�
 | SIEM не реализован | Каталога `manager/src/siem/` нет | BACKLOG (план) |
 | Rust/Cython не реализованы | Нет `.rs`/`.pyx`/`Cargo.toml` | BACKLOG-036, 089, 090 |
 | Нет `LICENSE` | Файл отсутствует в репозитории | — |
+| `s3://*` (все bucket'ы) | Не поддерживается — на каждый bucket свой `Resource` | — |
+| `recursive=false` для S3 | Не поддерживается (рекурсия всегда) | — |
+| Параллелизм S3 | `scan_path` последовательный | BACKLOG-100 (v3.1.0) |
+| `skip_prefixes` для S3 | Нет аналога `skip_dirs` | BACKLOG-099 (v3.1.0) |
+| Fallback на config-секреты | `S3LineConnector.__init__` берёт `config.access_key`/`secret_key`, если нет ENV (WARNING) | BACKLOG-103 (v3.1.0) |
+| Fallback `endpoint` в коннекторе | `S3LineConnector` подставляет `host.docker.internal:9000` при пустом endpoint | BACKLOG-103 (v3.1.0) |
+| `secure=false` = `verify=False` | HTTP-endpoint — сертификат не проверяется | TEST-NOTE-6.11 → v3.1.0 |
+| Разные credentials на разные S3 | Нужны отдельные инстансы сканера (ENV per host) | v3.1.0 |
+| TEST-NOTE-10.6 | Стенд Дня 53.3: на свежем `docker-compose.test.yml` `manager_test` отвечал 500 до готовности БД → решено healthcheck и `--wait` | ✅ fixed v3.13.34 |\n| TEST-NOTE-10.7 | `postgres_test_data` — персистентный том: копит `pending`-задачи, E2E виснет → `down -v` при чистом прогоне | ✅ fixed v3.13.34 (`run-tests.sh all`) |\n| TEST-NOTE-10.8 | 2 legacy-теста WebUI требуют непустую таблицу `findings` (`X-Total-Count != "0"`) | 📋 отдельный день |
+| WebUI light-тема | Не поддерживается (dark-only) | BACKLOG-102 (v3.1.0) |
+| WebUI иконки | Font Awesome (не stroke-SVG) | BACKLOG-101 (v3.1.0) |
+| Теги docker-образов | `dcap/manager` и `dcap/webui` — `${VERSION:-3.13.29}`, `dcap/s3-agent` и `dcap/linux-agent` — `3.13.16` (документация уже v3.13.33) | v3.1.0 |
+| `docs/DESIGN.md`, `docs/ui-screenshots/` | Не существуют; референс Dovetail лежит в корневом `DESIGN.md` (не закоммичен) | BACKLOG-093 (53.4e) |
 
 ---
 
@@ -984,7 +1205,7 @@ Python-сканер — узкое место на 100k+ строках. Про�
 | `03-configuration.md` | Все конфиги, env-переменные | ❌ нет |
 | `04-authentication.md` | local/AD/hybrid, RBAC | ✅ есть |
 | `05-security.md` | mTLS, ключи, секреты, аудит findings/auth, маскирование контекстов | ✅ есть |
-| `06-scanner.md` | Настройка, задания, FP | ✅ есть |
+| `06-scanner.md` | Настройка, задания, FP, §8 S3/MinIO (53.2–53.3) | ✅ есть |
 | `07-agents.md` | Windows/Linux/S3 | ❌ нет |
 | `08-monitoring.md` | Метрики, алерты | ❌ нет |
 | `09-retention.md` | Архивация | ❌ нет |
@@ -1002,8 +1223,8 @@ Python-сканер — узкое место на 100k+ строках. Про�
 
 ---
 
-Актуально на: 01.10.2026
-Версия архитектуры: v3.13.27 (в процессе — Блок 5, 7 закрыты)
+Актуально на: 04.10.2026
+Версия архитектуры: v3.13.33 (в процессе — Блок 5, 7 закрыты; S3-коннектор сканера — части 1–4 + fix-s3-bucket)
 
 ---
 
@@ -1045,3 +1266,13 @@ Python-сканер — узкое место на 100k+ строках. Про�
 | 32 | Секция mTLS | Перечислены реальные `public_paths`/`machine_prefixes`, `ssl_cert_reqs=CERT_OPTIONAL` |
 | 33 | Ключевые решения | `SecretsManager` отмечен как **написанный, но не вызываемый** (везде `os.getenv`) |
 | 34 | Админ-руководство | Таблица статусов: реально есть только 4 файла из 12 |
+| 35 | Версия | v3.13.27 → **v3.13.33** (S3-коннектор сканера, части 1–4 + fix) |
+| 36 | Модель `ScanTask` | Новая подсекция: `source_type` (миграция **006**), `progress` (002), `fragment_path` для S3 |
+| 37 | Дерево проекта | Исправлены пути: коннекторы в `scanner/connectors/` (**не** `scanner/src/connectors/`), +`base.py`, +`s3_line_connector.py`, +`_text_scanner.py`, +`factory.py`; `permissions/` → `base, local, remote, ad, factory, cache` (без `mixed.py`); миграции 001…**006**; `service/dcap-audit-**agent**.service`; тесты 317 → **430 unit / 53+7 E2E** |
+| 38 | Новая секция | **«S3-коннектор сканера (BACKLOG-097)»** — модули, секреты, endpoint, рекурсия, bucket, BUG-136, ограничения |
+| 39 | Новая секция | **«Сканер: инстансы и параллелизм»** — FIFO, N инстансов, endpoint/credentials |
+| 40 | API | +`### Ресурсы` (S3/MinIO, вариант B); +payload `GET /api/scanner/tasks/pending` (`source_type`, `scan_config`) |
+| 41 | Ключевые решения | +9 архитектурных, +6 технических (S3, BUG-136, `source_type`); WebUI-Dovetail / Chart.js / grid-wireframe помечены как **план** (53.4a–53.4e) |
+| 42 | Известные ограничения | +S3-ограничения, BACKLOG-099/100/101/102/103, TEST-NOTE-10.6–10.8, теги docker-образов |
+| 43 | Админ-руководство | `06-scanner.md` — §8 S3/MinIO отмечен |
+| 44 | Ревизия v3.13.33 | **Версия архитектора пересобрана по коду**: восстановлены Markdown (заголовки, pipe-таблицы, fenced-блоки), удалены мета-преамбула и незакрытый fenced-блок с языком `markdown`; возвращены разделы, заменённые на «Без изменений» (SIEM, Retention, Мониторинг, фильтры Findings, admin-guide, «Что изменилось»); исправлены несуществующие `docs/DESIGN.md` / `docs/ui-screenshots/` (план 53.4e), `scanner/src/connectors/*` → `scanner/connectors/*`, `mixed.py` → `base.py`, `dcap-audit.service` → `dcap-audit-agent.service`, `S3LineConnector.configure` → `__init__`, «317 тестов» → **430**; TEST-NOTE-10.6 переформулирован (в `docker-compose.test.yml` уже есть `depends_on: service_healthy`) |

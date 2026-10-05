@@ -1,10 +1,8 @@
-# 🗺️ ROADMAP.md — План развития и бэклог DCAP
-
 > **Обновляется архитектором.** План — редко, бэклог — по мере.
 > Текущее состояние — в `STATE.md`. Архитектура — в `ARCHITECTURE.md`.
 
-**Обновлено:** 03.10.2026
-**Стратегия:** Windows First → Linux → S3/MinIO → Enterprise Ready → Rust + DLP + SIEM
+**Обновлено:** 04.10.2026
+**Стратегия:** Windows First → Linux → S3/MinIO → Enterprise Ready → UI-редизайн → Rust + DLP + SIEM
 
 ---
 
@@ -13,8 +11,8 @@
 | Версия | Статус | Ключевые фичи |
 |--------|--------|---------------|
 | v1.0.0-v2.1.0 | ✅ | Обнаружение, классификация, WebUI, Linux-агент |
-| **v3.0.0** | **🔄 Финальный этап** | **Enterprise Ready: S3, AD, mTLS, архивация, Findings Refactor, ENV-ключи, RBAC, Блок 9 (Безопасность), Блок 6 (Агенты)** |
-| v3.1.0 | 📋 | Rust Scanner (CIFS/NFS), DLP/ICAP, SMB, Webhook, облака, Per-scanner keys, SIEM, Cython, BOM fix (BUG-135), BUG-123, BUG-125/126/129/130, BUG-118 |
+| **v3.0.0** | **🔄 Финальный этап** | **Enterprise Ready: S3-сканер, AD, mTLS, архивация, Findings Refactor, ENV-ключи, RBAC, Блок 9, Блок 6, WebUI-редизайн (Dovetail)** |
+| v3.1.0 | 📋 | Rust Scanner (CIFS/NFS), DLP/ICAP, SMB, Webhook, облака, Per-scanner keys, SIEM, Cython, BOM fix (BUG-135), BUG-123/125/126/129/130, BUG-118 |
 | v4.0.0 | 📋 | ML-классификаторы, Zero-Trust, распределённый Manager, Kafka/Kinesis SIEM |
 
 ---
@@ -29,25 +27,34 @@
 | 48-50.2 | (WebUI, аудит, Retention, BUG-102) | | ✅ до v3.13.27 |
 | **51 (Блок 9)** | **Фикс-спринт Блок 9 (Безопасность)** — 10 BUG | TASK-074…084 | ✅ **v3.13.28** |
 | **52 (Блок 6)** | **Блок 6 (Агенты): Windows + Linux + S3 + MinIO** | TASK-085…103 | ✅ **v3.13.28** |
-| **53.1a (BACKLOG-097)** | **Manager: `source_type` для S3-ресурсов, миграция 006** | TASK-104…109 | ✅ **v3.13.29** |
-| **53.1b (BACKLOG-097)** | **Scanner: фабрика коннекторов, `_text_scanner.py`, boto3** | TASK-110…117 | ✅ **v3.13.30** |
-| **53.2 (BACKLOG-097)** | **Scanner: `S3LineConnector` (streaming, ENV-секреты, OCR/документы) + BUG-136** | TASK-118…123 | ✅ **v3.13.31** |
+| **53.1a (BACKLOG-097 ч.1)** | **Manager: `source_type` + S3-ресурсы, миграция 006** | TASK-104…109 | ✅ **v3.13.29** |
+| **53.1b (BACKLOG-097 ч.2)** | **Scanner: фабрика + `_text_scanner.py` + boto3** | TASK-110…117 | ✅ **v3.13.30** |
+| **53.2 (BACKLOG-097 ч.3)** | **Scanner: S3LineConnector (streaming, ENV, OCR)** | TASK-118…123 | ✅ **v3.13.31** |
+| **53.3 (BACKLOG-097 ч.4)** | **E2E на MinIO + WebUI-форма S3 + docs** | TASK-129…133 | ✅ **v3.13.32** |
+| **53.3-fix-s3-bucket** | **`S3LineConnector`: bucket только из `scan_config` (BACKLOG-103 заведён)** | TASK-134…136 | ✅ **v3.13.33** |
+| **53.3-fs-regress** | **Ручной регресс FS после 53.1b/53.2 (cp1251, PII, OCR)** | — | 📋 **следующий** |
+| **53.4a** | **WebUI-редизайн (этап 1): токены + base + компоненты** | BACKLOG-093 | 📋 |
+| **53.4b** | **WebUI-редизайн (этап 2): login, dashboard, resources, findings** | BACKLOG-093 | 📋 |
+| **53.4c** | **WebUI-редизайн (этап 3): finding_detail, catalog, audit, scanners, access** | BACKLOG-093 | 📋 |
+| **53.4d** | **WebUI-редизайн (этап 4): roles, users, settings, footer, графики** | BACKLOG-093 | 📋 |
+| **53.4e** | **WebUI-редизайн (этап 5): полировка, скриншоты, docs/DESIGN.md** | BACKLOG-093 | 📋 |
 | **52.1** | **Linux-агент: метрики + сквозной поток + BUG-130** | — | 📋 |
 | **52.2** | **Блок 6.5: сбор прав Windows (BUG-123, 127)** | — | 📋 |
-| **53.3** | **Тесты (E2E на MinIO) + WebUI-форма S3** | TASK-130…133 | ✅ **v3.13.32** |
 | **54** | **Блок 11 (Отказоустойчивость)** | — | 📋 |
-| **55** | **GitHub-пакет** | BACKLOG-028/046 | 📋 |
+| **55** | **GitHub-пакет** — **только после 53.4e** | BACKLOG-028/046 | 📋 |
 | **56** | **BUG-117 (Manager-маскирование, hotfix)** | — | 📋 |
 | **57** | **Релиз v3.0.0** | — | 📋 |
+
+> ⚠️ **Условие приёмки GitHub-пакета (день 55):** 53.4a–53.4e закрыты.
+> Все 14 страниц WebUI в dark-теме, `theme.js` удалён, скриншоты в `docs/ui-screenshots/`,
+> `docs/DESIGN.md` в репо.
 
 ### Бэклог v3.0.0 — активные задачи
 
 | ID | Название | Приоритет | Статус |
 |----|----------|-----------|--------|
-| **BACKLOG-097 ч.1** | Manager: `source_type` + S3-ресурсы, миграция 006 | 🔴 | ✅ **v3.13.29** |
-| **BACKLOG-097 ч.2** | Scanner: фабрика коннекторов, `_text_scanner.py`, boto3 | 🔴 | ✅ **v3.13.30** |
-| **BACKLOG-097 ч.3** | Scanner: `S3LineConnector` (streaming, ENV-секреты, OCR) | 🔴 | ✅ **v3.13.31** |
-| **BACKLOG-097 ч.4** | Тесты (E2E на MinIO) + WebUI-форма S3 | 🔴 | ✅ **v3.13.32** |
+| **FS-регресс** | Проверка FS-пути после 53.1b/53.2 (cp1251, PII, OCR) | 🔴 | 📋 53.3-fs-regress |
+| **BACKLOG-093** | **Редизайн WebUI (Dovetail-style, `DESIGN.md`)** | 🔴 | 📋 **53.4a–53.4e, до GitHub-пакета** |
 | **Linux-агент дотест** | Метрики, сквозной поток, BUG-130 | 🔴 | 📋 52.1 |
 | **BUG-117** | Manager не маскирует контексты сам | 🔴 | 📋 56 |
 | **BUG-123** | Windows-агент: сбор прав = 0 | 🟡 | 📋 52.2 |
@@ -66,17 +73,25 @@
 | **BUG-132** | S3-агент: не переустанавливает соединение | 🟢 | 📋 v3.1.0 |
 | **BUG-121** | README Windows-агента: неверный SACL | 🟢 | 📋 v3.1.0 |
 | **BUG-124** | `docker-compose.s3.yml` конфликт | 🟢 | 📋 v3.1.0 |
-| **BUG-128** | Кириллица в логах (UTF-8 vs PS 5.1) | 🟢 | 📋 док |
+| **BUG-128** | Кириллица в логах | 🟢 | 📋 док |
 | **BACKLOG-039** | Аудит NOT NULL полей | 🟡 | 📋 |
 | **BACKLOG-045** | Параметризация портов экспортеров | 🟢 | 📋 |
 | **BACKLOG-047** | `/api/health` версия — синхронизация | 🟡 | ✅ v3.13.28 |
 | **BACKLOG-065** | Удалить `findings_old` + `findings_archive` | 🟢 | 📋 |
-| **BACKLOG-078** | Linux-агент вне Docker | 🟢 | ✅ **v3.13.28** |
-| **BACKLOG-080…082** | Тестирование агентов (Windows/Linux/S3) | 🟡 | ✅ **v3.13.28** |
+| **BACKLOG-078** | Linux-агент вне Docker | 🟢 | ✅ v3.13.28 |
+| **BACKLOG-080…082** | Тестирование агентов | 🟡 | ✅ v3.13.28 |
 | **BACKLOG-083** | Alertmanager webhook → Manager | 🟡 | 📋 v3.0.0 |
 | **TEST-NOTE-5.5** | Осиротевшие сканеры после обновления | 🟡 | 📋 |
 | **TEST-NOTE-5.11** | E2E `_assign_task` конкурирует со сканером | 🟡 | 📋 |
 | **TEST-NOTE-5.12** | `--remove-orphans` сносит основной стек | 🟡 | 📋 |
+| **TEST-NOTE-10.1** | Alembic из PowerShell уходит в SQLite | 🟡 | 📋 док |
+| **TEST-NOTE-10.2** | Артефакты E2E-сканеров накапливаются | 🟡 | 📋 бэклог |
+| **TEST-NOTE-10.3** | Дубли секций в `scan_config` старых FS-ресурсов | 🟡 | 📋 бэклог |
+| **TEST-NOTE-10.4** | BUG-136 меняет поведение FS-пути | 🟡 | ⏳ 53.3-fs-regress |
+| **TEST-NOTE-10.5** | Smoke FS в 53.1b был слабый | 🟡 | ⏳ 53.3-fs-regress |
+| **BACKLOG-099 (внутр.)** | S3-сканер: `skip_prefixes` (аналог `skip_dirs`) | 🟢 | 📋 v3.1.0 |
+| **BACKLOG-100 (внутр.)** | S3-сканер: параллельное сканирование | 🟢 | 📋 v3.1.0 |
+| **BACKLOG-103** | S3-сканер: fallback на config-секреты (политика TASK-018) | 🟡 | 📋 v3.1.0 |
 
 ### Бэклог v3.0.0 — ЗАКРЫТЫЕ (кратко)
 
@@ -95,8 +110,8 @@
 | TASK-085…103 (BUG-120, 122) | **Блок 6 (Агенты)** | **v3.13.28** |
 | TASK-104…109 (BACKLOG-097 ч.1) | **Manager: `source_type` + S3-ресурсы** | **v3.13.29** |
 | TASK-110…117 (BACKLOG-097 ч.2) | **Scanner: фабрика + `_text_scanner.py` + boto3** | **v3.13.30** |
-| TASK-118…123 (BACKLOG-097 ч.3) | **Scanner: `S3LineConnector` + BUG-136 fix** | **v3.13.31** |
-TASK-130…133 (BACKLOG-097 ч.4) | **E2E на MinIO + форма S3/MinIO в WebUI** | **v3.13.32** |
+| TASK-118…123 (BACKLOG-097 ч.3, BUG-136) | **S3LineConnector + BUG-136 fix** | **v3.13.31** |
+| **TASK-129…133 (BACKLOG-097 ч.4)** | **E2E + WebUI-форма S3 + docs** | **v3.13.32** |
 
 ---
 
@@ -136,7 +151,7 @@ TASK-130…133 (BACKLOG-097 ч.4) | **E2E на MinIO + форма S3/MinIO в We
 | TEST-NOTE-6.5 | Проверка прав — в PostgreSQL, не в SQLite |
 | TEST-NOTE-6.6 | Счётчик S3 `events_sent=16` при 9 валидных |
 | TEST-NOTE-6.7 | Python 3.13 `datetime.utcnow()` deprecation |
-| TEST-NOTE-6.8 | Кириллица в логаг — PS 5.1 читает ANSI |
+| TEST-NOTE-6.8 | Кириллица в логах — PS 5.1 читает ANSI |
 | TEST-NOTE-6.9 | Docker Desktop зависает после длительной работы |
 | TEST-NOTE-6.10 | Rate-limit 300/60s мешает тестированию |
 
@@ -159,6 +174,29 @@ TASK-130…133 (BACKLOG-097 ч.4) | **E2E на MinIO + форма S3/MinIO в We
 | TEST-NOTE-9.16 | `action` ≠ `event_type` |
 | TEST-NOTE-9.17 | `require_viewer` = `require_auth` |
 | TEST-NOTE-9.18 | `user_roles` без PK/CASCADE |
+
+### TEST-NOTE — День 53.1a
+
+| ID | Название |
+|----|----------|
+| TEST-NOTE-10.1 | Alembic из PowerShell на Windows уходит в SQLite |
+| TEST-NOTE-10.2 | Артефакты E2E-сканеров накапливаются (101+) |
+| TEST-NOTE-10.3 | Дубли секций в `scan_config` старых FS-ресурсов |
+
+### TEST-NOTE — День 53.2
+
+| ID | Название |
+|----|----------|
+| TEST-NOTE-10.4 | BUG-136 меняет поведение FS-пути (cp1251 теперь декодируется) |
+| TEST-NOTE-10.5 | Smoke FS в 53.1b был слабый (1 файл) |
+
+### TEST-NOTE — День 53.3
+
+| ID | Название |
+|----|----------|
+| TEST-NOTE-10.6 | ✅ **fixed v3.13.34** — healthcheck `manager_test`/`webui_test` + `up --wait` вместо ручного `restart manager_test` |
+| TEST-NOTE-10.7 | ✅ **fixed v3.13.34** — `scripts/run-tests.sh all` делает `down -v` + `up -d --wait` автоматически |
+| TEST-NOTE-10.8 | 2 legacy-теста WebUI требуют непустую таблицу findings (`X-Total-Count != "0"`) — вне ТЗ стенда, отдельный день |
 
 ---
 
@@ -207,7 +245,6 @@ TASK-130…133 (BACKLOG-097 ч.4) | **E2E на MinIO + форма S3/MinIO в We
 | BACKLOG-090 | Быстрые regex | 🟡 |
 | BACKLOG-091 | TruffleHog | 🟡 |
 | BACKLOG-092 | Гибрид Cython + Rust | 🟡 |
-| BACKLOG-093 | Редизайн WebUI | 🟢 |
 | BACKLOG-096 | `run_scanner.py` — `start_metrics_server` | 🟢 |
 | BACKLOG-032 | ICAP Connector | 🟡 |
 | BACKLOG-033 | DLP Политики | 🟡 |
@@ -232,6 +269,11 @@ TASK-130…133 (BACKLOG-097 ч.4) | **E2E на MinIO + форма S3/MinIO в We
 | BACKLOG-017 | Обработка архивов | 🟡 |
 | BACKLOG-018 | Распределённая архитектура | 🔴 |
 | BACKLOG-022 | Red teaming, SAST, SCA | 🔴 |
+| **BACKLOG-103** | **Убрать fallback на config-секреты в `S3LineConnector`/`S3Connector`** (политика TASK-018 — только ENV) | 🟡 |
+| **BACKLOG-099 (внутр.)** | S3-сканер: `skip_prefixes` | 🟢 |
+| **BACKLOG-100 (внутр.)** | S3-сканер: параллельное сканирование | 🟢 |
+| **BACKLOG-101 (внутр.)** | WebUI: stroke-SVG иконки (замена FA) | 🟢 |
+| **BACKLOG-102 (внутр.)** | WebUI: light-тема (после dark-only) | 🟢 |
 
 ---
 
@@ -254,10 +296,10 @@ TASK-130…133 (BACKLOG-097 ч.4) | **E2E на MinIO + форма S3/MinIO в We
 | Версия | Задач | Выполнено | Прогресс |
 |--------|-------|-----------|----------|
 | v1.0.0-v2.1.0 | 27 | 27 | 100% ✅ |
-| **v3.0.0** | **~125** | **~121** | **~97% 🔄** |
+| **v3.0.0** | **~130** | **~123** | **~95% 🔄** |
 | v3.1.0 | 40 | 0 | 0% 📋 |
 | v4.0.0 | 9 | 0 | 0% 📋 |
-| **ИТОГО** | **~201** | **~148** | **~74%** |
+| **ИТОГО** | **~206** | **~150** | **~73%** |
 
 ---
 
@@ -276,11 +318,12 @@ TASK-130…133 (BACKLOG-097 ч.4) | **E2E на MinIO + форма S3/MinIO в We
 - **`STATE.md`** — текущее состояние проекта.
 - **`STATE_TEST_SESSION.md`** — протокол тестирования.
 - **`ARCHITECTURE.md`** — архитектура, модели, API, SIEM.
-- **ТЗ (архив):** `TZ_FIX_SPRINT.md` … `TZ_BLOCK6_*.md`.
+- **`docs/DESIGN.md`** — style reference WebUI (Dovetail).
+- **ТЗ (архив):** `TZ_FIX_SPRINT.md` … `TZ_BLOCK6_*.md`, `day_53_*_*.md`.
 - **`SECURITY.md`**, **`docs/security_checklist.md`**, **`docs/admin-guide/05-security.md`**.
 
 ---
 
 **Актуально на:** 04.10.2026
-**Версия:** v3.13.32
-**Следующая цель:** 53.4 — docs по масштабированию S3-сканирования; далее 52.1 Linux-агент, Блок 6.5, Блок 11, GitHub
+**Версия:** v3.13.33
+**Следующая цель:** 53.3-fs-regress → 53.4a–53.4e (WebUI-редизайн) → 55 (GitHub-пакет) → 57 (релиз v3.0.0)

@@ -5,10 +5,24 @@
 ## Требования
 
 - Python 3.10+ и зависимости: `pip install -r requirements.txt -r requirements-dev.txt`
+- Docker + Docker Compose v2 (поддерживается `up --wait`).
 - **E2E / Chaos / Load** требуют запущенного тестового стека:
-  `docker compose -f docker-compose.test.yml up -d --build` (или `scripts/test-up.sh`)
-- **E2E со сканером** требуют реально запущенного сканера на хосте
-  (`python run_scanner.py scanner/config/scanner_config.json`) и его регистрации в Manager.
+  `docker compose -f docker-compose.test.yml up -d --build --wait` (или `scripts/test-up.sh`).
+  Ручные `restart`/`down -v` **не нужны** — `scripts/run-tests.sh all` сам делает
+  чистый пересозданный запуск (см. «Автоматический запуск стенда»).
+- **E2E со сканером** требуют реально запущенного сканера на хосте и его регистрации
+  в Manager. Сканер требует ключи шифрования находок (иначе fail-fast):
+
+  ```powershell
+  # PowerShell
+  $env:FINDINGS_ENCRYPTION_KEY = "<base64 32 bytes>"
+  $env:FINDINGS_HMAC_KEY       = "<base64 32 bytes>"
+  $env:MANAGER_URL             = "http://127.0.0.1:18000"   # тестовый Manager
+  python run_scanner.py scanner/config/scanner_config.json
+  ```
+
+  Либо, для локальной разработки, `DCAP_ALLOW_LEGACY_SCANNER=true` — только в dev,
+  в prod сканер без ключей не стартует (см. `docs/admin-guide/05-security.md`).
 
 Тестовый стек изолирован: БД `dcap_test` (PostgreSQL :15432, tmpfs), Redis :16379,
 Manager на **:18000**, WebUI на **:18001**, сеть `dcap-test-network`.
@@ -18,7 +32,7 @@ Manager на **:18000**, WebUI на **:18001**, сеть `dcap-test-network`.
 
 ```bash
 scripts/test-up.sh            # поднять стек (build + wait health)
-pytest tests/                 # все тесты
+scripts/run-tests.sh all      # чистый стенд + все тесты (рекомендуется)
 scripts/run-tests.sh e2e      # только E2E
 scripts/run-tests.sh chaos    # только Chaos (-m chaos)
 scripts/run-tests.sh load     # только Load (-m load)
@@ -28,6 +42,38 @@ scripts/test-down.sh          # остановить стек
 
 Если стек не запущен — тесты с `requires_manager`/`requires_docker` будут
 **skip** (не fail), так как у них есть соответствующие маркеры и проверки.
+
+## Автоматический запуск стенда
+
+`scripts/run-tests.sh all` выполняет полный цикл без ручных шагов:
+
+1. `docker compose -f docker-compose.test.yml down -v --remove-orphans` — остановка
+   и **удаление томов** (гарантирует чистую БД: нет pending-заданий и находок от
+   прошлых прогонов — TEST-NOTE-10.7).
+2. `docker compose -f docker-compose.test.yml up -d [--build] --wait` — запуск и
+   ожидание healthcheck всех сервисов (TEST-NOTE-10.6).
+3. `pytest` — прогон тестов.
+
+Healthcheck в `docker-compose.test.yml`: `manager_test` ждёт `GET /api/health`,
+`webui_test` — `GET /health`; `webui_test` стартует только после
+`service_healthy` Manager, поэтому `--wait` гарантирует готовность обоих.
+
+Остальные режимы (`e2e`, `quick`, `load`, `chaos`) **не трогают стенд** — они
+предполагают, что он уже поднят.
+
+## Известные ограничения стенда
+
+- Тома PostgreSQL/Redis **пересоздаются** при `run-tests.sh all`: данные между
+  прогонами не сохраняются.
+- Нужен Docker Compose с поддержкой `--wait`; при более старой версии скрипт
+  использует fallback (`up -d` + проверка health через HTTP).
+- Docker Desktop на Windows: если опубликованный порт перестал отвечать при
+  живых контейнерах (healthcheck зелёный, HTTP не отвечает) — прокси портов
+  «залип». Помогает пересоздание контейнеров:
+  `docker compose -f docker-compose.test.yml up -d --force-recreate manager_test webui_test`.
+- 2 legacy-теста WebUI (`test_webui_block5_v31322.py`) требуют **непустую** таблицу
+  findings (`X-Total-Count != "0"`). На полностью чистом стенде без находок они
+  падают — это TEST-NOTE-10.8, отдельная задача, не регрессия стенда.
 
 ## Структура
 
@@ -103,6 +149,9 @@ tests/
 - Load-тесты: rate-limit Manager (300 req/min по IP) может отдавать 429 — это не 5xx
   и в ошибки не попадает; фактическое число созданных заданий в отчёте теста.
 - `/api/findings` поддерживает фильтр `task_id` (добавлен в v3.8.0).
+- S3/MinIO E2E (`test_s3_e2e.py`) требуют доступного MinIO (env `S3_DEFAULT_ENDPOINT`,
+  по умолчанию `host.docker.internal:9000`) и креды `S3_ACCESS_KEY`/`S3_SECRET_KEY`;
+  без них тесты **skip**.
 
 ## CI-интеграция
 
@@ -110,8 +159,6 @@ tests/
 
 ```yaml
 - run: pip install -r requirements-dev.txt
-- run: scripts/test-up.sh
-- run: pytest tests/ -m "e2e and not requires_scanner"
-- run: pytest tests/chaos -m chaos
+- run: scripts/run-tests.sh all     # чистый стенд + все тесты
 - run: scripts/test-down.sh
 ```

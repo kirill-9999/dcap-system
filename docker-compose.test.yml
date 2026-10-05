@@ -2,7 +2,8 @@ version: '3.8'
 
 # Изолированный стек для тестов (не трогает prod-данные).
 # Использует dcap_test БД, tmpfs (без persistence), отдельные порты и сеть.
-# Запуск: scripts/test-up.sh (или docker compose -f docker-compose.test.yml up -d --build).
+# Запуск: scripts/run-tests.sh stand   (down -v + up -d --wait, ждёт healthcheck)
+#         или scripts/test-up.sh --build (то же + пересборка образов).
 # Компоненты MANAGER/WEBUI — те же образы, что и production (manager/Dockerfile, webui/Dockerfile).
 
 services:
@@ -42,10 +43,24 @@ services:
       MTLS_ENABLED: "false"
       RATE_LIMIT_MAX_REQUESTS: "100000"
       AUTH_LOGIN_MAX_ATTEMPTS: "100000"
+      # 53.3-test-stand-fix: иначе /api/health отдаёт version=unknown
+      # (main.py: env VERSION → config.json version → unknown).
+      VERSION: ${VERSION:-3.13.34}
     ports: ["18000:8000"]
     depends_on:
       postgres_test: { condition: service_healthy }
       redis_test: { condition: service_healthy }
+    # TEST-NOTE-10.6 (закрыт, 53.3-test-stand-fix): curl есть в образе
+    # (manager/Dockerfile → HEALTHCHECK). Healthcheck ждёт не только доступность
+    # порта, но и завершившиеся миграции: entrypoint = `alembic upgrade head &&
+    # uvicorn ...`, поэтому до конца миграций /api/health не отвечает.
+    # start_period 30s (uvicorn + alembic), retries 30 x 5s — до ~180 с.
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/api/health"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+      start_period: 30s
 
   webui_test:
     build:
@@ -53,9 +68,19 @@ services:
       dockerfile: Dockerfile
     environment:
       MANAGER_URL: http://manager_test:8000
+      # webui/config.py по умолчанию отдаёт 3.13.11 — переопределяем env.
+      VERSION: ${VERSION:-3.13.34}
     ports: ["18001:8001"]
     depends_on:
-      - manager_test
+      manager_test:
+        condition: service_healthy
+    # curl есть в образе (webui/Dockerfile → HEALTHCHECK); /health без auth.
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8001/health"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+      start_period: 15s
 
 networks:
   default:

@@ -12,6 +12,76 @@
 
 ---
 
+## [3.13.34] — 2026-10-05 — День 53.3-test-stand-fix: автоматический запуск E2E-стенда
+
+### Fixed
+
+- 🐛 `docker-compose.test.yml` — у `manager_test` **не было healthcheck**, поэтому
+  `docker compose up -d` возвращался до готовности приложения, а `webui_test` стартовал
+  параллельно с Manager. Добавлены healthcheck обоим сервисам (`manager_test` —
+  `GET /api/health`, `webui_test` — `GET /health`; interval 5s, timeout 5s,
+  retries 30, start_period 30s) и `webui_test.depends_on.manager_test.condition:
+  service_healthy`. Закрывает **TEST-NOTE-10.6** (ручной `restart manager_test` больше
+  не нужен).
+- 🐛 `scripts/run-tests.sh` — режим `all` больше не требует ручной последовательности
+  `down -v` → `up -d` → `restart`: добавлены функции `stand_up` / `stand_down`, режим
+  `stand`, и `all` теперь сам выполняет `down -v --remove-orphans` + `up -d --wait`.
+  Закрывает **TEST-NOTE-10.7** (персистентный том `postgres_test_data` копил
+  pending-задачи, из-за чего E2E вис).
+- 🐛 `scripts/run-tests.sh` — добавлен fallback: если текущий `docker compose` не
+  поддерживает `--wait`, выполняется `up -d` + ожидание готовности по HTTP
+  (совместимость со старыми версиями Compose).
+
+### Changed
+
+- ⚙️ `docker-compose.yml` — теги всех DCAP-образов и in-container `VERSION`
+  подняты до `${VERSION:-3.13.34}` (было 3.13.29); актуальная версия в `.env.example`
+  — `VERSION=3.13.34`.
+- ⚙️ `docker-compose.s3.yml` — у S3-агента добавлен явный `image: dcap/s3-agent:${VERSION:-3.13.34}`
+  рядом с `build` (тег больше не выводится из имени проекта).
+- ⚙️ `scripts/test-up.sh` — делегирует `run-tests.sh stand --build`, чтобы логика
+  стенда жила в одном месте.
+
+### Added
+
+- 📝 `docs/testing.md` — раздел «Автоматический запуск стенда» (3 шага цикла
+  `all`), требования к сканеру для E2E (обязательные `FINDINGS_ENCRYPTION_KEY` /
+  `FINDINGS_HMAC_KEY`, `MANAGER_URL` тестового Manager), «Известные ограничения
+  стенда» (пересоздание томов, залипший прокер портов Docker Desktop на Windows —
+  лечится `--force-recreate`, TEST-NOTE-10.8), требования к MinIO для S3-тестов;
+  CI-схема упрощена до `scripts/run-tests.sh all`.
+- 📝 `docs/testing.md` — в структуре `tests/` перечислены все E2E-модули
+  (в т.ч. `test_s3_e2e.py`, `test_webui_block5_v31322.py`, `test_key_rotation.py`,
+  `test_retention_e2e.py`, `test_auth_audit_e2e.py`).
+
+### Notes
+
+- ⚠️ TEST-NOTE-10.8 (2 legacy-теста `test_webui_block5_v31322.py` требуют
+  `X-Total-Count != "0"`) остаётся открытым — по ТЗ вне scope. На чистом стенде без
+  находок они падают; при непустой таблице проходят (проверено вручную).
+
+---
+
+## [3.13.33] — 2026-10-04 — День 53.3-fix: `S3LineConnector` — bucket только из `scan_config`
+
+### Fixed
+
+- 🐛 `scanner/connectors/s3_line_connector.py` — в `scan_path` убрано сравнение
+  `parsed.netloc != self._bucket` и вводящий в заблуждение WARNING «Bucket в path … —
+  использую path»: bucket **никогда** не брался из `path`, то есть предупреждение
+  печаталось вхолостую, а у читателя кода создавало ощущение, что bucket может
+  прийти из пути. Контракт зафиксирован явно: bucket — из
+  `scan_config.connector.s3.bucket` (payload задачи, 53.1a), путь
+  `s3://bucket/prefix/` даёт **только суффикс префикса**; bucket в path
+  игнорируется намеренно. Docstring `scan_path` приведён в соответствие.
+
+### Added
+
+- 📝 `docs/admin-guide/06-scanner.md` §8.1 — явно сказано, что bucket берётся из
+  `scan_config`, а `path` — только префикс.
+- 📝 `ROADMAP.md` — **BACKLOG-103** в v3.1.0 (v3.0.0-бэклог): убрать fallback на
+  config-секреты в `S3LineConnector` / `S3Connector` (политика TASK-018 — «только ENV»).
+
 ## [3.13.32] — 2026-10-04 — День 53.3: E2E на MinIO + форма S3/MinIO в WebUI (BACKLOG-097, часть 4)
 
 ### Added
