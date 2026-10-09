@@ -1,0 +1,171 @@
+/* DCAP WebUI — tokens.css
+ * Design system Dovetail (dark-only).
+ * Заменяет variables.css + theme-dark.css (v3.13.37).
+ *
+ * ⚠️ Имена переменных сохранены как в variables.css (--color-bg, --color-text,
+ * --color-surface, --color-border, --color-primary и т.д.), чтобы
+ * components/*.css подхватили новые значения АВТОМАТИЧЕСКИ.
+ */
+
+:root {
+    /* ============================================================
+     * ДИЗАЙН-ТОКЕНЫ DOVETAIL (dark-only)
+     * ============================================================ */
+
+    /* Цвета */
+    --color-blue-cornflower: #6798ff;   /* единственный акцент */
+    --color-page-ink:        #0a0a0a;   /* canvas */
+    --color-card-carbon:     #1e1e1e;   /* card surface */
+    --color-deep-coal:       #141414;   /* alternate surface */
+    --color-onyx:            #000000;   /* SVG fills */
+    --color-steel-border:    #313131;   /* hairline borders */
+    --color-graphite:        #454545;   /* outline button borders */
+    --color-fog:             #7c7c7c;   /* disabled */
+    --color-ash:             #a7a7a7;   /* secondary text */
+    --color-snow:            #ffffff;   /* primary text */
+
+    /* Типографика — семейства */
+    --font-inter: 'Inter', ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont,
+                  "Segoe UI", Roboto, sans-serif;
+    --font-jetbrains-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo,
+                           Monaco, Consolas, monospace;
+    /* Alias для findings.css */
+    --font-mono: var(--font-jetbrains-mono);
+
+    /* Типографика — размеры */
+    --text-caption:     12px;
+    --leading-caption:  1.4;
+    --tracking-caption: 0.85px;
+
+    --text-body-sm:     14px;
+    --leading-body-sm:  1.5;
+    --tracking-body-sm: -0.17px;
+
+    --text-body:        16px;
+    --leading-body:     1.5;
+    --tracking-body:    -0.19px;
+
+    --text-subheading:     20px;
+    --leading-subheading:  1.4;
+    --tracking-subheading: -0.42px;
+
+    --text-heading-sm:     24px;
+    --leading-heading-sm:  1.33;
+    --tracking-heading-sm: -0.5px;
+
+    --text-heading:        40px;
+    --leading-heading:     1.2;
+    --tracking-heading:    -0.84px;
+
+    --text-heading-lg:     56px;
+    --leading-heading-lg:  1.14;
+    --tracking-heading-lg: -2.02px;
+
+    --text-display:        64px;
+    --leading-display:     1.13;
+    --tracking-display:    -2.3px;
+
+    /* Spacing (базовый unit 8px) */
+    --spacing-8:   8px;
+    --spacing-16:  16px;
+    --spacing-24:  24px;
+    --spacing-32:  32px;
+    --spacing-40:  40px;
+    --spacing-64:  64px;
+    --spacing-96:  96px;
+    --spacing-200: 200px;
+
+    /* Радиусы (Dovetail) */
+    --radius-tags:    4px;
+    --radius-cards:   8px;
+    --radius-inputs:  8px;
+    --radius-buttons: 8px;
+
+    /* Layout */
+    --page-max-width: 1200px;
+    --section-gap:    64px;
+    --card-padding:   24px;
+    --element-gap:    16px;
+
+    /* ============================================================
+     * LEGACY-АЛИАСЫ (сохранены под components/*.css)
+     * ============================================================ */
+
+    /* Цвета — surface */
+    --color-bg:              var(--color-page-ink);
+    --color-surface:         var(--color-card-carbon);
+    --color-bg-elevated:     var(--color-deep-coal);
+
+    /* Цвета — text */
+    --color-text:            var(--color-snow);
+    --color-text-secondary:  var(--color-ash);
+    --color-text-muted:      var(--color-fog);
+    --color-text-disabled:   var(--color-fog);
+
+    /* Цвета — border */
+    --color-border:          var(--color-steel-border);
+    --color-border-hover:    var(--color-graphite);
+    --color-border-subtle:   var(--color-card-carbon);
+
+    /* Цвета — primary / accent */
+    --color-primary:         var(--color-blue-cornflower);
+    --color-primary-dark:    #4d7de6;
+    --color-primary-light:   #98b8ff;
+    --color-primary-bg:      #1a1f2e;      /* намёк на синий на тёмном */
+
+    /* Семантика (приглушённая) */
+    --color-success:      #4ea87a;
+    --color-success-bg:   #1a2a20;
+    --color-warning:      #b8974a;
+    --color-warning-bg:   #2a2418;
+    --color-danger:       #d67272;
+    --color-danger-bg:    #2a1a1a;
+    --color-info:         var(--color-blue-cornflower);
+    --color-info-bg:      #1a1f2e;
+
+    /* Тени — ЗАПРЕЩЕНЫ в Dovetail. Оставлены пустыми для совместимости. */
+    --shadow-sm: none;
+    --shadow-md: none;
+    --shadow-lg: none;
+    --shadow-xl: none;
+
+    /* Legacy spacing (используются в components/*.css) */
+    --spacing-1: 4px;
+    --spacing-2: 8px;
+    --spacing-3: 12px;
+    --spacing-4: 16px;
+    --spacing-5: 20px;
+    --spacing-6: 24px;
+
+    /* Legacy radius */
+    --radius-sm: 4px;
+    --radius-md: 8px;
+    --radius-lg: 8px;
+    --radius-xl: 8px;
+    --radius-full: 9999px;
+
+    /* Legacy font-family */
+    --font-family: var(--font-inter);
+
+    /* Legacy font-size */
+    --font-size-xs:  12px;
+    --font-size-sm:  14px;
+    --font-size-md:  16px;
+    --font-size-lg:  20px;
+    --font-size-xl:  24px;
+    --font-size-2xl: 40px;
+
+    /* Транзишены */
+    --transition-fast: 150ms ease;
+    --transition-base: 250ms ease;
+    --transition-slow: 400ms ease;
+
+    /* Sidebar / header */
+    --sidebar-width:           240px;
+    --sidebar-collapsed-width:  64px;
+    --header-height:            56px;
+}
+
+html {
+    color-scheme: dark;
+}

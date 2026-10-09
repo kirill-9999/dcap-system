@@ -3,9 +3,9 @@
 > План и бэклог — в `ROADMAP.md`. Архитектура — в `ARCHITECTURE.md`.
 
 **Обновлено:** 09.10.2026
-**Текущая версия:** v3.13.36
+**Текущая версия:** v3.13.37
 **Целевая версия:** v3.0.0 (релиз)
-**Статус:** 🟢 Блоки 1–9 закрыты. BACKLOG-097 (S3-коннектор) — все 4 части выполнены (v3.13.29–v3.13.32) + контракт bucket (v3.13.35). Тестовый стенд автоматизирован (v3.13.34). **BUG-137 (блокер v3.0.0) закрыт (v3.13.36):** гонка temp-файлов `OCREngine` при параллельном сканировании — каждый движок теперь в своей подпапке temp, WARNING вместо тихой потери. Далее — 53.3-fs-regress, затем 53.4a–53.4e (WebUI-редизайн Dovetail-style, до GitHub-пакета).
+**Статус:** 🟢 Блоки 1–9 закрыты. BACKLOG-097 (S3-коннектор) — все 4 части выполнены (v3.13.29–v3.13.32) + контракт bucket (v3.13.35). Тестовый стенд автоматизирован (v3.13.34). BUG-137 (блокер v3.0.0) закрыт (v3.13.36). **WebUI-редизайн, этап 1 (53.4a) закрыт (v3.13.37):** тёмная тема Dovetail (токены + base + компоненты + grid-wireframe), локальные Inter + JetBrains Mono, `theme.js` удалён. Далее — 53.4b–53.4e (редизайн страниц), затем 53.3-fs-regress, GitHub-пакет.
 
 ---
 
@@ -13,10 +13,10 @@
 
 | Параметр | Значение |
 |----------|----------|
-| Текущий день | 53.3-fs-regress-ocr-diag (BUG-137: гонка OCR при параллели) — выполнен |
+| Текущий день | 53.4a (WebUI-редизайн, этап 1: токены + base + компоненты) — выполнен |
 | Статус дня | ✅ Выполнен |
-| Последний принятый отчёт | `bug_137_ocr_race_report.md` (v3.13.36) |
-| Следующий шаг | 53.3-fs-regress (общий регресс FS), затем 53.4a (WebUI-редизайн, этап 1) |
+| Последний принятый отчёт | `day_53_4a_report.md` (v3.13.37) |
+| Следующий шаг | 53.4b (WebUI-редизайн, этап 2: login, dashboard, resources, findings) |
 | Открытые вопросы к архитектору | 1) BUG-123 (сбор прав Windows) — Блок 6.5; 2) BUG-125 (MANAGER_URL); 3) BUG-130 (backoff); 4) BUG-135 (BOM в JSON); 5) TEST-NOTE-10.8 (2 legacy WebUI-теста требуют непустую БД) — отдельный день; 6) когда делаем документацию масштабирования — отдельным днём (53.4? v3.1.0?) |
 
 ---
@@ -59,6 +59,7 @@
 | **53.3-fix-s3-bucket** | **`S3LineConnector`: bucket только из `scan_config`; BACKLOG-103 заведён** | **v3.13.35** | `day_53_3_fix_s3_bucket_report.md` |
 | **53.3-test-stand-fix** | **Тестовый стенд: healthcheck, авто-очистка, версии 3.13.34** | **v3.13.34** | `day_53_3_test_stand_fix_report.md` |
 | **53.3-fs-regress-ocr-diag (BUG-137)** | **Гонка temp-файлов `OCREngine`; фикс + WARNING при потере + тест** | **v3.13.36 (hotfix)** | `bug_137_ocr_race_report.md` |
+| **53.4a (BACKLOG-093, этап 1/5)** | **WebUI-редизайн Dovetail: токены + base + компоненты + grid-wireframe; шрифты; `theme.js` удалён** | **v3.13.37** | `day_53_4a_report.md` |
 
 ---
 
@@ -155,6 +156,16 @@
 
 ## 📁 Последние использованные файлы
 
+### День 53.4a — WebUI-редизайн, этап 1 (v3.13.37)
+- `webui/static/vendor/fonts/` — NEW: `inter.woff2`, `inter.css`, `jetbrains-mono.woff2`, `jetbrains-mono.css` (локально, CDN запрещён).
+- `webui/static/css/tokens.css` — NEW, дизайн-токены Dovetail (dark-only) + legacy-алиасы.
+- `webui/static/css/base.css` — NEW, глобальные стили/шрифты/скроллбар.
+- `webui/static/css/components.css` — NEW, override Bootstrap.
+- `webui/static/css/grid-wireframe.css` — NEW, blueprint-сетка `body::before`.
+- `webui/templates/base.html`, `webui/templates/login.html` — `data-theme="dark"`, новые `<link>`, без `theme.js`.
+- `webui/static/css/main.css` — обновлённые `@import`, без дублей глобальных правил.
+- Удалены: `webui/static/css/variables.css`, `webui/static/css/theme-dark.css`, `webui/static/js/theme.js`.
+
 ### BUG-137 — гонка OCR при параллели (v3.13.36)
 - `scanner/utils/ocr_engine.py` — **ключевой фикс**: `_work_dir`-изоляция temp (uuid-подпапка на движок), `_cleanup_temp_files` только своей подпапки, `NamedTemporaryFile(dir=self._work_dir, ...)`.
 - `scanner/classifiers/pii_classifier.py` — WARNING при потере OCR-ответа (`_call_ocr_worker`: `success=False` и timeout).
@@ -229,5 +240,5 @@
 ---
 
 **Актуально на:** 09.10.2026
-**Версия:** v3.13.36
-**Следующий шаг:** 53.3-fs-regress → 53.4a (WebUI-редизайн, этап 1) → 53.4b–53.4e → 55 (GitHub-пакет)
+**Версия:** v3.13.37
+**Следующий шаг:** 53.4b (WebUI-редизайн, этап 2) → 53.4c–53.4e → 53.3-fs-regress → 55 (GitHub-пакет)

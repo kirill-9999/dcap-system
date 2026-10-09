@@ -1,0 +1,73 @@
+/* DCAP WebUI — base.css
+ * Глобальные стили, шрифты, скроллбар. Применяется ко всем страницам.
+ */
+
+@import url('/static/vendor/fonts/inter.css');
+@import url('/static/vendor/fonts/jetbrains-mono.css');
+
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+html, body {
+    height: 100%;
+    font-family: var(--font-inter);
+    font-size: var(--text-body-sm);
+    line-height: var(--leading-body-sm);
+    letter-spacing: var(--tracking-body-sm);
+    font-weight: 400;
+    background: var(--color-page-ink);
+    color: var(--color-snow);
+    transition: background var(--transition-base), color var(--transition-base);
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+}
+
+/* Заголовки — Inter 600, negative tracking */
+h1, h2, h3, h4, h5, h6 {
+    font-family: var(--font-inter);
+    font-weight: 600;
+    color: var(--color-snow);
+    letter-spacing: var(--tracking-heading-sm);
+    line-height: var(--leading-heading-sm);
+    margin-bottom: var(--spacing-16);
+}
+
+h1 { font-size: var(--text-heading);      letter-spacing: var(--tracking-heading);      line-height: var(--leading-heading); }
+h2 { font-size: var(--text-heading-sm);   letter-spacing: var(--tracking-heading-sm); }
+h3 { font-size: var(--text-subheading);   letter-spacing: var(--tracking-subheading); }
+h4 { font-size: var(--text-body);         letter-spacing: var(--tracking-body); }
+h5, h6 { font-size: var(--text-body-sm);  letter-spacing: var(--tracking-body-sm); }
+
+/* Ссылки — accent */
+a {
+    color: var(--color-blue-cornflower);
+    text-decoration: none;
+    transition: color var(--transition-fast);
+}
+a:hover { color: var(--color-primary-light); }
+
+/* Code / mono */
+code, pre, kbd, samp {
+    font-family: var(--font-jetbrains-mono);
+    font-size: 0.9em;
+    background: var(--color-deep-coal);
+    padding: 1px 4px;
+    border-radius: var(--radius-tags);
+    color: var(--color-snow);
+}
+
+/* Скроллбар */
+::-webkit-scrollbar        { width: 8px; height: 8px; }
+::-webkit-scrollbar-track  { background: var(--color-page-ink); }
+::-webkit-scrollbar-thumb  { background: var(--color-steel-border); border-radius: 4px; }
+::-webkit-scrollbar-thumb:hover { background: var(--color-graphite); }
+
+/* Form controls (override Bootstrap) */
+select, input, textarea {
+    background: var(--color-deep-coal) !important;
+    color: var(--color-snow) !important;
+    border-color: var(--color-steel-border) !important;
+}
+select option { background: var(--color-card-carbon); color: var(--color-snow); }
+
+/* Selection */
+::selection { background: var(--color-blue-cornflower); color: var(--color-page-ink); }

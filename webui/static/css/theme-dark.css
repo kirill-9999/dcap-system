@@ -1,6 +1,0 @@
-::-webkit-scrollbar { width: 8px; height: 8px; }
-::-webkit-scrollbar-track { background: var(--color-bg); }
-::-webkit-scrollbar-thumb { background: var(--color-border-hover); border-radius: var(--radius-full); }
-::-webkit-scrollbar-thumb:hover { background: var(--color-text-muted); }
-select, input, textarea { background: var(--color-surface) !important; color: var(--color-text) !important; border-color: var(--color-border) !important; }
-select option { background: var(--color-surface); color: var(--color-text); }

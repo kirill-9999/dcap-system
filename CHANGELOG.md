@@ -7,8 +7,58 @@
 
 ## [Unreleased] — v3.0.0 (release)
 
-**Осталось:** Блок 5 (WebUI, п.2.4), Блок 6.5 (сбор прав Windows, BUG-123/127), дотест Linux-агента (метрики с хоста, сквозной поток после restart WSL, BUG-130), BACKLOG-097 часть 3 (53.3 — E2E на MinIO + WebUI-форма S3), Блок 11, GitHub-пакет.
-(Блок 7 — Retention — закрыт в v3.13.27. Фикс-спринт Блок 9 — закрыт в v3.13.28. Блок 6 — закрыт в v3.13.28 на 5 из 6 под-блоков. BACKLOG-097 части 1-3 (Manager, ядро сканера, `S3LineConnector`) — закрыты в v3.13.29/30/31.)
+**Осталось:** Блок 5 (WebUI, п.2.4), Блок 6.5 (сбор прав Windows, BUG-123/127), дотест Linux-агента (метрики с хоста, сквозной поток после restart WSL, BUG-130), BACKLOG-097 часть 3 (53.3 — E2E на MinIO + WebUI-форма S3), Блок 11, GitHub-пакет, WebUI-редизайн 53.4b–53.4e.
+(Блок 7 — Retention — закрыт в v3.13.27. Фикс-спринт Блок 9 — закрыт в v3.13.28. Блок 6 — закрыт в v3.13.28 на 5 из 6 под-блоков. BACKLOG-097 части 1-3 (Manager, ядро сканера, `S3LineConnector`) — закрыты в v3.13.29/30/31. BUG-137 — закрыт в v3.13.36. WebUI-редизайн 53.4a — закрыт в v3.13.37.)
+
+---
+
+## [3.13.37] — 2026-10-09 — День 53.4a: WebUI-редизайн, этап 1 — токены + base + компоненты
+
+### Added
+
+- 🎨 `webui/static/vendor/fonts/` — **локальные шрифты** (CDN запрещён): `inter.woff2`
+  (Inter Variable, ~344 KB), `jetbrains-mono.woff2` (JetBrains Mono Variable, ~40 KB,
+  latin-wght-normal с Fontsource-fallback), `inter.css` и `jetbrains-mono.css`
+  (`@font-face`, `woff2-variations`, `font-display: swap`, latin unicode-range).
+- 🎨 `webui/static/css/tokens.css` — **дизайн-токены Dovetail (dark-only)**: page ink
+  `#0a0a0a`, card `#1e1e1e`, deep coal `#141414`, steel border `#313131`, ash `#a7a7a7`,
+  cornflower `#6798ff` (единственный акцент), Inter + JetBrains Mono, negatively-tracked
+  шкала (12…64px), 8px радиусы, `--shadow-*: none`. Сохранены legacy-имена переменных
+  (`--color-bg`, `--color-text`, `--color-surface`, `--color-primary` и т.д.), поэтому
+  `components/*.css` и `findings.css` подхватили новые значения **без правок**.
+- 🎨 `webui/static/css/base.css` — глобальные стили: html/body, заголовки (Inter 600,
+  negative tracking), ссылки-accent, `code/pre` (JetBrains Mono), тонкий скроллбар,
+  override `select/input/textarea`, `::selection`.
+- 🎨 `webui/static/css/components.css` — override Bootstrap 5 (`.btn` dark-carbon primary,
+  `.card`, формы, modal, badge, table, alert, dropdown, pagination, progress, utilities).
+- 🎨 `webui/static/css/grid-wireframe.css` — 1px `#1e1e1e` blueprint-сетка на `body::before`
+  (`opacity: 0.6`), контент поверх (`z-index`).
+
+### Changed
+
+- ✏️ `webui/templates/base.html` — `data-theme="dark"`, подключены `tokens.css`/`base.css`/
+  `components.css`/`grid-wireframe.css`, удалены `theme.js` и кнопка переключения темы
+  (осталась только «Выход»).
+- ✏️ `webui/templates/login.html` — `data-theme="dark"`, подключены новые CSS, inline-`<style>`
+  переведён на токены (`--color-page-ink`, `--radius-cards`, zero-shadow).
+- ✏️ `webui/static/css/main.css` — `@import` заменены на `tokens/base/components/grid-wireframe`,
+  убраны дублирующие глобальные правила (перенесены в `base.css`/`components.css`).
+
+### Removed
+
+- 🗑️ `webui/static/css/variables.css` — перенесено в `tokens.css`.
+- 🗑️ `webui/static/css/theme-dark.css` — dark-only, отдельный файл не нужен.
+- 🗑️ `webui/static/js/theme.js` — переключателя темы больше нет.
+
+### Docs
+
+- 📝 `STATE.md` (v3.13.37, следующий — 53.4b), `ROADMAP.md` (53.4a ✅), отчёт
+  `prompts/reports/day_53_4a_report.md` (+ скриншоты).
+
+### Fixed
+
+- ⚠️ Известное ограничение (ожидаемо для 53.4a): палитра Chart.js не под Dovetail —
+  исправляется в 53.4d; grid-wireframe тонкий (полировка — 53.4e).
 
 ---
 
