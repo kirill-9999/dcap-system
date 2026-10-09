@@ -12,7 +12,7 @@ services:
       dockerfile: audit-agent-s3/Dockerfile
     # 53.3-test-stand-fix: был только build — образ собирался под случайным
     # тегом. Явный image: даёт тот же тег, что и в docker-compose.yml.
-    image: dcap/s3-agent:${VERSION:-3.13.34}
+    image: dcap/s3-agent:${VERSION:-3.13.37}
     container_name: dcap-s3-agent
     environment:
       S3_ENDPOINT: ${S3_ENDPOINT:-https://s3.amazonaws.com}
