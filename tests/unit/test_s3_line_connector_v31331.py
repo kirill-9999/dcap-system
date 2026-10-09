@@ -1,5 +1,6 @@
 """Unit-тесты S3LineConnector (день 53.2) с mock boto3."""
 import io
+import logging
 import os
 import sys
 from unittest.mock import MagicMock, patch
@@ -295,3 +296,45 @@ def test_config_secrets_ignored_when_env_set(monkeypatch):
         kwargs = mock_boto.client.call_args.kwargs
         assert kwargs["aws_access_key_id"] == "env-access"
         assert kwargs["aws_secret_access_key"] == "env-secret"
+
+
+# ======================= 53.3-fix: bucket только из scan_config =======================
+
+
+def test_bucket_in_path_is_ignored_and_config_wins():
+    """Bucket из path игнорируется: в list_objects_v2 идёт bucket из config.
+
+    Контракт: bucket фиксируется в scan_config.connector.s3.bucket (payload
+    задачи от Manager, 53.1a); path — только суффикс префикса.
+    """
+    connector, mock_client = _make_connector(
+        _list_one_page(["x.txt"]), mock_get=lambda **kw: {"Body": _BodyEmpty()}
+    )
+    connector.scan_path("s3://other-bucket/logs", [_DummyClassifier()])
+    kwargs = mock_client.list_objects_v2.call_args.kwargs
+    assert kwargs["Bucket"] == "test-bucket", "bucket должен браться только из config"
+    assert kwargs["Prefix"] == "logs"
+
+
+def test_bucket_in_path_mismatch_emits_no_warning(caplog):
+    """Чужой bucket в path не логирует WARNING (сравнение удалено в 53.3-fix)."""
+    connector, _ = _make_connector(
+        _list_one_page([]), mock_get=lambda **kw: {"Body": _BodyEmpty()}
+    )
+    with caplog.at_level(logging.WARNING, logger="dcap-scanner"):
+        connector.scan_path("s3://other-bucket/logs", [_DummyClassifier()])
+    bucket_warnings = [r.getMessage() for r in caplog.records if "ucket" in r.getMessage()]
+    assert bucket_warnings == [], f"bucket-WARNING не ожидается: {bucket_warnings}"
+
+
+def test_path_without_prefix_falls_back_to_config_prefix():
+    """Пустой prefix в пути → prefix из config (`_discover_keys`: prefix or self._prefix)."""
+    connector, mock_client = _make_connector(
+        _list_one_page([]), mock_get=lambda **kw: {"Body": _BodyEmpty()}
+    )
+    connector.config["prefix"] = "cfg/prefix"
+    connector._prefix = "cfg/prefix"
+    connector.scan_path("s3://any-bucket/", [_DummyClassifier()])
+    kwargs = mock_client.list_objects_v2.call_args.kwargs
+    assert kwargs["Bucket"] == "test-bucket"
+    assert kwargs["Prefix"] == "cfg/prefix"

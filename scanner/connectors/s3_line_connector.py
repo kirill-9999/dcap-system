@@ -193,25 +193,24 @@ class S3LineConnector:
     ) -> List[Finding]:
         """Сканирует bucket по prefix. Возвращает список Finding.
 
-        path может быть:
-          - 's3://bucket/prefix' — используется bucket/prefix из него,
-          - 's3://bucket'        — bucket без prefix,
-          - '' или None          — bucket/prefix из конфига.
+        Bucket — всегда из scan_config.connector.s3.bucket (payload задачи,
+        см. 53.1a). Путь задаётся только как префикс:
+          - 's3://bucket/prefix' — используется prefix из него (bucket игнорируется),
+          - 's3://bucket'        — пустой prefix,
+          - '' или None          — prefix из конфига.
 
         progress_callback(stage, current, total, file_path): stage 1 = скан.
         stop_event: threading.Event — прерывание после текущего объекта.
         """
+        # Bucket — всегда из scan_config.connector.s3.bucket (см. 53.1a):
+        # Manager кладёт bucket в payload задачи, а path (s3://bucket/prefix)
+        # используется только как suffix для префикса. Если в path указан
+        # другой bucket — он игнорируется намеренно (контракт ресурса —
+        # bucket фиксирован на момент создания).
         source_prefix = self._prefix
         if path:
             parsed = urlparse(path)
             if parsed.scheme in ("s3", "minio"):
-                if parsed.netloc and parsed.netloc != self._bucket:
-                    # Bucket в path отличается от bucket в config — доверяем path.
-                    logger.warning(
-                        "[S3Line] Bucket в path (%s) != bucket в config (%s) — "
-                        "использую path",
-                        parsed.netloc, self._bucket,
-                    )
                 source_prefix = (parsed.path or "").lstrip("/")
             else:
                 source_prefix = (path or "").lstrip("/")

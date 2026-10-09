@@ -31,7 +31,7 @@
 | **53.1b (BACKLOG-097 ч.2)** | **Scanner: фабрика + `_text_scanner.py` + boto3** | TASK-110…117 | ✅ **v3.13.30** |
 | **53.2 (BACKLOG-097 ч.3)** | **Scanner: S3LineConnector (streaming, ENV, OCR)** | TASK-118…123 | ✅ **v3.13.31** |
 | **53.3 (BACKLOG-097 ч.4)** | **E2E на MinIO + WebUI-форма S3 + docs** | TASK-129…133 | ✅ **v3.13.32** |
-| **53.3-fix-s3-bucket** | **`S3LineConnector`: bucket только из `scan_config` (BACKLOG-103 заведён)** | TASK-134…136 | ✅ **v3.13.33** |
+| **53.3-fix-s3-bucket** | **`S3LineConnector`: bucket только из `scan_config` (BACKLOG-103 заведён)** | TASK-134…136 | ✅ **v3.13.35** |
 | **53.3-fs-regress** | **Ручной регресс FS после 53.1b/53.2 (cp1251, PII, OCR)** | — | 📋 **следующий** |
 | **53.4a** | **WebUI-редизайн (этап 1): токены + base + компоненты** | BACKLOG-093 | 📋 |
 | **53.4b** | **WebUI-редизайн (этап 2): login, dashboard, resources, findings** | BACKLOG-093 | 📋 |
@@ -325,5 +325,5 @@
 ---
 
 **Актуально на:** 04.10.2026
-**Версия:** v3.13.33
+**Версия:** v3.13.35
 **Следующая цель:** 53.3-fs-regress → 53.4a–53.4e (WebUI-редизайн) → 55 (GitHub-пакет) → 57 (релиз v3.0.0)

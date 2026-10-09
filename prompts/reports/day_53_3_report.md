@@ -130,7 +130,8 @@ POST :18001/api/resources  type=minio, без endpoint
 ## 4. Что НЕ сделано (вне scope по ТЗ)
 
 - 53.4 — docs по масштабированию S3-сканирования;
-- BACKLOG-099 (параллелизм/лимиты S3), `recursive`, `skip_prefixes`;
+- BACKLOG-100 (параллельное сканирование S3) и BACKLOG-099 (`skip_prefixes`) — оба в v3.1.0;
+- `recursive` для S3 (в коннекторе рекурсия всегда — намеренно, см. §8.1 admin-guide);
 - `scanner/README.md` (нужен после 53.4 — риск конфликта);
 - фильтрация по расширениям в WebUI-форме;
 - вынос `S3_DEFAULT_ENDPOINT` в compose (`env_file: .env`) — не входило в ТЗ.

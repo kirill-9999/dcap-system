@@ -12,6 +12,28 @@
 
 ---
 
+## [3.13.35] — 2026-10-04 — День 53.3-fix: `S3LineConnector` — bucket только из `scan_config`
+
+### Fixed
+
+- 🐛 `scanner/connectors/s3_line_connector.py` — в `scan_path` убрано сравнение
+  `parsed.netloc != self._bucket` и вводящий в заблуждение WARNING «Bucket в path … —
+  использую path»: bucket **никогда** не брался из `path`, то есть предупреждение
+  печаталось вхолостую, а у читателя кода создавало ощущение, что bucket может
+  прийти из пути. Контракт зафиксирован явно: bucket — из
+  `scan_config.connector.s3.bucket` (payload задачи, 53.1a), путь
+  `s3://bucket/prefix/` даёт **только суффикс префикса**; bucket в path
+  игнорируется намеренно. Docstring `scan_path` приведён в соответствие.
+
+### Added
+
+- 📝 `docs/admin-guide/06-scanner.md` §8.1 — явно сказано, что bucket берётся из
+  `scan_config`, а `path` — только префикс.
+- 📝 `ROADMAP.md` — **BACKLOG-103** в v3.1.0 (v3.0.0-бэклог): убрать fallback на
+  config-секреты в `S3LineConnector` / `S3Connector` (политика TASK-018 — «только ENV»).
+
+---
+
 ## [3.13.34] — 2026-10-05 — День 53.3-test-stand-fix: автоматический запуск E2E-стенда
 
 ### Fixed
@@ -61,26 +83,6 @@
   находок они падают; при непустой таблице проходят (проверено вручную).
 
 ---
-
-## [3.13.33] — 2026-10-04 — День 53.3-fix: `S3LineConnector` — bucket только из `scan_config`
-
-### Fixed
-
-- 🐛 `scanner/connectors/s3_line_connector.py` — в `scan_path` убрано сравнение
-  `parsed.netloc != self._bucket` и вводящий в заблуждение WARNING «Bucket в path … —
-  использую path»: bucket **никогда** не брался из `path`, то есть предупреждение
-  печаталось вхолостую, а у читателя кода создавало ощущение, что bucket может
-  прийти из пути. Контракт зафиксирован явно: bucket — из
-  `scan_config.connector.s3.bucket` (payload задачи, 53.1a), путь
-  `s3://bucket/prefix/` даёт **только суффикс префикса**; bucket в path
-  игнорируется намеренно. Docstring `scan_path` приведён в соответствие.
-
-### Added
-
-- 📝 `docs/admin-guide/06-scanner.md` §8.1 — явно сказано, что bucket берётся из
-  `scan_config`, а `path` — только префикс.
-- 📝 `ROADMAP.md` — **BACKLOG-103** в v3.1.0 (v3.0.0-бэклог): убрать fallback на
-  config-секреты в `S3LineConnector` / `S3Connector` (политика TASK-018 — «только ENV»).
 
 ## [3.13.32] — 2026-10-04 — День 53.3: E2E на MinIO + форма S3/MinIO в WebUI (BACKLOG-097, часть 4)
 

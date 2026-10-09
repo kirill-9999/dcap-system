@@ -3,9 +3,9 @@
 > План и бэклог — в `ROADMAP.md`. Архитектура — в `ARCHITECTURE.md`.
 
 **Обновлено:** 05.10.2026
-**Текущая версия:** v3.13.34
+**Текущая версия:** v3.13.35
 **Целевая версия:** v3.0.0 (релиз)
-**Статус:** 🟢 Блоки 1–9 закрыты. BACKLOG-097 (S3-коннектор) — все 4 части выполнены (v3.13.29–v3.13.32) + контракт bucket (v3.13.33). Тестовый стенд автоматизирован (v3.13.34): healthcheck, чистый запуск `run-tests.sh all`, версии образов 3.13.34. Далее — 53.3-fs-regress, затем 53.4a–53.4e (WebUI-редизайн Dovetail-style, до GitHub-пакета).
+**Статус:** 🟢 Блоки 1–9 закрыты. BACKLOG-097 (S3-коннектор) — все 4 части выполнены (v3.13.29–v3.13.32) + контракт bucket (v3.13.35). Тестовый стенд автоматизирован (v3.13.34): healthcheck, чистый запуск `run-tests.sh all`, версии образов 3.13.34. Далее — 53.3-fs-regress, затем 53.4a–53.4e (WebUI-редизайн Dovetail-style, до GitHub-пакета).
 
 ---
 
@@ -56,7 +56,7 @@
 | **53.1b (BACKLOG-097 ч.2)** | **Scanner: фабрика коннекторов + `_text_scanner.py` + boto3** | **v3.13.30** | `day_53_1b_report.md` |
 | **53.2 (BACKLOG-097 ч.3)** | **Scanner: S3LineConnector (streaming, ENV-секреты, OCR/документы)** | **v3.13.31** | `day_53_2_report.md` |
 | **53.3 (BACKLOG-097 ч.4)** | **E2E на MinIO + WebUI-форма S3 + docs** | **v3.13.32** | `day_53_3_report.md` |
-| **53.3-fix-s3-bucket** | **`S3LineConnector`: bucket только из `scan_config`; BACKLOG-103 заведён** | **v3.13.33** | `day_53_3_fix_s3_bucket_report.md` |
+| **53.3-fix-s3-bucket** | **`S3LineConnector`: bucket только из `scan_config`; BACKLOG-103 заведён** | **v3.13.35** | `day_53_3_fix_s3_bucket_report.md` |
 | **53.3-test-stand-fix** | **Тестовый стенд: healthcheck, авто-очистка, версии 3.13.34** | **v3.13.34** | `day_53_3_test_stand_fix_report.md` |
 
 ---
@@ -120,7 +120,7 @@
 - **Рекурсия S3 — всегда**, без опции отключения (защита от пропуска вложенных объектов).
 - **BUG-136** (cp1251 strict-decoding) закрыт в 53.2; подтверждён на живых данных MinIO.
 - Часть 4 закрыта (53.3, v3.13.32): `tests/e2e/test_s3_e2e.py`, форма S3/MinIO в WebUI (REST `POST /api/resources`), `.env.example`, `docs/admin-guide/06-scanner.md` §8.
-- **Контракт bucket** (53.3-fix, v3.13.33): bucket — **только** из `scan_config.connector.s3.bucket`; `path` (`s3://bucket/prefix/`) даёт лишь суффикс префикса, bucket из path игнорируется. Сравнение `netloc != bucket` и ложный WARNING удалены (53.3-fix), fallback на config-секреты вынесен в BACKLOG-103 (v3.1.0).
+- **Контракт bucket** (53.3-fix, v3.13.35): bucket — **только** из `scan_config.connector.s3.bucket`; `path` (`s3://bucket/prefix/`) даёт лишь суффикс префикса, bucket из path игнорируется. Сравнение `netloc != bucket` и ложный WARNING удалены (53.3-fix), fallback на config-секреты вынесен в BACKLOG-103 (v3.1.0).
 
 **WebUI-редизайн (BACKLOG-093, v3.0.0, 53.4a–53.4e):**
 - **Стиль — Dovetail** (`DESIGN.md`): тёмный command-center, Inter + JetBrains Mono, `#6798ff` единственный акцент, 8px радиусы, zero-shadow, grid-wireframe.
@@ -159,7 +159,7 @@
 - `docker-compose.yml` / `docker-compose.s3.yml` — теги образов и in-container `VERSION` на `${VERSION:-3.13.34}`
 - `docs/testing.md` — автоматический запуск, требования к сканеру (ключи `FINDINGS_*`), известные ограничения
 
-### День 53.3-fix — bucket только из scan_config (v3.13.33)
+### День 53.3-fix — bucket только из scan_config (v3.13.35)
 - `scanner/connectors/s3_line_connector.py` — убрано сравнение `parsed.netloc != self._bucket` и ложный WARNING; docstring `scan_path`.
 - `tests/unit/test_s3_line_connector_v31331.py` — +3 теста (bucket из config, нет bucket-WARNING, fallback prefix).
 - `docs/admin-guide/06-scanner.md` §8.1 — контракт bucket/prefix.
@@ -217,5 +217,5 @@
 ---
 
 **Актуально на:** 04.10.2026
-**Версия:** v3.13.33
+**Версия:** v3.13.35
 **Следующий шаг:** 53.3-fs-regress → 53.4a (WebUI-редизайн, этап 1) → 53.4b–53.4e → 55 (GitHub-пакет)
