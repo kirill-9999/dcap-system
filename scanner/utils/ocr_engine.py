@@ -30,15 +30,24 @@ class OCREngine:
         self._cache_lock = threading.Lock()
         self._semaphore = threading.Semaphore(max_workers)
         self.stats = {"processed": 0, "errors": 0, "cache_hits": 0, "time": 0.0}
-        
+
+        # BUG-137 (v3.13.36): каждый OCREngine работает в СВОЕЙ уникальной
+        # подпапке, а не в общем системном temp. Раньше linewise-путь
+        # (extract_document_text → DocumentExtractor) создавал новый OCREngine
+        # на КАЖДЫЙ файл с temp_dir=tempfile.gettempdir(), а _cleanup_temp_files()
+        # удаляла ВСЕ tmp*/ocr_* в системном temp — параллельные экземпляры
+        # стирали temp-файлы (входной PNG .png и вывод .txt) друг друга прямо
+        # во время работы tesseract → тихая потеря OCR-находок при
+        # max_parallel_files > 1. Теперь temp-файлы изолированы в _work_dir.
+        self._work_dir = self.temp_dir / f"ocr_{uuid.uuid4().hex[:12]}"
+        self._work_dir.mkdir(parents=True, exist_ok=True)
+
         # Находим Tesseract
         self._tesseract_cmd = self._find_tesseract()
         self._languages = self._detect_languages()
         
         print(f"[OCR] Tesseract path: {self._tesseract_cmd}")
         print(f"[OCR] Languages: {self._languages}")
-        
-        self._cleanup_temp_files()
     
     def _find_tesseract(self) -> str:
         """Поиск Tesseract в системе Windows"""
@@ -107,17 +116,19 @@ class OCREngine:
         return 'rus+eng'
     
     def _cleanup_temp_files(self):
-        """Очистка старых временных файлов"""
+        """Очистка временных файлов ТОЛЬКО этого экземпляра (BUG-137).
+
+        Раньше удалялись все `ocr_*`/`tmp*` в общем temp_dir (tempfile.gettempdir()).
+        При параллельном сканировании один OCREngine удалял temp-файлы другого
+        (активно работающий tesseract терял входной .png или выходной .txt) —
+        OCR-находки терялись молча. Теперь чистим только свою подпапку.
+        """
+        if not self._work_dir.exists():
+            return
         try:
-            for f in self.temp_dir.glob("ocr_*"):
+            for f in self._work_dir.glob("*"):
                 try:
-                    if f.exists():
-                        f.unlink()
-                except:
-                    pass
-            for f in self.temp_dir.glob("tmp*"):
-                try:
-                    if f.exists():
+                    if f.is_file():
                         f.unlink()
                 except:
                     pass
@@ -164,13 +175,15 @@ class OCREngine:
         start_time = time.time()
         
         try:
-            # Сохраняем изображение во временный файл
-            with tempfile.NamedTemporaryFile(suffix='.png', delete=False) as f:
+            # BUG-137: temp-файлы создаём в СВОЕЙ подпапке _work_dir, а не в
+            # общем tempfile.gettempdir() — параллельные OCREngine не смогут
+            # удалить чужие рабочие файлы во время tesseract.
+            with tempfile.NamedTemporaryFile(dir=str(self._work_dir), suffix='.png', delete=False) as f:
                 f.write(image_data)
                 temp_img = f.name
             
             # Создаём временный файл для вывода
-            with tempfile.NamedTemporaryFile(suffix='.txt', delete=False) as f:
+            with tempfile.NamedTemporaryFile(dir=str(self._work_dir), suffix='.txt', delete=False) as f:
                 temp_txt = f.name
             
             output_base = temp_txt[:-4]  # удаляем .txt

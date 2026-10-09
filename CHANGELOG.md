@@ -12,6 +12,45 @@
 
 ---
 
+## [3.13.36] — 2026-10-09 — BUG-137: гонка temp-файлов `OCREngine` при параллельном сканировании
+
+### Fixed
+
+- 🐛 `scanner/utils/ocr_engine.py` — **корень BUG-137** (блокер v3.0.0): при параллельном
+  сканировании (linewise-путь: `FilesystemConnector.scan_file` → `extract_document_text`
+  → новый `DocumentExtractor` → **новый `OCREngine` на каждый файл**) каждый движок
+  при создании вызывал глобальный `_cleanup_temp_files()`, удалявший **все** временные
+  файлы в системном `tempdir` (`tmp*`/`ocr_*`). Поток, обрабатывающий pdf/docx/xlsx,
+  создавал новый `OCREngine` и стирал входной `.png`/выходной `.txt` tesseract другого
+  потока → `os.path.exists(temp_txt)` → `False` → тихая потеря OCR-находок PNG.
+  Одиночный прогон был в безопасности (один движок, cleanup безвреден) — поэтому баг
+  давал 4 находки solo и 0 в параллели (IEEE-гонка: срабатывает при смешивании типов
+  файлов, требующих документ-экстракции).
+  **Фикс:** каждый `OCREngine` работает в **своей уникальной** подпапке
+  `self._work_dir = self.temp_dir / f"ocr_{uuid.uuid4().hex[:12]}"`; `_cleanup_temp_files()`
+  чистит **только свою** подпапку; `ocr_image` создаёт temp-файлы через
+  `NamedTemporaryFile(dir=str(self._work_dir), ...)`.
+- 🐛 `scanner/classifiers/pii_classifier.py` — **никакой тихой потери**: при неуспехе
+  ответа OCRWorker (`success=False`) и при таймауте ожидания — `logger.warning`
+  «OCR потерян: …» с деталями вместо тихого `return None`/`print`.
+- 🐛 `scanner/connectors/_text_scanner.py` — предупреждение WARNING при пустом
+  результате документ-OCR (`extract_document_text` вернул пусто при `error` /
+  `ocr_enabled=True`) — не молчим, если OCR «съел» файл.
+
+### Added
+
+- 🧪 `tests/unit/test_ocr_worker_race_v31336.py` — воспроизводимый тест BUG-137
+  (linewise-путь, Pillow-PNG с Phone/Email/Passport/Name): одиночный прогон 4 находки;
+  параллельный (8 потоков, PNG + 10 txt) — все PNG дают находки; 3 повтора стабильно
+  равны. **3 passed.**
+
+### Docs
+
+- 📝 `ROADMAP.md` / `STATE.md` — BUG-137 → ✅ fixed v3.13.36; день
+  53.3-fs-regress-ocr-diag отмечен как выполненный (раздел OCR).
+
+---
+
 ## [3.13.35] — 2026-10-04 — День 53.3-fix: `S3LineConnector` — bucket только из `scan_config`
 
 ### Fixed

@@ -195,6 +195,11 @@ def extract_document_text(
     """Извлечь текст из PDF/Office/изображения (через DocumentExtractor).
 
     Принимает БАЙТЫ (а не путь) — чтобы FS и S3 могли переиспользовать.
+
+    BUG-137 (v3.13.36): OCREngine внутри DocumentExtractor работает в своей
+    уникальной подпапке temp, поэтому параллельные вызовы (по файлу на поток)
+    не стирают чужие temp-файлы. Если извлечение вернуло пусто при включённом
+    OCR — пишем WARNING (не молчаливая потеря).
     """
     try:
         from utils.document_extractor import DocumentExtractor
@@ -206,6 +211,11 @@ def extract_document_text(
             ocr_enabled=ocr_enabled,
         )
         result, error = extractor.extract_text(content, ext, filename)
+        if ocr_enabled and not result and error:
+            logger.warning(
+                "[TextScanner] OCR/извлечение вернуло пусто для %s: %s",
+                filename, error,
+            )
         return result
     except Exception as exc:
         logger.warning("[TextScanner] extract_document failed for %s: %s", filename, exc)

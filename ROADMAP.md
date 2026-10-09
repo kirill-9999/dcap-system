@@ -1,7 +1,7 @@
 > **Обновляется архитектором.** План — редко, бэклог — по мере.
 > Текущее состояние — в `STATE.md`. Архитектура — в `ARCHITECTURE.md`.
 
-**Обновлено:** 04.10.2026
+**Обновлено:** 09.10.2026
 **Стратегия:** Windows First → Linux → S3/MinIO → Enterprise Ready → UI-редизайн → Rust + DLP + SIEM
 
 ---
@@ -32,6 +32,7 @@
 | **53.2 (BACKLOG-097 ч.3)** | **Scanner: S3LineConnector (streaming, ENV, OCR)** | TASK-118…123 | ✅ **v3.13.31** |
 | **53.3 (BACKLOG-097 ч.4)** | **E2E на MinIO + WebUI-форма S3 + docs** | TASK-129…133 | ✅ **v3.13.32** |
 | **53.3-fix-s3-bucket** | **`S3LineConnector`: bucket только из `scan_config` (BACKLOG-103 заведён)** | TASK-134…136 | ✅ **v3.13.35** |
+| **53.3-fs-regress-ocr-diag** | **BUG-137: гонка temp-файлов `OCREngine` при параллели — закрыт (v3.13.36)** | BUG-137 | ✅ **v3.13.36** |
 | **53.3-fs-regress** | **Ручной регресс FS после 53.1b/53.2 (cp1251, PII, OCR)** | — | 📋 **следующий** |
 | **53.4a** | **WebUI-редизайн (этап 1): токены + base + компоненты** | BACKLOG-093 | 📋 |
 | **53.4b** | **WebUI-редизайн (этап 2): login, dashboard, resources, findings** | BACKLOG-093 | 📋 |
@@ -112,6 +113,8 @@
 | TASK-110…117 (BACKLOG-097 ч.2) | **Scanner: фабрика + `_text_scanner.py` + boto3** | **v3.13.30** |
 | TASK-118…123 (BACKLOG-097 ч.3, BUG-136) | **S3LineConnector + BUG-136 fix** | **v3.13.31** |
 | **TASK-129…133 (BACKLOG-097 ч.4)** | **E2E + WebUI-форма S3 + docs** | **v3.13.32** |
+| **TASK-134…136 (53.3-fix-s3-bucket)** | **Bucket только из `scan_config`, BACKLOG-103** | **v3.13.35** |
+| **BUG-137 (53.3-fs-regress-ocr-diag)** | **Гонка temp-файлов `OCREngine` при параллели** | **v3.13.36** |
 
 ---
 
@@ -324,6 +327,6 @@
 
 ---
 
-**Актуально на:** 04.10.2026
-**Версия:** v3.13.35
+**Актуально на:** 09.10.2026
+**Версия:** v3.13.36
 **Следующая цель:** 53.3-fs-regress → 53.4a–53.4e (WebUI-редизайн) → 55 (GitHub-пакет) → 57 (релиз v3.0.0)

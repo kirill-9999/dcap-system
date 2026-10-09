@@ -241,10 +241,20 @@ class PiiClassifier(IClassifier):
                     if response.get("success"):
                         return response.get("text")
                     else:
+                        # BUG-137 (v3.13.36): не молчим — OCRWorker вернул неуспех
+                        logger.warning(
+                            "OCR потерян: request %s вернул success=False (%s)",
+                            request_id, response.get("error", "unknown"),
+                        )
                         return None
             time.sleep(0.01)
         
-        print(f"[PII] Timeout ожидания ответа от OCRWorker (request {request_id})")
+        # BUG-137 (v3.13.36): таймаут ожидания OCRWorker — WARNING вместо print
+        logger.warning(
+            "OCR потерян: таймаут ожидания ответа от OCRWorker "
+            "(request %s, timeout=%ss, pending=%d)",
+            request_id, timeout, len(self._ocr_pending_requests),
+        )
         
         with self._ocr_pending_lock:
             if request_id in self._ocr_pending_requests:

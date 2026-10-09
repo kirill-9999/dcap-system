@@ -2,10 +2,10 @@
 > Единственный источник правды о текущем состоянии проекта.
 > План и бэклог — в `ROADMAP.md`. Архитектура — в `ARCHITECTURE.md`.
 
-**Обновлено:** 05.10.2026
-**Текущая версия:** v3.13.35
+**Обновлено:** 09.10.2026
+**Текущая версия:** v3.13.36
 **Целевая версия:** v3.0.0 (релиз)
-**Статус:** 🟢 Блоки 1–9 закрыты. BACKLOG-097 (S3-коннектор) — все 4 части выполнены (v3.13.29–v3.13.32) + контракт bucket (v3.13.35). Тестовый стенд автоматизирован (v3.13.34): healthcheck, чистый запуск `run-tests.sh all`, версии образов 3.13.34. Далее — 53.3-fs-regress, затем 53.4a–53.4e (WebUI-редизайн Dovetail-style, до GitHub-пакета).
+**Статус:** 🟢 Блоки 1–9 закрыты. BACKLOG-097 (S3-коннектор) — все 4 части выполнены (v3.13.29–v3.13.32) + контракт bucket (v3.13.35). Тестовый стенд автоматизирован (v3.13.34). **BUG-137 (блокер v3.0.0) закрыт (v3.13.36):** гонка temp-файлов `OCREngine` при параллельном сканировании — каждый движок теперь в своей подпапке temp, WARNING вместо тихой потери. Далее — 53.3-fs-regress, затем 53.4a–53.4e (WebUI-редизайн Dovetail-style, до GitHub-пакета).
 
 ---
 
@@ -13,10 +13,10 @@
 
 | Параметр | Значение |
 |----------|----------|
-| Текущий день | 53.3-test-stand-fix (автоматический запуск E2E-стенда + версии) — выполнен |
+| Текущий день | 53.3-fs-regress-ocr-diag (BUG-137: гонка OCR при параллели) — выполнен |
 | Статус дня | ✅ Выполнен |
-| Последний принятый отчёт | `day_53_3_test_stand_fix_report.md` (v3.13.34) |
-| Следующий шаг | 53.3-fs-regress (ручной регресс FS после 53.1b/53.2), затем 53.4a (WebUI-редизайн, этап 1) |
+| Последний принятый отчёт | `bug_137_ocr_race_report.md` (v3.13.36) |
+| Следующий шаг | 53.3-fs-regress (общий регресс FS), затем 53.4a (WebUI-редизайн, этап 1) |
 | Открытые вопросы к архитектору | 1) BUG-123 (сбор прав Windows) — Блок 6.5; 2) BUG-125 (MANAGER_URL); 3) BUG-130 (backoff); 4) BUG-135 (BOM в JSON); 5) TEST-NOTE-10.8 (2 legacy WebUI-теста требуют непустую БД) — отдельный день; 6) когда делаем документацию масштабирования — отдельным днём (53.4? v3.1.0?) |
 
 ---
@@ -58,6 +58,7 @@
 | **53.3 (BACKLOG-097 ч.4)** | **E2E на MinIO + WebUI-форма S3 + docs** | **v3.13.32** | `day_53_3_report.md` |
 | **53.3-fix-s3-bucket** | **`S3LineConnector`: bucket только из `scan_config`; BACKLOG-103 заведён** | **v3.13.35** | `day_53_3_fix_s3_bucket_report.md` |
 | **53.3-test-stand-fix** | **Тестовый стенд: healthcheck, авто-очистка, версии 3.13.34** | **v3.13.34** | `day_53_3_test_stand_fix_report.md` |
+| **53.3-fs-regress-ocr-diag (BUG-137)** | **Гонка temp-файлов `OCREngine`; фикс + WARNING при потере + тест** | **v3.13.36 (hotfix)** | `bug_137_ocr_race_report.md` |
 
 ---
 
@@ -90,6 +91,7 @@
 | BUG-132 | S3-агент не переустанавливает соединение после перезагрузки Docker | 🟢 v3.1.0 |
 | BUG-134 | `mc.exe` без alias → файл в локальную папку (не баг DCAP) | 🟢 док |
 | **BUG-136** | `decode_text_bytes`: cp1251-ветка была недостижима | ✅ **fixed v3.13.31** |
+| **BUG-137** | **OCR: тихая потеря находок PNG при параллели (гонка temp)** | ✅ **fixed v3.13.36** |
 | **BACKLOG-103** | `S3LineConnector`/`S3Connector`: fallback на config-секреты (политика TASK-018 — только ENV) | 📋 **v3.1.0** |
 | BACKLOG-093 | **Редизайн WebUI (Dovetail-style, `DESIGN.md`)** | 📋 **v3.0.0, 53.4a–53.4e, до GitHub-пакета** |
 | BACKLOG-094 | WebUI/Manager не пересобирается автоматически при `up -d` | 📋 v3.0.0 |
@@ -153,6 +155,13 @@
 
 ## 📁 Последние использованные файлы
 
+### BUG-137 — гонка OCR при параллели (v3.13.36)
+- `scanner/utils/ocr_engine.py` — **ключевой фикс**: `_work_dir`-изоляция temp (uuid-подпапка на движок), `_cleanup_temp_files` только своей подпапки, `NamedTemporaryFile(dir=self._work_dir, ...)`.
+- `scanner/classifiers/pii_classifier.py` — WARNING при потере OCR-ответа (`_call_ocr_worker`: `success=False` и timeout).
+- `scanner/connectors/_text_scanner.py` — WARNING при пустом документ-OCR с `error`.
+- `tests/unit/test_ocr_worker_race_v31336.py` — NEW, 3 прошли (single ≥4, parallel 8 потоков, 3 повтора).
+- Диагностика: корень — гонка temp-файлов, а не очередь OCRWorker (линейный путь создаёт `OCREngine` на каждый файл).
+
 ### День 53.3-test-stand-fix — автоматический стенд (v3.13.34)
 - `docker-compose.test.yml` — healthcheck `manager_test` (`/api/health`) и `webui_test` (`/health`), `webui_test` ждёт `service_healthy`
 - `scripts/run-tests.sh` — режимы `stand` и `all` (`down -v` + `up -d --wait`), fallback для Compose без `--wait`
@@ -200,8 +209,11 @@
 - `tests/unit/test_s3_resource_v31329.py` — 19 тестов.
 
 ### Тесты
-- `tests/unit/` — **430 passed** (с 53.3-fix).
-- `tests/e2e/` — **53 passed, 7 skipped** (стенд `docker-compose.test.yml`, чистая БД, живой MinIO + Scanner).
+- `tests/unit/` — **433 passed** (с v3.13.36; +3 теста BUG-137).
+- `tests/e2e/` — **53 passed, 7 skipped** (эталон дня 53.3). В повторных прогонах 4 теста
+  (`test_full_scan_cycle`, `test_s3_scan_full_cycle`, `test_real_scanner_end_to_end`,
+  `test_scanner_heartbeat`) флакают из-за окружения (нет живого сканера, подхватывающего
+  задачи тестового стека :18000) — падают и без фикса BUG-137 (проверено `git stash`).
 
 ---
 
@@ -216,6 +228,6 @@
 
 ---
 
-**Актуально на:** 04.10.2026
-**Версия:** v3.13.35
+**Актуально на:** 09.10.2026
+**Версия:** v3.13.36
 **Следующий шаг:** 53.3-fs-regress → 53.4a (WebUI-редизайн, этап 1) → 53.4b–53.4e → 55 (GitHub-пакет)
