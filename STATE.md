@@ -2,10 +2,10 @@
 > Единственный источник правды о текущем состоянии проекта.
 > План и бэклог — в `ROADMAP.md`. Архитектура — в `ARCHITECTURE.md`.
 
-**Обновлено:** 09.10.2026
-**Текущая версия:** v3.13.37
+**Обновлено:** 10.10.2026
+**Текущая версия:** v3.13.38
 **Целевая версия:** v3.0.0 (релиз)
-**Статус:** 🟢 Блоки 1–9 закрыты. BACKLOG-097 (S3-коннектор) — все 4 части выполнены (v3.13.29–v3.13.32) + контракт bucket (v3.13.35). Тестовый стенд автоматизирован (v3.13.34). BUG-137 (блокер v3.0.0) закрыт (v3.13.36). **WebUI-редизайн, этап 1 (53.4a) закрыт (v3.13.37):** тёмная тема Dovetail (токены + base + компоненты + grid-wireframe), локальные Inter + JetBrains Mono, `theme.js` удалён. Далее — 53.4b–53.4e (редизайн страниц), затем 53.3-fs-regress, GitHub-пакет.
+**Статус:** 🟢 Блоки 1–9 закрыты. BACKLOG-097 (S3-коннектор) закрыт полностью (v3.13.29–v3.13.32 + v3.13.35). Тестовый стенд автоматизирован (v3.13.34). BUG-137 закрыт (v3.13.36). **WebUI-редизайн, этап 1 (53.4a) закрыт (v3.13.37):** тёмная тема Dovetail (токены + base + компоненты + grid-wireframe), локальные Inter + JetBrains Mono, `theme.js` удалён. **Фиксы 53.4a-доп (v3.13.38) закрыты:** BUG-139 (webfonts FA — иконки монохромные), BUG-138 (finding_detail — пустая Console), BUG-140 (reveal: toggle + кэш, без дублей в аудите, `.reveal-block` вместо `bg-light`). Далее — 53.4b–53.4e (редизайн страниц), затем GitHub-пакет.
 
 ---
 
@@ -13,11 +13,11 @@
 
 | Параметр | Значение |
 |----------|----------|
-| Текущий день | 53.4a (WebUI-редизайн, этап 1: токены + base + компоненты) — выполнен |
+| Текущий день | 53.4a-доп (WebUI-фиксы BUG-138/139/140: webfonts + finding_detail) — выполнен |
 | Статус дня | ✅ Выполнен |
-| Последний принятый отчёт | `day_53_4a_report.md` (v3.13.37) |
+| Последний принятый отчёт | `day_53_4a_add_webui_fixes_report.md` (v3.13.38) |
 | Следующий шаг | 53.4b (WebUI-редизайн, этап 2: login, dashboard, resources, findings) |
-| Открытые вопросы к архитектору | 1) BUG-123 (сбор прав Windows) — Блок 6.5; 2) BUG-125 (MANAGER_URL); 3) BUG-130 (backoff); 4) BUG-135 (BOM в JSON); 5) TEST-NOTE-10.8 (2 legacy WebUI-теста требуют непустую БД) — отдельный день; 6) когда делаем документацию масштабирования — отдельным днём (53.4? v3.1.0?) |
+| Открытые вопросы к архитектору | 1) `unicode-range` в `inter.css` / `jetbrains-mono.css` — кириллица (v3.1.0); 2) `DESIGN.md` — временно в корне, перенести в `docs/` в 53.4e; 3) Chart.js-палитра — 53.4d; 4) BUG-123 (сбор прав Windows) — Блок 6.5; 5) BUG-125/130/135 — v3.1.0; 6) TEST-NOTE-10.8 (2 legacy WebUI-теста) — отдельный день |
 
 ---
 
@@ -56,10 +56,13 @@
 | **53.1b (BACKLOG-097 ч.2)** | **Scanner: фабрика коннекторов + `_text_scanner.py` + boto3** | **v3.13.30** | `day_53_1b_report.md` |
 | **53.2 (BACKLOG-097 ч.3)** | **Scanner: S3LineConnector (streaming, ENV-секреты, OCR/документы)** | **v3.13.31** | `day_53_2_report.md` |
 | **53.3 (BACKLOG-097 ч.4)** | **E2E на MinIO + WebUI-форма S3 + docs** | **v3.13.32** | `day_53_3_report.md` |
-| **53.3-fix-s3-bucket** | **`S3LineConnector`: bucket только из `scan_config`; BACKLOG-103 заведён** | **v3.13.35** | `day_53_3_fix_s3_bucket_report.md` |
 | **53.3-test-stand-fix** | **Тестовый стенд: healthcheck, авто-очистка, версии 3.13.34** | **v3.13.34** | `day_53_3_test_stand_fix_report.md` |
+| **53.3-fix-s3-bucket** | **`S3LineConnector`: bucket только из `scan_config`; BACKLOG-103 заведён** | **v3.13.35** | `day_53_3_fix_s3_bucket_report.md` |
 | **53.3-fs-regress-ocr-diag (BUG-137)** | **Гонка temp-файлов `OCREngine`; фикс + WARNING при потере + тест** | **v3.13.36 (hotfix)** | `bug_137_ocr_race_report.md` |
+| **53.3-fs-regress** | **Ручной регресс FS после 53.1b/53.2 (cp1251, PII, OCR)** | **(эталон v3.13.34)** | ✅ 07.10.2026 |
+| **B (ручной FS-регресс после BUG-137)** | **12/12 пунктов чек-листа** | **v3.13.36** | ✅ 09.10.2026 |
 | **53.4a (BACKLOG-093, этап 1/5)** | **WebUI-редизайн Dovetail: токены + base + компоненты + grid-wireframe; шрифты; `theme.js` удалён** | **v3.13.37** | `day_53_4a_report.md` |
+| **53.4a-доп (BACKLOG-093)** | **WebUI-фиксы: BUG-139 (webfonts FA 6.4.0), BUG-138 (Console/finding_detail), BUG-140 (reveal toggle + кэш, `.reveal-block`)** | **v3.13.38** | `day_53_4a_add_webui_fixes_report.md` |
 
 ---
 
@@ -69,10 +72,10 @@
 
 | ID | Проблема | Статус | Приоритет |
 |----|----------|--------|-----------|
-| **BUG-117** | Manager не маскирует контексты сам (defense-in-depth) | 📋 v3.0.0 hotfix | 🔴 |
+| **BUG-117** | Manager не маскирует контексты сам (defense-in-depth) | 📋 v3.0.0 hotfix (день 56) | 🔴 |
 | **BUG-118** | Auth middleware держит 2 соединения → потолок 15 | 📋 v3.1.0 | 🔴 |
 | **BUG-135** | S3-агент: `json.loads` падает на BOM (UTF-8 BOM) | 📋 v3.1.0 | 🟡 |
-| **BUG-123** | Windows-агент: сбор прав = 0 (2 бага) | 📋 Блок 6.5 | 🟡 |
+| **BUG-123** | Windows-агент: сбор прав = 0 (2 бага) | 📋 Блок 6.5 (52.2) | 🟡 |
 | **BUG-130** | Linux-агент: retry без backoff при ошибке отправки прав | 📋 v3.1.0 | 🟡 |
 | **BACKLOG-044** | `/metrics` публичный | 📋 v3.0.0 production | 🟡 |
 
@@ -93,8 +96,11 @@
 | BUG-134 | `mc.exe` без alias → файл в локальную папку (не баг DCAP) | 🟢 док |
 | **BUG-136** | `decode_text_bytes`: cp1251-ветка была недостижима | ✅ **fixed v3.13.31** |
 | **BUG-137** | **OCR: тихая потеря находок PNG при параллели (гонка temp)** | ✅ **fixed v3.13.36** |
+| **BUG-138** | **finding_detail.js: onerror с HTML в атрибуте → SyntaxError в Console** | ✅ **fixed v3.13.38** |
+| **BUG-139** | **webfonts/ пуст → иконки sidebar как цветные emoji** | ✅ **fixed v3.13.38** |
+| **BUG-140** | **reveal: лишний для image_region, перезапись #fragment, спам аудита, дубль line/match, bg-light** | ✅ **fixed v3.13.38** |
 | **BACKLOG-103** | `S3LineConnector`/`S3Connector`: fallback на config-секреты (политика TASK-018 — только ENV) | 📋 **v3.1.0** |
-| BACKLOG-093 | **Редизайн WebUI (Dovetail-style, `DESIGN.md`)** | 📋 **v3.0.0, 53.4a–53.4e, до GitHub-пакета** |
+| BACKLOG-093 | **Редизайн WebUI (Dovetail-style, `DESIGN.md`)** | 🔄 **53.4a ✅ (v3.13.37), 53.4a-доп ✅ (v3.13.38), 53.4b–53.4e 📋** |
 | BACKLOG-094 | WebUI/Manager не пересобирается автоматически при `up -d` | 📋 v3.0.0 |
 | BACKLOG-046 | Полный E2E-прогон на CI | 📋 v3.0.0 |
 | TEST-NOTE-5.5 | Осиротевшие сканеры после обновления | 📋 v3.0.0 |
@@ -103,37 +109,42 @@
 | TEST-NOTE-10.1 | Alembic из PowerShell уходит в SQLite | 📋 док |
 | TEST-NOTE-10.2 | Артефакты E2E-сканеров накапливаются (101+) | 📋 бэклог |
 | TEST-NOTE-10.3 | Дубли секций в `scan_config` старых FS-ресурсов | 📋 бэклог |
-| TEST-NOTE-10.4 | BUG-136 меняет поведение FS-пути (cp1251 теперь декодируется) | ⏳ 53.3-fs-regress |
-| TEST-NOTE-10.5 | Smoke FS в 53.1b был слабый (1 файл) | ⏳ 53.3-fs-regress |
-| TEST-NOTE-10.6 | `docker-compose.test.yml`: `manager_test` стартует раньше готовности PostgreSQL → нужен `restart` | ✅ **fixed v3.13.34** (healthcheck + `--wait`) |
-| TEST-NOTE-10.7 | `postgres_test_data` — персистентный том: копит pending-задачи, E2E виснет (нужен `down -v`) | ✅ **fixed v3.13.34** (`run-tests.sh all`: `down -v` + `up --wait`) |
-| TEST-NOTE-10.8 | 2 legacy-теста WebUI ждут непустую таблицу findings (`X-Total-Count != "0"`) | 📋 тесты (вне ТЗ 53.3-test-stand-fix) |
+| TEST-NOTE-10.4 | BUG-136 меняет поведение FS-пути (cp1251 теперь декодируется) | ✅ закрыто в B (12/12) |
+| TEST-NOTE-10.5 | Smoke FS в 53.1b был слабый (1 файл) | ✅ закрыто в 53.3-fs-regress |
+| TEST-NOTE-10.6 | `docker-compose.test.yml`: `manager_test` стартует раньше готовности PostgreSQL | ✅ **fixed v3.13.34** (healthcheck + `--wait`) |
+| TEST-NOTE-10.7 | `postgres_test_data` — персистентный том копит pending-задачи | ✅ **fixed v3.13.34** (`run-tests.sh all`) |
+| TEST-NOTE-10.8 | 2 legacy-теста WebUI ждут непустую таблицу findings | 📋 отдельный день |
+| TEST-NOTE-10.15 | ~40 % FP Presidio (url, organization, us_driver_license, nrp, person="Дата") — качество детекции | 📋 отдельный день |
+| **ТЗ BACKLOG-093** | **`unicode-range` в `inter.css` / `jetbrains-mono.css` — кириллица** | 📋 v3.1.0 |
+| **ТЗ BACKLOG-093** | **Chart.js-палитра под Dovetail** | 📋 53.4d |
+| **ТЗ BACKLOG-093** | **`DESIGN.md` — временно в корне; перенести в `docs/`** | 📋 53.4e |
 
 ---
 
 ## 🎯 Ключевые решения
 
-**S3-коннектор сканера (BACKLOG-097, v3.13.29–31):**
-- Части 1–4 закрыты: Manager (`source_type`, S3-ресурсы, миграция 006), Scanner (фабрика + `_text_scanner.py` + boto3), `S3LineConnector` (streaming, ENV-секреты, OCR/документы), E2E + WebUI-форма + docs.
-- `ScanTask.source_type` (`filesystem | s3 | minio`) — явный, а не угадывание по префиксу пути.
+**S3-коннектор сканера (BACKLOG-097, v3.13.29–35):**
+- Части 1–4 закрыты + контракт bucket (53.3-fix, v3.13.35).
+- `ScanTask.source_type` (`filesystem | s3 | minio`) — явный.
 - `minio` трактуется как `s3`; различие только в `endpoint`.
 - Уникальность ресурсов — по `(path, type)` (BUG-059).
 - **Секреты S3 в `scan_config` не пишутся** — только ENV (`S3_ACCESS_KEY` / `S3_SECRET_KEY`), политика TASK-018.
-- **`endpoint` — вариант B** (53.3, v3.13.32): query при создании ресурса → иначе `S3_DEFAULT_ENDPOINT` → иначе 400. Хардкод `host.docker.internal:9000` удалён.
-- **Рекурсия S3 — всегда**, без опции отключения (защита от пропуска вложенных объектов).
-- **BUG-136** (cp1251 strict-decoding) закрыт в 53.2; подтверждён на живых данных MinIO.
-- Часть 4 закрыта (53.3, v3.13.32): `tests/e2e/test_s3_e2e.py`, форма S3/MinIO в WebUI (REST `POST /api/resources`), `.env.example`, `docs/admin-guide/06-scanner.md` §8.
-- **Контракт bucket** (53.3-fix, v3.13.35): bucket — **только** из `scan_config.connector.s3.bucket`; `path` (`s3://bucket/prefix/`) даёт лишь суффикс префикса, bucket из path игнорируется. Сравнение `netloc != bucket` и ложный WARNING удалены (53.3-fix), fallback на config-секреты вынесен в BACKLOG-103 (v3.1.0).
+- **`endpoint` — вариант B** (53.3, v3.13.32): query → `S3_DEFAULT_ENDPOINT` → 400.
+- **Рекурсия S3 — всегда**, без опции отключения.
+- **BUG-136** (cp1251 strict-decoding) закрыт в 53.2.
+- **Контракт bucket** (53.3-fix, v3.13.35): bucket — **только** из `scan_config.connector.s3.bucket`; `path` (`s3://bucket/prefix/`) даёт только суффикс префикса.
+- Fallback на config-секреты → BACKLOG-103 (v3.1.0).
 
 **WebUI-редизайн (BACKLOG-093, v3.0.0, 53.4a–53.4e):**
-- **Стиль — Dovetail** (`DESIGN.md`): тёмный command-center, Inter + JetBrains Mono, `#6798ff` единственный акцент, 8px радиусы, zero-shadow, grid-wireframe.
-- **Dark-only** (`theme.js` удаляется, light — в бэклог).
-- **Font Awesome остаётся**, цвета/размеры под палитру; переход на stroke-SVG — в бэклог.
-- **Chart.js — монохром + `#6798ff`** (без семантических цветов).
+- **Стиль — Dovetail** (`DESIGN.md`): тёмный command-center, Inter + JetBrains Mono, `#6798ff` — единственный акцент, 8px радиусы, zero-shadow, grid-wireframe.
+- **Dark-only** (`theme.js` удалён, light — BACKLOG-102).
+- **Font Awesome остаётся** (переход на stroke-SVG — BACKLOG-101).
+- **Chart.js — монохром + `#6798ff`** (53.4d).
 - **Grid-wireframe везде** (`body::before` в `base.html`).
-- **Шрифты — локально** в `webui/static/vendor/fonts/` (CDN запрещён; кодер скачивает через `curl`).
-- **CSS — новые файлы** (`tokens.css`, `components.css`, `grid-wireframe.css`); `main.css` остаётся для страничной специфики.
-- **5 под-дней:** 53.4a (токены + base + компоненты), 53.4b (login/dashboard/resources/findings), 53.4c (finding_detail/catalog/audit/scanners/access), 53.4d (roles/users/settings/footer/графики), 53.4e (полировка + скриншоты в `docs/ui-screenshots/` + `docs/DESIGN.md`).
+- **Шрифты — локально** в `webui/static/vendor/fonts/` (CDN запрещён).
+- **CSS — новые файлы** (`tokens.css`, `base.css`, `components.css`, `grid-wireframe.css`); `main.css` — только `.app/.main-content/.page-content/.text-*` + медиа-запросы.
+- **`components/*.css`** — не переписываем, подхватывают legacy-алиасы из `tokens.css`.
+- **5 под-дней:** 53.4a (✅), 53.4a-доп (✅, 62-минутный фикс-спринт), 53.4b (login/dashboard/resources/findings), 53.4c (finding_detail/catalog/audit/scanners/access), 53.4d (roles/users/settings/footer/графики), 53.4e (полировка + скриншоты в `docs/ui-screenshots/` + `docs/DESIGN.md`).
 - **Условие GitHub-пакета:** 53.4a–53.4e закрыты, старая тема не осталась нигде.
 
 **Агенты (Блок 6, v3.13.28):**
@@ -157,59 +168,65 @@
 ## 📁 Последние использованные файлы
 
 ### День 53.4a — WebUI-редизайн, этап 1 (v3.13.37)
-- `webui/static/vendor/fonts/` — NEW: `inter.woff2`, `inter.css`, `jetbrains-mono.woff2`, `jetbrains-mono.css` (локально, CDN запрещён).
-- `webui/static/css/tokens.css` — NEW, дизайн-токены Dovetail (dark-only) + legacy-алиасы.
-- `webui/static/css/base.css` — NEW, глобальные стили/шрифты/скроллбар.
-- `webui/static/css/components.css` — NEW, override Bootstrap.
-- `webui/static/css/grid-wireframe.css` — NEW, blueprint-сетка `body::before`.
+- `webui/static/vendor/fonts/` — NEW: `inter.woff2` (352 KB), `inter.css`, `jetbrains-mono.woff2` (40 KB), `jetbrains-mono.css`.
+- `webui/static/css/tokens.css` — NEW, дизайн-токены Dovetail (dark-only) + legacy-алиасы (171 строка).
+- `webui/static/css/base.css` — NEW, глобальные стили/шрифты/скроллбар (73 строки).
+- `webui/static/css/components.css` — NEW, override Bootstrap (288 строк).
+- `webui/static/css/grid-wireframe.css` — NEW, blueprint-сетка `body::before` (34 строки).
 - `webui/templates/base.html`, `webui/templates/login.html` — `data-theme="dark"`, новые `<link>`, без `theme.js`.
-- `webui/static/css/main.css` — обновлённые `@import`, без дублей глобальных правил.
+- `webui/static/css/main.css` — обновлённые `@import`, без дублей глобальных правил и `.btn*`.
 - Удалены: `webui/static/css/variables.css`, `webui/static/css/theme-dark.css`, `webui/static/js/theme.js`.
+- `DESIGN.md` — коммит `34e3383` (референс Dovetail, **в корне**; перенести в `docs/` в 53.4e).
 
-### BUG-137 — гонка OCR при параллели (v3.13.36)
-- `scanner/utils/ocr_engine.py` — **ключевой фикс**: `_work_dir`-изоляция temp (uuid-подпапка на движок), `_cleanup_temp_files` только своей подпапки, `NamedTemporaryFile(dir=self._work_dir, ...)`.
-- `scanner/classifiers/pii_classifier.py` — WARNING при потере OCR-ответа (`_call_ocr_worker`: `success=False` и timeout).
+### День 53.4a-доп — WebUI-фиксы BUG-138/139/140 (v3.13.38)
+- `webui/static/vendor/webfonts/` — NEW: FA 6.4.0 (`fa-solid-900.woff2` 150 KB, `fa-regular-400.woff2` 24 KB, `fa-brands-400.woff2` 108 KB + ttf) — `fontawesome.min.css` уже ссылался на `../webfonts/`.
+- `webui/static/js/finding_detail.js` — BUG-138: `onerror="..."` убран, обработка через `addEventListener('error')`; BUG-140: кнопка reveal скрыта для `image_region`, toggle + кэш (`cachedReveal`), подсветка match внутри line (`<mark>`), без дублей.
+- `webui/static/css/findings.css` — `.reveal-block` + `mark` (вместо `bg-light`, тёмная тема).
+- `.env`/`.env.example`/compose — `VERSION=3.13.38`.
+
+### B (ручной FS-регресс после BUG-137, v3.13.36)
+- Тест-корпус: `E:\projects\dcap-system\temp\fs-regress\` — 10 файлов.
+- Чек-лист 12/12: PII/credentials/cp1251 (BUG-136)/PDF/DOCX/XLSX/OCR-параллельно (BUG-137)/catalog/дедуп/FP/source_type.
+- TEST-NOTE-10.14 (files_scanned=10 вместо 9 — 2 PNG в корпусе), TEST-NOTE-10.15 (~40% ложных — Presidio en), TEST-NOTE-10.16 (`person` не маскируется — связано с BUG-117).
+
+### День 53.3-fs-regress-ocr-diag (BUG-137, v3.13.36)
+- `scanner/utils/ocr_engine.py` — `_work_dir`-изоляция temp (uuid-подпапка на движок).
+- `scanner/classifiers/pii_classifier.py` — WARNING при потере OCR-ответа.
 - `scanner/connectors/_text_scanner.py` — WARNING при пустом документ-OCR с `error`.
-- `tests/unit/test_ocr_worker_race_v31336.py` — NEW, 3 прошли (single ≥4, parallel 8 потоков, 3 повтора).
-- Диагностика: корень — гонка temp-файлов, а не очередь OCRWorker (линейный путь создаёт `OCREngine` на каждый файл).
+- `tests/unit/test_ocr_worker_race_v31336.py` — NEW, 3 прошли.
 
-### День 53.3-test-stand-fix — автоматический стенд (v3.13.34)
-- `docker-compose.test.yml` — healthcheck `manager_test` (`/api/health`) и `webui_test` (`/health`), `webui_test` ждёт `service_healthy`
-- `scripts/run-tests.sh` — режимы `stand` и `all` (`down -v` + `up -d --wait`), fallback для Compose без `--wait`
-- `docker-compose.yml` / `docker-compose.s3.yml` — теги образов и in-container `VERSION` на `${VERSION:-3.13.34}`
-- `docs/testing.md` — автоматический запуск, требования к сканеру (ключи `FINDINGS_*`), известные ограничения
+### День 53.3-test-stand-fix (v3.13.34)
+- `docker-compose.test.yml` — healthcheck `manager_test`/`webui_test` + `depends_on: service_healthy`.
+- `scripts/run-tests.sh` — режимы `stand`/`all` (`down -v` + `up -d --wait`).
+- `docker-compose.yml` / `docker-compose.s3.yml` — теги образов и in-container `VERSION` на `${VERSION:-3.13.34}` (сейчас → 3.13.37).
+- `docs/testing.md` — автоматический запуск, требования.
 
 ### День 53.3-fix — bucket только из scan_config (v3.13.35)
-- `scanner/connectors/s3_line_connector.py` — убрано сравнение `parsed.netloc != self._bucket` и ложный WARNING; docstring `scan_path`.
-- `tests/unit/test_s3_line_connector_v31331.py` — +3 теста (bucket из config, нет bucket-WARNING, fallback prefix).
+- `scanner/connectors/s3_line_connector.py` — убрано сравнение `parsed.netloc != self._bucket` и ложный WARNING.
+- `tests/unit/test_s3_line_connector_v31331.py` — +3 теста.
 - `docs/admin-guide/06-scanner.md` §8.1 — контракт bucket/prefix.
-- `ROADMAP.md` — BACKLOG-103 (v3.1.0).
 
 ### День 53.3 — E2E на MinIO + форма S3/MinIO в WebUI (v3.13.32)
-- `tests/e2e/test_s3_e2e.py` — NEW, полный живой цикл S3 (маркеры `e2e`/`requires_manager`/`requires_minio`).
-- `manager/src/api/resources.py` — вариант B: query → `S3_DEFAULT_ENDPOINT` → 400.
-- `webui/templates/resources.html` — типы `filesystem`/`s3`/`minio`, блок `#s3-fields`, REST `POST /api/resources`.
-- `tests/unit/test_s3_resource_v31329.py` — 22 теста (endpoint/env/400).
-- `pyproject.toml` — маркер `requires_minio`.
+- `tests/e2e/test_s3_e2e.py` — NEW, полный живой цикл S3.
+- `manager/src/api/resources.py` — вариант B endpoint.
+- `webui/templates/resources.html` — типы `filesystem`/`s3`/`minio`, блок `#s3-fields`.
+- `tests/unit/test_s3_resource_v31329.py` — 22 теста.
 - `.env.example` — секция `SCANNER: S3/MinIO`.
-- `docs/admin-guide/06-scanner.md` — §8 «S3/MinIO-сканирование», ENV-таблица, troubleshooting.
+- `docs/admin-guide/06-scanner.md` — §8 «S3/MinIO-сканирование».
 
 ### День 53.2 — S3LineConnector (v3.13.31)
 - `scanner/connectors/s3_line_connector.py` — NEW, построчный S3/MinIO-коннектор.
-- `scanner/connectors/_text_scanner.py` — BUG-136 fix (`decode_text_bytes`).
-- `scanner/connectors/factory.py` — регистрация `s3` / `minio`.
+- `scanner/connectors/_text_scanner.py` — BUG-136 fix.
+- `scanner/connectors/factory.py` — регистрация `s3`/`minio`.
 - `scanner/src/managed_scanner.py` — `_current_source_type`, `_current_scan_config`, `_parent_of_path`.
-- `scanner/connectors/s3_connector.py` — ENV-секреты.
 - `tests/unit/test_s3_line_connector_v31331.py` — 16 тестов.
 - `tests/unit/test_decode_text_cp1251_v31331.py` — 5 тестов.
-- `tests/unit/test_factory_v31330.py` — обновлён.
 
 ### День 53.1b — Scanner ядро (v3.13.30)
 - `scanner/connectors/_text_scanner.py` — NEW, 5 функций.
 - `scanner/connectors/factory.py` — NEW, реестр коннекторов.
 - `scanner/connectors/filesystem.py` — рефакторинг.
-- `scanner/src/config_loader.py` — `S3ConnectorConfig` + `ConnectorConfig.s3`.
-- `scanner/src/managed_scanner.py` — `source_type` из payload.
+- `scanner/src/config_loader.py` — `S3ConnectorConfig`.
 - `scanner/requirements.txt` — `boto3`.
 
 ### День 53.1a — Manager (v3.13.29)
@@ -220,25 +237,27 @@
 - `tests/unit/test_s3_resource_v31329.py` — 19 тестов.
 
 ### Тесты
-- `tests/unit/` — **433 passed** (с v3.13.36; +3 теста BUG-137).
-- `tests/e2e/` — **53 passed, 7 skipped** (эталон дня 53.3). В повторных прогонах 4 теста
+- `tests/unit/` — **433 passed** (с v3.13.36).
+- `tests/e2e/` — **53 passed, 7 skipped** (эталон 53.3). В повторных прогонах 4 теста
   (`test_full_scan_cycle`, `test_s3_scan_full_cycle`, `test_real_scanner_end_to_end`,
-  `test_scanner_heartbeat`) флакают из-за окружения (нет живого сканера, подхватывающего
-  задачи тестового стека :18000) — падают и без фикса BUG-137 (проверено `git stash`).
+  `test_scanner_heartbeat`) флакают без живого сканера на `:18000`.
 
 ---
 
 ## 📌 Рекомендации архитектору
 
-1. **Следующий день — 53.3-fs-regress** (после закрытия 53.3): ручной прогон FS-пути по чек-листу из `STATE_TEST_SESSION.md` (12 пунктов). Особое внимание — cp1251-файлы (BUG-136).
-2. **Затем — 53.4a–53.4e** (WebUI-редизайн Dovetail-style). ТЗ на 53.4a готовится к моменту получения отчёта по 53.3.
-3. **BUG-135** (BOM в JSON S3-агента) — фикс в v3.1.0.
-4. **BUG-123** (сбор прав Windows) — Блок 6.5 (52.2).
-5. **Linux-агент — дотест** (метрики `:9102` из WSL, сквозной поток после restart, BUG-130) — 52.1.
-6. **Rate-limit** — увеличить до 10000 для тестов через `.env` (TEST-NOTE-6.10).
+1. **Следующий день — 53.4b** (WebUI-редизайн, этап 2: login, dashboard, resources, findings). ТЗ — `prompts/tz/day_53_4b_webui_pages_1.md`.
+2. **Затем** — 53.4c (finding_detail/catalog/audit/scanners/access), 53.4d (roles/users/settings/footer/графики), 53.4e (полировка + скриншоты + `docs/DESIGN.md`).
+3. **После 53.4e — 55** (GitHub-пакет), **затем 56** (BUG-117 hotfix), **57** (релиз v3.0.0).
+4. **Chore после 53.4a:** расширить `unicode-range` в `inter.css` / `jetbrains-mono.css` до кириллицы (`U+0400-04FF`) — v3.1.0.
+5. **DESIGN.md** — перенести из корня в `docs/` (`git mv`) в 53.4e.
+6. **BUG-135** (BOM в JSON S3-агента) — v3.1.0.
+7. **BUG-123** (сбор прав Windows) — Блок 6.5 (52.2).
+8. **Linux-агент — дотест** (метрики `:9102` из WSL, сквозной поток после restart, BUG-130) — 52.1.
+9. **Rate-limit** — увеличить до 10000 для тестов через `.env` (TEST-NOTE-6.10).
 
 ---
 
-**Актуально на:** 09.10.2026
-**Версия:** v3.13.37
-**Следующий шаг:** 53.4b (WebUI-редизайн, этап 2) → 53.4c–53.4e → 53.3-fs-regress → 55 (GitHub-пакет)
+**Актуально на:** 10.10.2026
+**Версия:** v3.13.38
+**Следующий шаг:** 53.4b (WebUI-редизайн, этап 2) → 53.4c → 53.4d → 53.4e → 55 (GitHub-пакет)

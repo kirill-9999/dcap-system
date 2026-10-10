@@ -63,7 +63,9 @@ const FindingDetail = {
           <div class="small text-muted mt-1" id="fragment-meta"></div>
 
           <div class="mt-3">
-            ${f.can_reveal ? `<button class="btn btn-outline-primary" id="reveal-btn"><i class="fas fa-eye me-1"></i>Показать оригинал</button>` : ''}
+            ${f.can_reveal && f.fragment_type !== 'image_region'
+              ? `<button class="btn btn-outline-primary" id="reveal-btn"><i class="fas fa-eye me-1"></i>Показать оригинал</button>`
+              : ''}
           </div>
         </div>
         <div class="card-footer">
@@ -93,6 +95,18 @@ const FindingDetail = {
     const img = document.getElementById('fragment-image');
     if (!img) return;
     const meta = document.getElementById('fragment-meta');
+
+    // BUG-138: обработка ошибки через DOM API (addEventListener),
+    // не через onerror-атрибут с HTML внутри.
+    img.addEventListener('error', () => {
+      img.style.display = 'none';
+      if (!meta) return;
+      const div = document.createElement('div');
+      div.className = 'alert alert-warning';
+      div.textContent = 'Фрагмент недоступен';
+      meta.insertAdjacentElement('beforebegin', div);
+    }, { once: true });
+
     try {
       const r = await fetch(`/api/findings/${window.FINDING_ID}/fragment`,
                             { headers: api._headers() });
@@ -130,11 +144,10 @@ const FindingDetail = {
   renderFragment(f) {
     if (f.fragment_type === 'image_region') {
       return f.has_fragment || f.bounding_box
-        ? `<img id="fragment-image" src="" class="img-fluid finding-image"
+        ? `<img id="fragment-image" class="img-fluid finding-image"
                   style="display:none"
                   alt="Фрагмент находки #${f.id}"
-                  data-bbox='${JSON.stringify(f.bounding_box || {})}'
-                  onerror="this.style.display='none'; this.insertAdjacentHTML('afterend','<div class=\'alert alert-warning\'>Фрагмент недоступен</div>')">`
+                  data-bbox='${escapeHtml(JSON.stringify(f.bounding_box || {}))}'>`
         : '<span class="text-muted">(изображение без вырезанного фрагмента)</span>';
     }
     if (f.fragment_type === 'byte_range') {
@@ -154,18 +167,62 @@ const FindingDetail = {
   bindEvents() {
     const revealBtn = document.getElementById('reveal-btn');
     if (revealBtn) {
+      // BUG-140: toggle + кэш, чтобы не спамить аудит.
+      // Оригинальное содержимое #fragment сохраняем и восстанавливаем.
+      let revealed = false;
+      let cachedReveal = null;
+      const fragmentOriginalHTML = document.getElementById('fragment').innerHTML;
+
       revealBtn.addEventListener('click', async () => {
+        const box = document.getElementById('fragment');
+        if (!box) return;
+
+        if (revealed) {
+          // Возврат к маскированному виду — без POST, из кэша HTML.
+          box.innerHTML = fragmentOriginalHTML;
+          revealed = false;
+          revealBtn.innerHTML = '<i class="fas fa-eye me-1"></i>Показать оригинал';
+          return;
+        }
+
+        revealBtn.disabled = true;
         try {
-          const r = await api.post(`/api/findings/${window.FINDING_ID}/reveal`);
-          const box = document.getElementById('fragment');
-          if (box) {
-            box.innerHTML =
-              `<div class="alert alert-warning py-2 small">Оригинал показан (операция записана в аудит)</div>` +
-              `<pre class="bg-light p-2 small mb-1">${escapeHtml(r.line_text || '(строка недоступна)')}</pre>` +
-              `<div><code>${escapeHtml(r.match_text || '')}</code></div>`;
+          if (!cachedReveal) {
+            cachedReveal = await api.post(`/api/findings/${window.FINDING_ID}/reveal`);
           }
+          const r = cachedReveal;
+
+          // Убираем дублирование line_text / match_text:
+          // если match входит в line — подсвечиваем match внутри line.
+          let blockHtml;
+          const line = r.line_text || '';
+          const match = r.match_text || '';
+          if (line && match && line.includes(match)) {
+            const escaped = escapeHtml(line);
+            const escapedMatch = escapeHtml(match);
+            const highlighted = escaped.replace(
+              escapedMatch,
+              `<mark>${escapedMatch}</mark>`
+            );
+            blockHtml = `<pre class="reveal-block p-2 small mb-1">${highlighted}</pre>`;
+          } else if (line) {
+            blockHtml = `<pre class="reveal-block p-2 small mb-1">${escapeHtml(line)}</pre>`;
+          } else if (match) {
+            blockHtml = `<div><code>${escapeHtml(match)}</code></div>`;
+          } else {
+            blockHtml = `<div class="text-muted">(недоступно)</div>`;
+          }
+
+          box.innerHTML =
+            `<div class="alert alert-warning py-2 small">Оригинал показан (операция записана в аудит)</div>` +
+            blockHtml;
+
+          revealed = true;
+          revealBtn.innerHTML = '<i class="fas fa-eye-slash me-1"></i>Скрыть оригинал';
         } catch (e) {
           showError(e.message);
+        } finally {
+          revealBtn.disabled = false;
         }
       });
     }

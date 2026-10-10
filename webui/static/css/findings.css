@@ -54,3 +54,18 @@
 @media (min-width: 992px) {
     .finding-id { margin-right: 1rem; }
 }
+
+/* BUG-140: reveal-блок в тёмной теме (замена bg-light) */
+.reveal-block {
+    background: var(--color-deep-coal);
+    color: var(--color-snow);
+    border-radius: var(--radius-tags);
+    white-space: pre-wrap;
+    word-break: break-all;
+}
+.reveal-block mark {
+    background: var(--color-blue-cornflower);
+    color: var(--color-page-ink);
+    padding: 0 2px;
+    border-radius: 2px;
+}

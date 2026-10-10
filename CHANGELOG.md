@@ -8,7 +8,50 @@
 ## [Unreleased] — v3.0.0 (release)
 
 **Осталось:** Блок 5 (WebUI, п.2.4), Блок 6.5 (сбор прав Windows, BUG-123/127), дотест Linux-агента (метрики с хоста, сквозной поток после restart WSL, BUG-130), BACKLOG-097 часть 3 (53.3 — E2E на MinIO + WebUI-форма S3), Блок 11, GitHub-пакет, WebUI-редизайн 53.4b–53.4e.
-(Блок 7 — Retention — закрыт в v3.13.27. Фикс-спринт Блок 9 — закрыт в v3.13.28. Блок 6 — закрыт в v3.13.28 на 5 из 6 под-блоков. BACKLOG-097 части 1-3 (Manager, ядро сканера, `S3LineConnector`) — закрыты в v3.13.29/30/31. BUG-137 — закрыт в v3.13.36. WebUI-редизайн 53.4a — закрыт в v3.13.37.)
+(Блок 7 — Retention — закрыт в v3.13.27. Фикс-спринт Блок 9 — закрыт в v3.13.28. Блок 6 — закрыт в v3.13.28 на 5 из 6 под-блоков. BACKLOG-097 части 1-3 (Manager, ядро сканера, `S3LineConnector`) — закрыты в v3.13.29/30/31. BUG-137 — закрыт в v3.13.36. WebUI-редизайн 53.4a — закрыт в v3.13.37. **WebUI-фиксы 53.4a-доп (BUG-138/139/140) — закрыты в v3.13.38.**)
+
+---
+
+## [3.13.38] — 2026-10-10 — День 53.4a-доп: WebUI-фиксы (BUG-138/139/140)
+
+### Added
+
+- 🎨 `webui/static/vendor/webfonts/` — **Font Awesome 6.4.0** (`fa-solid-900.woff2` ~150 KB,
+  `fa-regular-400.woff2` ~25 KB, `fa-brands-400.woff2` ~108 KB + TTF-фолбэки).
+  `fontawesome.min.css` уже содержал `@font-face` с путями `../webfonts/…` — файлы просто
+  легли на место, иконки sidebar перестали рендериться как цветные emoji.
+- 🧪 `webui/static/css/findings.css` — `.reveal-block` + `mark` (тёмная тема, заменяет `bg-light`).
+
+### Changed
+
+- 🔧 `webui/static/js/finding_detail.js` — **BUG-138**: убран невалидный `onerror="… </div> …"`
+  из HTML (браузер рвал атрибут → `SyntaxError: missing ) after argument list`); обработка
+  ошибки фрагмента переведена на `img.addEventListener('error', …, {once:true})`; убран
+  мгновенный `src=""`; `data-bbox` экранирован через `escapeHtml`.
+- 🔧 `webui/static/js/finding_detail.js` — **BUG-140**:
+  - кнопка reveal **скрыта** для `fragment_type=image_region` (PNG = оригинал, раскрывать нечего);
+  - toggle «Показать ⇄ Скрыть» с сохранением исходного HTML `#fragment`;
+  - `cachedReveal` — повторные клики в рамках сессии страницы **не** дублируют `finding_reveal`
+    в `audit_logs`;
+  - устранено дублирование `line_text`/`match_text` (match подсвечивается `<mark>` внутри line,
+    если входит в неё);
+  - `.reveal-block` вместо `bg-light`.
+- ⚙️ `docker-compose.yml`/`.s3.yml`/`.test.yml`, `.env`, `.env.example` — `VERSION=3.13.38`.
+
+### Fixed
+
+- **BUG-139** — серые sidebar-иконки (`--color-ash #a7a7a7`), активный пункт — cornflower
+  (`--color-blue-cornflower #6798ff`), никаких «цветных emoji».
+- **BUG-138** — Console на `/findings/{id}` пустая (0 ошибок).
+- **BUG-140** — reveal: 3 клика в одной сессии → 1 запись `finding_reveal` в аудите.
+
+### Notes
+
+- Найденные находки (пример): `/findings/2043` (`text_line`) — кнопка reveal есть, toggle работает;
+  `/findings/2046` (`image_region`) — кнопки нет, PNG отображается.
+- `/reveal` возвращает полный сохранённый `line_text` (урезания на стороне backend нет); короткое
+  значение у finding 2043 — FP presidio `person="Дата"` → **TEST-NOTE-10.15** (отдельный день
+  «Качество детекции»), не баг reveal.
 
 ---
 
