@@ -1,7 +1,7 @@
 import os
 from urllib.parse import urlparse
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy.orm import Session
 from typing import Optional
 from datetime import datetime
@@ -9,6 +9,7 @@ from datetime import datetime
 from ..db import models, session
 from manager.src.auth.dependencies import require_admin, require_scanner
 from manager.src.auth.models import User
+from manager.src.api.audit_helper import with_audit
 
 router = APIRouter(prefix="/api/resources", tags=["resources"])
 
@@ -75,6 +76,7 @@ def list_resources(
 
 @router.post("")
 def create_resource(
+    request: Request,
     path: str = Query(..., min_length=1),
     type: str = Query("FILESYSTEM"),  # noqa: A002
     endpoint: Optional[str] = Query(None, description="S3/MinIO endpoint (host:port)"),
@@ -146,10 +148,17 @@ def create_resource(
         scan_interval=3600,
         schedule_enabled=False,
     )
-    db.add(resource)
-    db.commit()
+
+    # BUG-202 (v3.13.39): создание ресурса + аудит = одна транзакция.
+    meta = {"action": "created", "resource_id": None, "path": path, "type": type}
+    with with_audit(
+        db, "resource_created", request=request, user=user, file_path=path, metadata=meta
+    ):
+        db.add(resource)
+        db.flush()
+        meta["resource_id"] = resource.id
     db.refresh(resource)
-    
+
     return {
         "id": resource.id,
         "path": resource.path,
@@ -158,26 +167,50 @@ def create_resource(
         "message": "Resource created successfully"
     }
 
-@router.delete("/{resource_id}")
+@router.delete("/{resource_id}", status_code=204)
 def delete_resource(
     resource_id: int,
+    request: Request,
     db: Session = Depends(session.get_db),
     user: User = Depends(require_admin),
 ):
-    """Удалить ресурс (только Admin, BUG-046)."""
+    """Удалить ресурс (только Admin, BUG-046).
+
+    BUG-202 (v3.13.39): удаление + аудит = одна транзакция.
+    BUG-150 (v3.13.41): FK с NO ACTION не давали удалить ресурс —
+    миграция 007_add_cascade_deletes перевела их на ON DELETE CASCADE;
+    теперь DELETE /api/resources/{id} → 204, связанные записи удаляются
+    каскадом (findings, scan_tasks, catalog_entries, access_entries,
+    access_alerts, permission_changes, failed_files, schedules).
+    """
     resource = db.query(models.Resource).filter(models.Resource.id == resource_id).first()
     if not resource:
         raise HTTPException(404, "Resource not found")
-    
-    # Удаляем связанные записи
-    db.query(models.CatalogEntry).filter(models.CatalogEntry.resource_id == resource_id).delete()
-    db.query(models.Finding).filter(models.Finding.resource_id == resource_id).delete()
-    db.query(models.ScanTask).filter(models.ScanTask.resource_id == resource_id).delete()
-    
-    db.delete(resource)
-    db.commit()
-    
-    return {"status": "deleted", "id": resource_id}
+
+    meta = {
+        "action": "deleted",
+        "resource_id": resource_id,
+        "path": resource.path,
+        "type": resource.type,
+    }
+    with with_audit(
+        db, "resource_deleted", request=request, user=user, file_path=resource.path,
+        metadata=meta,
+    ):
+        # Удаляем связанные записи
+        db.query(models.CatalogEntry).filter(models.CatalogEntry.resource_id == resource_id).delete()
+        db.query(models.Finding).filter(models.Finding.resource_id == resource_id).delete()
+        db.query(models.ScanTask).filter(models.ScanTask.resource_id == resource_id).delete()
+        db.query(models.FailedFile).filter(models.FailedFile.resource_id == resource_id).delete()
+        db.query(models.AccessEntry).filter(models.AccessEntry.resource_id == resource_id).delete()
+        db.query(models.AccessAlert).filter(models.AccessAlert.resource_id == resource_id).delete()
+        db.query(models.PermissionChange).filter(models.PermissionChange.resource_id == resource_id).delete()
+        db.query(models.Schedule).filter(models.Schedule.resource_id == resource_id).delete()
+
+        db.delete(resource)
+        db.flush()
+
+    return None
 
 @router.post("/{resource_id}/scan")
 def scan_resource(
@@ -234,10 +267,14 @@ def get_resource_config(resource_id: int, db: Session = Depends(session.get_db))
 def update_resource_config(
     resource_id: int,
     config_data: dict,
+    request: Request,
     db: Session = Depends(session.get_db),
     user: User = Depends(require_admin),
 ):
-    """Обновить конфигурацию сканирования для ресурса (только Admin, BUG-046)."""
+    """Обновить конфигурацию сканирования для ресурса (только Admin, BUG-046).
+
+    BUG-202 (v3.13.39): изменение + аудит = одна транзакция.
+    """
     resource = db.query(models.Resource).filter(models.Resource.id == resource_id).first()
     if not resource:
         raise HTTPException(404, "Resource not found")
@@ -251,10 +288,21 @@ def update_resource_config(
         resource.schedule_enabled = config_data["schedule_enabled"]
     if "cron_expression" in config_data:
         resource.cron_expression = config_data["cron_expression"]
-    
+
     resource.updated_at = datetime.utcnow()
-    db.commit()
-    
+
+    meta = {
+        "action": "updated",
+        "resource_id": resource_id,
+        "path": resource.path,
+        "changed_fields": sorted(k for k in ("scan_config", "scan_interval", "schedule_enabled", "cron_expression") if k in config_data),
+    }
+    with with_audit(
+        db, "resource_updated", request=request, user=user, file_path=resource.path,
+        metadata=meta,
+    ):
+        db.flush()
+
     return {
         "status": "updated",
         "id": resource.id,

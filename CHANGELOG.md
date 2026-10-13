@@ -1,1308 +1,885 @@
-# 📓 CHANGELOG.md — История версий DCAP
+# Changelog — DCAP
 
-> Формат — по мотивам [Keep a Changelog](https://keepachangelog.com/ru/1.1.0/).
-> Версионирование — SemVer.
+Все значимые изменения проекта DCAP.
 
----
-
-## [Unreleased] — v3.0.0 (release)
-
-**Осталось:** Блок 5 (WebUI, п.2.4), Блок 6.5 (сбор прав Windows, BUG-123/127), дотест Linux-агента (метрики с хоста, сквозной поток после restart WSL, BUG-130), BACKLOG-097 часть 3 (53.3 — E2E на MinIO + WebUI-форма S3), Блок 11, GitHub-пакет, WebUI-редизайн 53.4b–53.4e.
-(Блок 7 — Retention — закрыт в v3.13.27. Фикс-спринт Блок 9 — закрыт в v3.13.28. Блок 6 — закрыт в v3.13.28 на 5 из 6 под-блоков. BACKLOG-097 части 1-3 (Manager, ядро сканера, `S3LineConnector`) — закрыты в v3.13.29/30/31. BUG-137 — закрыт в v3.13.36. WebUI-редизайн 53.4a — закрыт в v3.13.37. **WebUI-фиксы 53.4a-доп (BUG-138/139/140) — закрыты в v3.13.38.**)
+Формат — [Keep a Changelog](https://keepachangelog.com/),
+версионирование — [SemVer](https://semver.org/).
 
 ---
 
-## [3.13.38] — 2026-10-10 — День 53.4a-доп: WebUI-фиксы (BUG-138/139/140)
+## [v3.13.41] — 2026-10-13
 
-### Added
+### Fixed (53.4a-доп5, hotfix backend + sync)
 
-- 🎨 `webui/static/vendor/webfonts/` — **Font Awesome 6.4.0** (`fa-solid-900.woff2` ~150 KB,
-  `fa-regular-400.woff2` ~25 KB, `fa-brands-400.woff2` ~108 KB + TTF-фолбэки).
-  `fontawesome.min.css` уже содержал `@font-face` с путями `../webfonts/…` — файлы просто
-  легли на место, иконки sidebar перестали рендериться как цветные emoji.
-- 🧪 `webui/static/css/findings.css` — `.reveal-block` + `mark` (тёмная тема, заменяет `bg-light`).
+- **BUG-150** — `DELETE /api/resources/{id}` → 500 (9+ FK с `NO ACTION`).
+  Alembic-миграция `manager/src/db/migrations/versions/007_add_cascade_deletes.py`:
+  **ON DELETE CASCADE** для FK на `resources.id` и `scan_tasks.id` —
+  findings, scan_tasks, catalog_entries, access_entries, access_alerts,
+  permission_changes, failed_files, schedules. `audit_logs` (партиционированная),
+  `findings_old` (legacy) и `findings.reviewed_by` не тронуты.
+  `delete_resource` → **204** (None); для SQLite (dev) связанные записи
+  удаляются вручную. Миграция применена на PostgreSQL. Тест
+  `tests/unit/test_delete_resource_v31341.py` (3 passed).
+- **BUG-149** — S3-скан возвращал 0 files. Причина: ресурсы s3/minio,
+  созданные через legacy WebUI (`/api/tasks/create`, `/api/resources/create`),
+  не получали `scan_config.connector.s3` → `S3LineConnector` падал
+  («bucket обязателен») → fallback на filesystem → 0 files. Фикс:
+  - `S3LineConnector.__init__` больше не требует bucket (WARNING вместо ValueError);
+  - `scan_path()` — bucket-фолбэк из `path` (config приоритетнее), `self._bucket`
+    запоминается для чтения; `_discover_keys(prefix, bucket)` —
+    DEBUG-логи key-count и страны; таймаут `list_objects_v2` теперь
+    re-raise (раньше молча → 0 ключей);
+  - webui-эндпоинты строят `connector.s3` (endpoint: `S3_DEFAULT_ENDPOINT`
+    → `host.docker.internal:9000`, bucket/prefix из path);
+  - `source_type` теперь сохраняется на `ScanTask`.
+  Тесты: `tests/unit/test_s3_line_connector_v31331.py` (+3) и
+  `tests/e2e/test_s3_scan_v31341.py` (S3-скан MinIO → > 0 files, ≥ 9 находок).
 
 ### Changed
 
-- 🔧 `webui/static/js/finding_detail.js` — **BUG-138**: убран невалидный `onerror="… </div> …"`
-  из HTML (браузер рвал атрибут → `SyntaxError: missing ) after argument list`); обработка
-  ошибки фрагмента переведена на `img.addEventListener('error', …, {once:true})`; убран
-  мгновенный `src=""`; `data-bbox` экранирован через `escapeHtml`.
-- 🔧 `webui/static/js/finding_detail.js` — **BUG-140**:
-  - кнопка reveal **скрыта** для `fragment_type=image_region` (PNG = оригинал, раскрывать нечего);
-  - toggle «Показать ⇄ Скрыть» с сохранением исходного HTML `#fragment`;
-  - `cachedReveal` — повторные клики в рамках сессии страницы **не** дублируют `finding_reveal`
-    в `audit_logs`;
-  - устранено дублирование `line_text`/`match_text` (match подсвечивается `<mark>` внутри line,
-    если входит в неё);
-  - `.reveal-block` вместо `bg-light`.
-- ⚙️ `docker-compose.yml`/`.s3.yml`/`.test.yml`, `.env`, `.env.example` — `VERSION=3.13.38`.
-
-### Fixed
-
-- **BUG-139** — серые sidebar-иконки (`--color-ash #a7a7a7`), активный пункт — cornflower
-  (`--color-blue-cornflower #6798ff`), никаких «цветных emoji».
-- **BUG-138** — Console на `/findings/{id}` пустая (0 ошибок).
-- **BUG-140** — reveal: 3 клика в одной сессии → 1 запись `finding_reveal` в аудите.
-
-### Notes
-
-- Найденные находки (пример): `/findings/2043` (`text_line`) — кнопка reveal есть, toggle работает;
-  `/findings/2046` (`image_region`) — кнопки нет, PNG отображается.
-- `/reveal` возвращает полный сохранённый `line_text` (урезания на стороне backend нет); короткое
-  значение у finding 2043 — FP presidio `person="Дата"` → **TEST-NOTE-10.15** (отдельный день
-  «Качество детекции»), не баг reveal.
-
----
-
-## [3.13.37] — 2026-10-09 — День 53.4a: WebUI-редизайн, этап 1 — токены + base + компоненты
-
-### Added
-
-- 🎨 `webui/static/vendor/fonts/` — **локальные шрифты** (CDN запрещён): `inter.woff2`
-  (Inter Variable, ~344 KB), `jetbrains-mono.woff2` (JetBrains Mono Variable, ~40 KB,
-  latin-wght-normal с Fontsource-fallback), `inter.css` и `jetbrains-mono.css`
-  (`@font-face`, `woff2-variations`, `font-display: swap`, latin unicode-range).
-- 🎨 `webui/static/css/tokens.css` — **дизайн-токены Dovetail (dark-only)**: page ink
-  `#0a0a0a`, card `#1e1e1e`, deep coal `#141414`, steel border `#313131`, ash `#a7a7a7`,
-  cornflower `#6798ff` (единственный акцент), Inter + JetBrains Mono, negatively-tracked
-  шкала (12…64px), 8px радиусы, `--shadow-*: none`. Сохранены legacy-имена переменных
-  (`--color-bg`, `--color-text`, `--color-surface`, `--color-primary` и т.д.), поэтому
-  `components/*.css` и `findings.css` подхватили новые значения **без правок**.
-- 🎨 `webui/static/css/base.css` — глобальные стили: html/body, заголовки (Inter 600,
-  negative tracking), ссылки-accent, `code/pre` (JetBrains Mono), тонкий скроллбар,
-  override `select/input/textarea`, `::selection`.
-- 🎨 `webui/static/css/components.css` — override Bootstrap 5 (`.btn` dark-carbon primary,
-  `.card`, формы, modal, badge, table, alert, dropdown, pagination, progress, utilities).
-- 🎨 `webui/static/css/grid-wireframe.css` — 1px `#1e1e1e` blueprint-сетка на `body::before`
-  (`opacity: 0.6`), контент поверх (`z-index`).
-
-### Changed
-
-- ✏️ `webui/templates/base.html` — `data-theme="dark"`, подключены `tokens.css`/`base.css`/
-  `components.css`/`grid-wireframe.css`, удалены `theme.js` и кнопка переключения темы
-  (осталась только «Выход»).
-- ✏️ `webui/templates/login.html` — `data-theme="dark"`, подключены новые CSS, inline-`<style>`
-  переведён на токены (`--color-page-ink`, `--radius-cards`, zero-shadow).
-- ✏️ `webui/static/css/main.css` — `@import` заменены на `tokens/base/components/grid-wireframe`,
-  убраны дублирующие глобальные правила (перенесены в `base.css`/`components.css`).
-
-### Removed
-
-- 🗑️ `webui/static/css/variables.css` — перенесено в `tokens.css`.
-- 🗑️ `webui/static/css/theme-dark.css` — dark-only, отдельный файл не нужен.
-- 🗑️ `webui/static/js/theme.js` — переключателя темы больше нет.
+- **BACKLOG-121** — `.btn-primary` → **white filled** `#ffffff`
+  (текст `#0a0a0a`, hover `#a7a7a7`, disabled `#7c7c7c`) в
+  `webui/static/css/components.css` — возврат к DESIGN.md (отклонение 53.4a отменено).
+- **BACKLOG-119** — badge режима на `/login` показывается **только для
+  `windows_integrated`**; для `local`/`hybrid` скрыт (режим `hybrid` остаётся
+  в коде до v3.1.0). `webui/templates/login.html`.
 
 ### Docs
 
-- 📝 `STATE.md` (v3.13.37, следующий — 53.4b), `ROADMAP.md` (53.4a ✅), отчёт
-  `prompts/reports/day_53_4a_report.md` (+ скриншоты).
-
-### Fixed
-
-- ⚠️ Известное ограничение (ожидаемо для 53.4a): палитра Chart.js не под Dovetail —
-  исправляется в 53.4d; grid-wireframe тонкий (полировка — 53.4e).
-
----
-
-## [3.13.36] — 2026-10-09 — BUG-137: гонка temp-файлов `OCREngine` при параллельном сканировании
-
-### Fixed
-
-- 🐛 `scanner/utils/ocr_engine.py` — **корень BUG-137** (блокер v3.0.0): при параллельном
-  сканировании (linewise-путь: `FilesystemConnector.scan_file` → `extract_document_text`
-  → новый `DocumentExtractor` → **новый `OCREngine` на каждый файл**) каждый движок
-  при создании вызывал глобальный `_cleanup_temp_files()`, удалявший **все** временные
-  файлы в системном `tempdir` (`tmp*`/`ocr_*`). Поток, обрабатывающий pdf/docx/xlsx,
-  создавал новый `OCREngine` и стирал входной `.png`/выходной `.txt` tesseract другого
-  потока → `os.path.exists(temp_txt)` → `False` → тихая потеря OCR-находок PNG.
-  Одиночный прогон был в безопасности (один движок, cleanup безвреден) — поэтому баг
-  давал 4 находки solo и 0 в параллели (IEEE-гонка: срабатывает при смешивании типов
-  файлов, требующих документ-экстракции).
-  **Фикс:** каждый `OCREngine` работает в **своей уникальной** подпапке
-  `self._work_dir = self.temp_dir / f"ocr_{uuid.uuid4().hex[:12]}"`; `_cleanup_temp_files()`
-  чистит **только свою** подпапку; `ocr_image` создаёт temp-файлы через
-  `NamedTemporaryFile(dir=str(self._work_dir), ...)`.
-- 🐛 `scanner/classifiers/pii_classifier.py` — **никакой тихой потери**: при неуспехе
-  ответа OCRWorker (`success=False`) и при таймауте ожидания — `logger.warning`
-  «OCR потерян: …» с деталями вместо тихого `return None`/`print`.
-- 🐛 `scanner/connectors/_text_scanner.py` — предупреждение WARNING при пустом
-  результате документ-OCR (`extract_document_text` вернул пусто при `error` /
-  `ocr_enabled=True`) — не молчим, если OCR «съел» файл.
-
-### Added
-
-- 🧪 `tests/unit/test_ocr_worker_race_v31336.py` — воспроизводимый тест BUG-137
-  (linewise-путь, Pillow-PNG с Phone/Email/Passport/Name): одиночный прогон 4 находки;
-  параллельный (8 потоков, PNG + 10 txt) — все PNG дают находки; 3 повтора стабильно
-  равны. **3 passed.**
-
-### Docs
-
-- 📝 `ROADMAP.md` / `STATE.md` — BUG-137 → ✅ fixed v3.13.36; день
-  53.3-fs-regress-ocr-diag отмечен как выполненный (раздел OCR).
-
----
-
-## [3.13.35] — 2026-10-04 — День 53.3-fix: `S3LineConnector` — bucket только из `scan_config`
-
-### Fixed
-
-- 🐛 `scanner/connectors/s3_line_connector.py` — в `scan_path` убрано сравнение
-  `parsed.netloc != self._bucket` и вводящий в заблуждение WARNING «Bucket в path … —
-  использую path»: bucket **никогда** не брался из `path`, то есть предупреждение
-  печаталось вхолостую, а у читателя кода создавало ощущение, что bucket может
-  прийти из пути. Контракт зафиксирован явно: bucket — из
-  `scan_config.connector.s3.bucket` (payload задачи, 53.1a), путь
-  `s3://bucket/prefix/` даёт **только суффикс префикса**; bucket в path
-  игнорируется намеренно. Docstring `scan_path` приведён в соответствие.
-
-### Added
-
-- 📝 `docs/admin-guide/06-scanner.md` §8.1 — явно сказано, что bucket берётся из
-  `scan_config`, а `path` — только префикс.
-- 📝 `ROADMAP.md` — **BACKLOG-103** в v3.1.0 (v3.0.0-бэклог): убрать fallback на
-  config-секреты в `S3LineConnector` / `S3Connector` (политика TASK-018 — «только ENV»).
-
----
-
-## [3.13.34] — 2026-10-05 — День 53.3-test-stand-fix: автоматический запуск E2E-стенда
-
-### Fixed
-
-- 🐛 `docker-compose.test.yml` — у `manager_test` **не было healthcheck**, поэтому
-  `docker compose up -d` возвращался до готовности приложения, а `webui_test` стартовал
-  параллельно с Manager. Добавлены healthcheck обоим сервисам (`manager_test` —
-  `GET /api/health`, `webui_test` — `GET /health`; interval 5s, timeout 5s,
-  retries 30, start_period 30s) и `webui_test.depends_on.manager_test.condition:
-  service_healthy`. Закрывает **TEST-NOTE-10.6** (ручной `restart manager_test` больше
-  не нужен).
-- 🐛 `scripts/run-tests.sh` — режим `all` больше не требует ручной последовательности
-  `down -v` → `up -d` → `restart`: добавлены функции `stand_up` / `stand_down`, режим
-  `stand`, и `all` теперь сам выполняет `down -v --remove-orphans` + `up -d --wait`.
-  Закрывает **TEST-NOTE-10.7** (персистентный том `postgres_test_data` копил
-  pending-задачи, из-за чего E2E вис).
-- 🐛 `scripts/run-tests.sh` — добавлен fallback: если текущий `docker compose` не
-  поддерживает `--wait`, выполняется `up -d` + ожидание готовности по HTTP
-  (совместимость со старыми версиями Compose).
-
-### Changed
-
-- ⚙️ `docker-compose.yml` — теги всех DCAP-образов и in-container `VERSION`
-  подняты до `${VERSION:-3.13.34}` (было 3.13.29); актуальная версия в `.env.example`
-  — `VERSION=3.13.34`.
-- ⚙️ `docker-compose.s3.yml` — у S3-агента добавлен явный `image: dcap/s3-agent:${VERSION:-3.13.34}`
-  рядом с `build` (тег больше не выводится из имени проекта).
-- ⚙️ `scripts/test-up.sh` — делегирует `run-tests.sh stand --build`, чтобы логика
-  стенда жила в одном месте.
-
-### Added
-
-- 📝 `docs/testing.md` — раздел «Автоматический запуск стенда» (3 шага цикла
-  `all`), требования к сканеру для E2E (обязательные `FINDINGS_ENCRYPTION_KEY` /
-  `FINDINGS_HMAC_KEY`, `MANAGER_URL` тестового Manager), «Известные ограничения
-  стенда» (пересоздание томов, залипший прокер портов Docker Desktop на Windows —
-  лечится `--force-recreate`, TEST-NOTE-10.8), требования к MinIO для S3-тестов;
-  CI-схема упрощена до `scripts/run-tests.sh all`.
-- 📝 `docs/testing.md` — в структуре `tests/` перечислены все E2E-модули
-  (в т.ч. `test_s3_e2e.py`, `test_webui_block5_v31322.py`, `test_key_rotation.py`,
-  `test_retention_e2e.py`, `test_auth_audit_e2e.py`).
-
-### Notes
-
-- ⚠️ TEST-NOTE-10.8 (2 legacy-теста `test_webui_block5_v31322.py` требуют
-  `X-Total-Count != "0"`) остаётся открытым — по ТЗ вне scope. На чистом стенде без
-  находок они падают; при непустой таблице проходят (проверено вручную).
-
----
-
-## [3.13.32] — 2026-10-04 — День 53.3: E2E на MinIO + форма S3/MinIO в WebUI (BACKLOG-097, часть 4)
-
-### Added
-
-- 📄 `tests/e2e/test_s3_e2e.py` — E2E-цикл S3/MinIO на живом стенде: создание ресурса →
-  запуск задачи → ожидание `completed` → проверка `file_path LIKE 's3://%'` → cleanup.
-  Маркеры: `e2e`, `requires_manager`, `requires_minio` (новый маркер в `pyproject.toml`).
-  Авто-skip: MinIO недоступен (healthcheck) или нет активного сканера.
-- 📄 `docs/admin-guide/06-scanner.md` — раздел «8. S3/MinIO-сканирование» (endpoint, формат
-  пути, bucket/prefix, секреты через ENV, MinIO-настройки), S3-переменные в ENV-таблице,
-  S3-строки в Troubleshooting.
-
-### Changed
-
-- 🌐 `webui/templates/resources.html` — единая форма ресурса: типы `filesystem` / `s3` / `minio`,
-  блок S3-параметров (`endpoint`, `region`, `secure`, `use_path_style`) с авто-подсказкой по
-  MinIO, отправка через REST `POST /api/resources` (query-параметры) вместо legacy
-  `/api/resources/create`. Секреты не вводятся в форму — только `S3_ACCESS_KEY` /
-  `S3_SECRET_KEY` в ENV сканера (TASK-018).
-- 🌐 `manager/src/api/resources.py` — **вариант B**: `endpoint` из query → `S3_DEFAULT_ENDPOINT`
-  из ENV → иначе `400` с внятным сообщением. Убран неявный hardcode
-  `host.docker.internal:9000` (иначе MinIO на другой хост/порт был бы недостижим).
-- 📝 `.env.example` — секция `SCANNER: S3/MinIO` (`S3_DEFAULT_ENDPOINT`, `S3_ACCESS_KEY`,
-  `S3_SECRET_KEY`) с пояснениями про хост-сканирование и приоритет ENV над config.
-- 📝 `tests/unit/test_s3_resource_v31329.py` — autouse-фикстура `S3_DEFAULT_ENDPOINT`,
-  проверки `400` без endpoint для `s3`/`minio`, ENV-endpoint, приоритет явного endpoint.
-
-### Тесты
-
-- `tests/unit` — 427 passed (22 в `test_s3_resource_v31329.py`).
-- `tests/e2e` — 53 passed, 7 skipped (в т. ч. 2 в `test_s3_e2e.py`); стенд
-  `docker-compose.test.yml` (Manager :18000 / WebUI :18001) + MinIO + Scanner на хосте.
-
-## [3.13.31] — 2026-10-04 — День 53.2: `S3LineConnector` (streaming, ENV-секреты, OCR/документы) + BUG-136
-
-### Added
-
-- 📁 `scanner/connectors/s3_line_connector.py` — построчный сканер S3/MinIO
-  (интерфейс `FilesystemConnector`: `scan_path` / `scan_file`):
-  - листинг объектов через `list_objects_v2` с пагинацией по `ContinuationToken`;
-  - фильтры: `is_supported_file` (расширения + credential-имена), лимит
-    `max_file_size_mb`, пропуск «папок» (ключи с `/` на конце);
-  - **streaming**-чтение текста через `Body.iter_chunks(chunk_size=buffer_size)`
-    с обрывом на `max_text_chars` — объект не читается в память целиком;
-  - документы/изображения — во временный файл → `_text_scanner.extract_document_text`;
-    для изображений находки помечаются `fragment_type=image_region`,
-    `detector=ocr`, `bounding_box=None` (как в FS);
-  - `fragment_path` находок = `s3://bucket/key` — корректный fingerprint и
-    `/fragment` в Manager;
-  - секреты **только из ENV** `S3_ACCESS_KEY` / `S3_SECRET_KEY` (политика
-    TASK-018): если секреты есть в config — WARNING и они игнорируются,
-    когда ENV задан; `bucket` обязателен (`ValueError`);
-  - `verify=False` при `secure=false` + WARNING в лог (TEST-NOTE-6.11);
-  - `stop_event` проверяется между объектами, `progress_callback(stage, current,
-    total, key)` — на каждый объект.
-- 📁 `tests/unit/test_s3_line_connector_v31331.py` — 16 тестов (mock boto3):
-  фильтр расширений, `s3://` в `fragment_path`, prefix из аргумента, пагинация,
-  skip папок/oversize, кред-файл по имени, ENV-секреты, `ValueError` без
-  bucket/ENV, бинарный объект, OCR-поля изображений, progress_callback,
-  `stop_event`, игнор секретов из config.
-- 📁 `tests/unit/test_decode_text_cp1251_v31331.py` — 5 тестов на BUG-136.
-
-### Changed
-
-- 🐛 `scanner/connectors/_text_scanner.py` — **BUG-136 fixed**: `decode_text_bytes`
-  теперь `utf-8 strict → cp1251 strict → utf-8 errors='ignore'`. Раньше первая
-  итерация цикла использовала `errors="ignore"` и потому **никогда** не падала —
-  ветка cp1251 была недостижима, и русские тексты в cp1251 разбирались как
-  мусор (в т.ч. в FS-коннекторе).
-- `scanner/connectors/factory.py` — регистрация `s3` и `minio` →
-  `S3LineConnector`; `registered_types()` теперь `["filesystem", "minio", "s3"]`.
-- `scanner/src/managed_scanner.py` — `scan_config.connector.s3` из payload
-  задачи мержатся поверх локального конфига коннектора (приоритет у payload);
-  scan_config текущей задачи сохраняется в `_current_scan_config`.
-- `scanner/connectors/s3_connector.py` (TASK-120, опционально из ТЗ) — секреты
-  сначала из ENV, config-fallback с WARNING (коннектор `ISourceConnector`,
-  сканером не используется).
-- `tests/unit/test_factory_v31330.py` — тесты s3/minio переписаны: вместо
-  `ValueError` теперь проверяется возврат `S3LineConnector`.
-- `tests/unit/test_text_scanner_extract_v31330.py` — тест, документировавший
-  баг cp1251, заменён на проверку исправленного поведения.
+- **ARCHITECTURE.md** — синхронизирован с кодом (чек-лист 10 пунктов):
+  BUG-150/149/148, .btn-primary white, badge /login, подраздел
+  «WebUI: хранение токена» (`dcap_access_token`), BUG-176;
+  структура tests/unit (460), миграции 001…007; VERSION 3.13.41.
+- `STATE.md`, `ROADMAP.md`, `STATE_TEST_SESSION.md` — обновлены на v3.13.41.
 
 ### Tests
 
-- Целевые: **29 passed** (16 + 5 + 8 factory).
-- Полный unit-набор: **424 passed** (было 402, +22), регрессий нет.
+- Unit: **460 passed** (455 эталон + BUG-150 ×3 + S3 bucket-фолбэк ×3 − S3 legacy test).
+- E2E: `tests/e2e/test_s3_scan_v31341.py` (NEW, DoD-критерий ≥ 9 находок);
+  эталонный прогон 53/7 — на стенде :18000/:18001.
+- ⚠️ Docker-демон завис (окружение) на момент отчёта — живая проверка
+  DELETE 204 / S3-скана на контейнере запланирована после перезапуска Docker Desktop.
 
-### Проверено на живом MinIO (native, bucket `dcap-audit-logs` + `storage1`)
+### Files (53.4a-доп5)
 
-| Задача | Ресурс | Файлов | Находок | Итог |
-|--------|--------|--------|---------|------|
-| 193 | `s3://dcap-audit-logs/access-logs/` | 4 | 27 | ✅ completed |
-| 194 | `s3://dcap-scanner-smoke/` (cp1251-файл) | 1 | 9 | ✅ completed — BUG-136 подтверждён на живых данных |
-| 195 | `s3://storage1/test_files/` (txt + PDF + PNG/OCR) | 8 | 25 | ✅ completed, OCR-findings с `detector=ocr` |
-
-`catalog_entries.path` = `s3://dcap-audit-logs/access-logs` (без `s3:/bucket`
-и без `//`), находки в БД лежат с `fragment_path` вида
-`s3://storage1/test_files/PII_in_PDF.pdf`.
+- `manager/src/db/migrations/versions/007_add_cascade_deletes.py` — NEW.
+- `scanner/connectors/s3_line_connector.py` — bucket-фолбэк, логи, re-raise.
+- `manager/src/api/webui.py` — `_apply_s3_connector` в /api/tasks/create, /api/resources/create; source_type.
+- `webui/static/css/components.css`, `webui/templates/login.html`.
+- `tests/unit/test_delete_resource_v31341.py`, `tests/unit/test_s3_line_connector_v31331.py`,
+  `tests/e2e/test_s3_scan_v31341.py`.
+- `ARCHITECTURE.md`, `STATE.md`, `ROADMAP.md`, `STATE_TEST_SESSION.md`.
+- `.env`, `.env.example`, `docker-compose*.yml` — `VERSION=3.13.41`.
 
 ---
 
-## [3.13.30] — 2026-10-04 — День 53.1b: фабрика коннекторов + общий `_text_scanner` (BACKLOG-097, часть 2: Scanner)
+## [v3.13.40] — 2026-10-12
+
+### Fixed (53.4a-доп4, fonts, BUG-212)
+
+- **BUG-212** — Inter / JetBrains Mono не применялись к кириллице.
+  `unicode-range` в `inter.css` / `jetbrains-mono.css` расширен:
+  Latin (U+0000-00FF …) + **Cyrillic base** (U+0400-045F, U+0490-0491, U+04B0-04B1, U+0301, U+2116)
+  + **Cyrillic Extended** (U+0460-052F, U+1C80-1C88, U+20B4, U+2DE0-2DFF, U+A640-A69F)
+  + Latin Extended Additional (U+1E00-1EFF). Теперь браузер запрашивает оба woff2 для русского текста.
+- **`jetbrains-mono.woff2` заменён** — прежний был latin-only подмножеством Fontsource (229 глифов, кириллицы 0).
+  Взят официальный **JetBrains Mono v2.304 variable** (`JetBrainsMono[wght].ttf` → woff2, fontTools):
+  1363 глифа, базовая кириллица 92/96, ось `wght` 100-800 (соответствует `@font-face: font-weight: 100 800`, `woff2-variations`).
+  `inter.woff2` не менялся (полный variable, кириллица 96 базовых + 155 extended).
+- Добавлен `webui/static/vendor/fonts/OFL.txt` — лицензия SIL OFL 1.1 (JetBrains Mono).
+
+### Tests (53.4a-доп4)
+
+- Проверка через HTTP (то, что видит браузер): `inter.css` / `jetbrains-mono.css` — 200, `unicode-range` содержит U+0400-045F;
+  `inter.woff2` (352 240 б) / `jetbrains-mono.woff2` (113 484 б) — 200.
+- Glyph-чек cmap (fontTools): Inter — П/р/и/в/е/т/Ж/У/К/я все на месте; JetBrains Mono — 10/10.
+- Эмуляция `unicode-range`-матчинга браузера: кириллическая выборка полностью попадает в диапазоны обоих файлов.
+- CSS-цепочка: `main.css → base.css → @import inter.css/jetbrains-mono.css`; `tokens.css` — `--font-inter: 'Inter', …`, `--font-jetbrains-mono: 'JetBrains Mono', …`, `--font-mono: var(--font-jetbrains-mono)`.
+- Регресс страниц WebUI — **14/14 вернули 200** (`/`, `/login`, `/catalog`, `/findings`, `/findings/{id}`, `/false-positives`, `/resources`, `/audit`, `/access`, `/scanners`, `/users`, `/roles`, `/settings`, `/health`).
+
+### Files (53.4a-доп4)
+
+- `webui/static/vendor/fonts/inter.css` — unicode-range + кириллица.
+- `webui/static/vendor/fonts/jetbrains-mono.css` — unicode-range + кириллица.
+- `webui/static/vendor/fonts/jetbrains-mono.woff2` — заменён на официальный JetBrains Mono v2.304 variable (кириллица).
+- `webui/static/vendor/fonts/OFL.txt` — NEW (SIL OFL 1.1).
+- `.env`, `.env.example`, `docker-compose*.yml` — `VERSION=3.13.40`.
+
+### Docs (53.4a-доп4)
+
+- `ARCHITECTURE.md` — файл в переработке архитектора; готовый патч раздела «Шрифты» — в отчёте
+  `prompts/reports/day_53_4a_add4_fonts_report.md`.
+
+---
+
+## [v3.13.39] — 2026-10-12
+
+### Fixed (53.4a-доп3, hotfix backend-critical)
+
+- **BUG-201** — `POST /api/auth/change-password` возвращал 200, но пароль в БД не менялся:
+  мутация объекта `request.state.user` из middleware не доходила до сессии хендлера
+  (`db.commit()` пустой). В `change_password` пользователь пере-запрашивается
+  в сессии хендлера, commit +refresh, аудит `user_password_changed` пишется после commit.
+- **BUG-202** — аудит писался до `db.commit()`: при откате транзакции запись оставалась,
+  а изменения — нет. Введён единый контекст-менеджер `with_audit(db, event_type, **kwargs)`
+  (`manager/src/api/audit_helper.py`): yield → `_log_audit` → commit; исключение → rollback + raise.
+  Переведены: `api/resources.py` (created/updated/deleted), `api/findings.py` (update PATCH),
+  `auth/router.py` (role_created/updated/deleted, change_password).
+- **BUG-214** — `GET /api/audit` и `/api/audit/stats` были доступны viewer/scanner.
+  Добавлено `dependencies=[Depends(require_auditor)]`.
+- **BUG-223** — `GET /api/audit/{id}` — отсутствовал (metadata_json недоступен).
+  Добавлен эндпоинт с `AuditLogDetail` (включает metadata), 404 при отсутствии.
+- **BUG-181** — нет аудита ролей. `POST/PUT/DELETE /api/auth/roles` теперь пишут
+  `role_created`/`role_updated`/`role_deleted`.
+- **BUG-168** — системные роли (`admin/auditor/scanner/viewer`) можно было переименовывать
+  и менять AD-группу → RBAC ломался. Запрещено (400), `description` — редактируется.
+- **BUG-142** — `/api/audit/stats` не возвращал `total_resources` (Dashboard KPI «Ресурсов» = 0).
+  Добавлен `count(Resource.id)`.
+- **BUG-148** — сканер не читал `.env`: `load_dotenv()` добавлен в `run_scanner.py`,
+  блок загрузки `.env` — в `start_scanner.bat`.
+
+### Tests (53.4a-доп3)
+
+- NEW: `tests/unit/test_audit_rollback_v31339.py` (4), `test_auth_password_v31339.py` (4),
+  `test_audit_rbac_v31339.py` (8), `test_roles_crud_audit_v31339.py` (7).
+- `pytest tests/unit` — **455 passed** (DoD ≥433).
+- `pytest tests/e2e` (изолированный стенд `:18000`, нативный сканер) — **53 passed / 7 skipped**.
+
+### Data (53.4a-доп3)
+
+- Удалены ложные `user_password_changed` из `audit_logs` в PostgreSQL (5 записей:
+  id 250, 1886–1889; осталось 0). Cleanup-скрипт — `E:\Temp\opencode\cleanup_pw_audit.py` (вне репо).
+
+### Files (53.4a-доп3)
+
+- `manager/src/api/audit_helper.py` — NEW: `_log_audit` (без commit) + `with_audit`.
+- `manager/src/api/schemas_audit.py` — NEW: `AuditLogDetail` (c metadata).
+- `manager/src/api/audit.py`, `manager/src/api/findings.py`, `manager/src/api/resources.py`,
+  `manager/src/auth/router.py`, `manager/src/auth/schemas.py` — обновлены.
+- `run_scanner.py`, `scripts/start_scanner.bat` — BUG-148.
+- `tests/unit/test_{audit_rollback,auth_password,audit_rbac,roles_crud_audit}_v31339.py` — NEW.
+
+---
+
+## [v3.13.38] — 2026-10-10
+
+### Fixed (53.4a-доп)
+
+- **BUG-139** — WebUI: иконки Font Awesome были цветные (эмодзи вместо монохромных).
+  Добавлены `fa-solid-900.woff2`, `fa-regular-400.woff2`, `fa-brands-400.woff2` в `webui/static/vendor/webfonts/`.
+- **BUG-138** — `finding_detail.js`: `onerror` с HTML в атрибуте давал `SyntaxError`
+  в Console. Заменено на `addEventListener('error')`.
+- **BUG-140** — `finding_detail.js`: reveal для `image_region` был лишним; перезапись
+  `#fragment`; спам аудита; дубль `line`/`match`; `bg-light` вместо `.reveal-block`.
+  Исправлено: toggle + кэш (`cachedReveal`), подсветка match внутри line (`<mark>`),
+  скрытие кнопки reveal для `image_region`.
+
+### Files (53.4a-доп)
+
+- `webui/static/vendor/webfonts/` — NEW: FA 6.4.0.
+- `webui/static/js/finding_detail.js` — обновлён.
+- `webui/static/css/findings.css` — `.reveal-block` + `mark`.
+- `.env` / `.env.example` / compose — `VERSION=3.13.38`.
+
+---
+
+## [v3.13.37] — 2026-10-09
+
+### Added (53.4a, BACKLOG-093, этап 1/5)
+
+- **Dovetail-токены** — `webui/static/css/tokens.css` (dark-only, + legacy-алиасы).
+- **Base** — `webui/static/css/base.css`.
+- **Components** — `webui/static/css/components.css` (override Bootstrap).
+- **Grid-wireframe** — `webui/static/css/grid-wireframe.css` (blueprint-сетка `body::before`).
+- **Локальные шрифты** — `webui/static/vendor/fonts/`:
+  - `inter.woff2` (352 KB, Inter Variable).
+  - `jetbrains-mono.woff2` (40 KB).
+  - `inter.css`, `jetbrains-mono.css` (с `@font-face`).
+- **`DESIGN.md`** — коммит `34e3383` (референс Dovetail, **в корне** — перенос в `docs/` в 53.4e).
+
+### Changed (53.4a)
+
+- `webui/templates/base.html`, `webui/templates/login.html` — `data-theme="dark"`, новые `<link>`, без `theme.js`.
+- `webui/static/css/main.css` — обновлённые `@import`, без дублей глобальных правил и `.btn*`.
+
+### Removed (53.4a)
+
+- `webui/static/css/variables.css` — перенесено в `tokens.css`.
+- `webui/static/css/theme-dark.css` — dark-only, не нужен.
+- `webui/static/js/theme.js` — переключатель темы удалён.
+
+### Известные проблемы (53.4a)
+
+- ⚠️ `unicode-range` в `inter.css` / `jetbrains-mono.css` — **latin-only** (BUG-212).
+- ⚠️ Chart.js палитра — не под Dovetail (BACKLOG-154).
+- ⚠️ Grid-wireframe тонкий (~3% контраста).
+
+---
+
+## [v3.13.36] — 2026-10-07
+
+### Fixed (BUG-137, hotfix)
+
+- **BUG-137** — OCR: тихая потеря находок PNG при параллельной обработке (гонка temp-файлов).
+  Исправлено: `_work_dir`-изоляция temp (`uuid`-подпапка на движок).
+  Добавлен WARNING при потере OCR-ответа.
+- Тест: `tests/unit/test_ocr_worker_race_v31336.py` — 3 прошли.
+
+### Files
+
+- `scanner/utils/ocr_engine.py` — `_work_dir`-изоляция.
+- `scanner/classifiers/pii_classifier.py` — WARNING при потере OCR.
+- `scanner/connectors/_text_scanner.py` — WARNING при пустом документ-OCR.
+
+---
+
+## [v3.13.35] — 2026-10-06
+
+### Fixed (53.3-fix-s3-bucket)
+
+- **`S3LineConnector`** — bucket только из `scan_config.connector.s3.bucket`.
+  Убрано сравнение `parsed.netloc != self._bucket` и ложный WARNING.
+  `s3://bucket/prefix` — суффикс префикса; bucket фиксируется при создании ресурса.
+- **BACKLOG-103** — заведён (fallback на config-секреты → v3.1.0).
+
+### Files
+
+- `scanner/connectors/s3_line_connector.py`.
+- `tests/unit/test_s3_line_connector_v31331.py` — +3 теста.
+- `docs/admin-guide/06-scanner.md` §8.1 — контракт bucket/prefix.
+
+---
+
+## [v3.13.34] — 2026-10-05
+
+### Fixed (53.3-test-stand-fix)
+
+- **TEST-NOTE-10.6** — `manager_test` / `webui_test` стартовали раньше готовности PostgreSQL.
+  Исправлено: healthcheck + `depends_on: service_healthy`.
+- **TEST-NOTE-10.7** — `postgres_test_data` копил pending-задачи.
+  Исправлено: `scripts/run-tests.sh` — режим `all` делает `down -v` + `up -d --wait`.
+
+### Files
+
+- `docker-compose.test.yml` — healthcheck + `service_healthy`.
+- `scripts/run-tests.sh` — режимы `stand` / `all`.
+- `docker-compose.yml` / `docker-compose.s3.yml` — теги образов `${VERSION:-3.13.34}`.
+- `docs/testing.md` — автоматический запуск.
+
+---
+
+## [v3.13.32] — 2026-10-04
+
+### Added (53.3, BACKLOG-097 ч.4)
+
+- **E2E на MinIO** — `tests/e2e/test_s3_e2e.py`.
+- **WebUI-форма S3/MinIO** — `webui/templates/resources.html` (типы `filesystem` / `s3` / `minio`, блок `#s3-fields`).
+- **`docs/admin-guide/06-scanner.md` §8** — «S3/MinIO-сканирование».
+
+### Changed (53.3)
+
+- **`manager/src/api/resources.py`** — вариант B endpoint: query → `S3_DEFAULT_ENDPOINT` → 400.
+  Хардкод `host.docker.internal:9000` удалён.
+
+### Files
+
+- `tests/e2e/test_s3_e2e.py` — NEW, полный живой цикл S3.
+- `tests/unit/test_s3_resource_v31329.py` — 22 теста.
+- `.env.example` — секция `SCANNER: S3/MinIO`.
+
+---
+
+## [v3.13.31] — 2026-10-03
+
+### Added (53.2, BACKLOG-097 ч.3)
+
+- **`S3LineConnector`** — построчный S3/MinIO-коннектор (`scanner/connectors/s3_line_connector.py`):
+  - Streaming через `Body.iter_chunks`.
+  - Документы / OCR — через временный файл + `DocumentExtractor`.
+  - Секреты — только ENV (`S3_ACCESS_KEY` / `S3_SECRET_KEY`).
+  - Интерфейс как у `FilesystemConnector`.
+
+### Fixed (BUG-136)
+
+- **BUG-136** — `decode_text_bytes` не доходил до cp1251-ветки из-за `errors="ignore"` в первой итерации.
+  Исправлено: strict-декод: `utf-8` → `cp1251` → `fallback utf-8 errors="ignore"`.
+  Подтверждено на живых данных MinIO (9 находок).
+
+### Files
+
+- `scanner/connectors/s3_line_connector.py` — NEW.
+- `scanner/connectors/_text_scanner.py` — BUG-136 fix.
+- `scanner/connectors/factory.py` — регистрация `s3` / `minio`.
+- `scanner/src/managed_scanner.py` — `_current_source_type`, `_current_scan_config`, `_parent_of_path`.
+- `tests/unit/test_s3_line_connector_v31331.py` — 16 тестов.
+- `tests/unit/test_decode_text_cp1251_v31331.py` — 5 тестов.
+
+---
+
+## [v3.13.30] — 2026-10-02
+
+### Added (53.1b, BACKLOG-097 ч.2)
+
+- **`scanner/connectors/_text_scanner.py`** — NEW, 5 функций общего построчного пайплайна:
+  `is_supported_file`, `decode_text_bytes`, `file_pass_prefilter`, `scan_text`, `extract_document_text`.
+- **`scanner/connectors/factory.py`** — NEW, реестр `source_type` → коннектор.
+- **`boto3`** — добавлен в `scanner/requirements.txt`.
+- **`S3ConnectorConfig`** — в `scanner/src/config_loader.py`.
+
+### Changed (53.1b)
+
+- **`scanner/connectors/filesystem.py`** — рефакторинг на `_text_scanner`.
+
+---
+
+## [v3.13.29] — 2026-10-01
+
+### Added (53.1a, BACKLOG-097 ч.1)
+
+- **`ScanTask.source_type`** — `filesystem` / `s3` / `minio` (миграция 006).
+- **S3/MinIO-ресурсы** — `manager/src/api/resources.py`:
+  - `POST /api/resources?type=s3&path=s3://bucket/prefix[&endpoint=...]`.
+  - `scan_config.connector.s3 = {endpoint, bucket, prefix, secure, use_path_style, region}`.
+- **Миграция 006** — `manager/src/db/migrations/versions/006_add_source_type.py` (идемпотентна).
+
+### Changed (53.1a)
+
+- **`POST /api/resources/{id}/scan`** — проставляет `source_type = (resource.type or "filesystem").lower()`.
+- **`manager/src/api/scanner.py`** — `source_type` в payload задачи.
+
+### Files
+
+- `tests/unit/test_s3_resource_v31329.py` — 19 тестов.
+
+---
+
+## [v3.13.28] — 2026-09-30
+
+### Fixed (Блок 9, Безопасность — 10 BUG)
+
+- **BUG-103** — MetricsMiddleware — outermost, нормализация endpoint.
+- **BUG-105** — Volume PKI: `./certs:/app/certs:ro`.
+- **BUG-106** — Machine-endpoints: mTLS до `_is_public`.
+- **BUG-107** — CRL enforce на 2 уровнях: TLS + middleware.
+- **BUG-108** — mTLS strict → `CERT_REQUIRED`.
+- **BUG-110** — Reveal при ошибке → 409 + аудит.
+- **BUG-111/114…116** — (см. `block9_fix_sprint_v31328_report.md`).
+
+### Added (Блок 6, Агенты)
+
+- **Windows-агент** — служба `DCAPAuditAgent` (Automatic), Security Log через `wevtutil`.
+- **Linux-агент** — WSL 2 (Ubuntu 22.04), systemd-user, `watchdog`.
+- **S3-агент** — MinIO (нативный), seed-логи.
+- **BUG-122** — systemd-unit portable.
+
+### Files
+
+- `block9_fix_sprint_v31328_report.md`.
+- `block6_agents_full_report.md`.
+
+---
+
+## [v3.13.27] — 2026-09-29
+
+### Fixed (BUG-102)
+
+- **BUG-102** — Retention + sweep падали на `Mapper[Finding] ... 'User' failed to locate a name`.
+  Фикс: импорт `User` из `auth.models` в 6 модулях + `configure_mappers()` в `celery_app.py`.
+
+### Files
+
+- `day_50_bug102_celery_mapper_report.md`.
+
+---
+
+## [v3.13.26] — 2026-09-28
+
+### Added (BUG-098…101, 101b)
+
+- **BUG-098** — `PATCH /findings/{id}` — аудит.
+- **BUG-099** — `POST /findings/bulk` — аудит (по одной записи на finding).
+- **BUG-100** — Сброс review-полей при `new` (`_apply_status`).
+- **BUG-101/101b** — `DELETE /findings/{id}` — аудит; FP `file_path`.
+- Единая точка аудита `_log_finding_status_change` (без commit — batch).
+
+### Files
+
+- `day_49_bug098_101_report.md`.
+
+---
+
+## [v3.13.25] — 2026-09-27
+
+### Fixed (BUG-096/096b/097)
+
+- **BUG-096** — `/false-positives` 500.
+- **BUG-096b** — устаревшие E2E.
+- **BUG-097** — зависшие задания.
+
+### Files
+
+- `day_48.3_bug096_097_report.md`.
+
+---
+
+## [v3.13.24] — 2026-09-26
+
+### Added (BUG-095)
+
+- **BUG-095** — Аудит аутентификации и управления пользователями:
+  - `auth_login`, `auth_failed`, `auth_logout`.
+  - `user_created`, `user_updated`, `user_password_changed`.
+  - `role_assigned`, `role_revoked`, `user_deleted`.
+  - `auth_refresh` — не логируется.
+  - `_sanitize` — рекурсивно вырезает secrets.
+
+### Files
+
+- `day_48.2_bug095_auth_audit_report.md`.
+
+---
+
+## [v3.13.23] — 2026-09-25
+
+### Fixed (BUG-094)
+
+- **BUG-094** — Аудит reveal: ложное срабатывание. `user` в SQL — в кавычках.
+
+### Files
+
+- `day_48.1_bug087_audit_user_report.md`.
+
+---
+
+## [v3.13.22] — 2026-09-24
+
+### Added (Блок 5, п.2.3 — WebUI)
+
+- Фильтры, пагинация, аудит, экспорт findings.
+- `detector`, `fragment_type`, `search` — в `GET /api/findings`.
+- `X-Total-Count` — заголовок.
+
+### Files
+
+- `day_48_block5_webui_filters_report.md`.
+
+---
+
+## [v3.13.21] — 2026-09-23
+
+### Fixed (BUG-086)
+
+- **BUG-086** — Masking контекстов: `_CONTEXT_PATTERNS` — 22 паттерна (17 категорий).
+  Специфичные токены раньше generic.
+
+### Files
+
+- `day_47.7_fix_bug086_mask_context_report.md`.
+
+---
+
+## [v3.13.20] — 2026-09-22
+
+### Fixed (BUG-080/081)
+
+- **BUG-080** — Heartbeat backoff: `[5, 10, 30, 60, 120]`.
+- **BUG-081** — Graceful shutdown сканера.
+
+### Files
+
+- `day_47.6_backlog080_081_scanner_reliability_report.md`.
+
+---
+
+## [v3.13.19] — 2026-09-21
+
+### Added (BACKLOG-086)
+
+- **Встроенные OCR-фрагменты в БД**:
+  - `fragment_data` (LargeBinary), `fragment_mime`, `fragment_hash`, `fragment_size`, `fragment_embedded_at`.
+  - Миграция `005_add_fragment_columns.py`.
+  - Base64-encoded PNG в payload от сканера.
+
+### Files
+
+- `day_47.5_backlog086_embed_fragments_report.md`.
+
+---
+
+## [v3.13.18] — 2026-09-20
+
+### Fixed (BUG-077 diag)
+
+- **BUG-077** — Manager дефолтил `bbox` (H3).
+
+### Files
+
+- `day_47.4_bug077_diag_report.md`.
+
+---
+
+## [v3.13.17] — 2026-09-19
+
+### Fixed (BUG-077)
+
+- **BUG-077** — `bounding_box=None` для OCR + fallback.
+
+### Files
+
+- `day_47.3_fix_bug077_report.md`.
+
+---
+
+## [v3.13.16] — 2026-09-18
+
+### Fixed (Fix-спринт №7, BUG-075)
+
+- **BUG-075** — url = домен email.
+
+### Files
+
+- `day_46.10_fix_sprint_7_report.md`.
+
+---
+
+## [v3.13.15] — 2026-09-17
+
+### Fixed (Fix-спринт №6)
+
+- url-over-email (line_text), аббревиатуры, uk_nhs.
+
+### Files
+
+- `day_46.9_fix_sprint_6_report.md`.
+
+---
+
+## [v3.13.14] — 2026-09-16
+
+### Fixed (Fix-спринт №5)
+
+- url-over-email, OCR-markup, spaCy noise, credentials.
+
+### Files
+
+- `day_46.8_fix_sprint_5_report.md`.
+
+---
+
+## [v3.13.13] — 2026-09-15
+
+### Fixed (Fix-спринт №4)
+
+- OCR-секция + Presidio ru+en.
+
+### Files
+
+- `day_46.7_fix_sprint_4_report.md`.
+
+---
+
+## [v3.13.12] — 2026-09-14
+
+### Fixed (Fix-спринт №3)
+
+- OCR, HTTP-retry, Luhn, dedup.
+
+### Files
+
+- `day_46.5_fix_sprint_3_report.md`.
+
+---
+
+## [v3.13.11] — 2026-09-13
+
+### Fixed (Fix-спринт №2)
+
+- ENV-ключи Findings.
+
+### Files
+
+- `day_46_report.md`.
+
+---
+
+## [v3.13.10] — 2026-09-12
+
+### Fixed (Fix-спринт №2)
+
+- middleware BUG-048b.
+
+---
+
+## [v3.13.9] — 2026-09-11
+
+### Fixed (Fix-спринт №1)
+
+- Auth/RBAC.
+
+### Files
+
+- `day_45_fix_sprint_report.md`.
+
+---
+
+## [v3.13.8] — 2026-09-10
 
 ### Added
 
-- 📁 `scanner/connectors/_text_scanner.py` — общий построчный пайплайн, вынесенный
-  из `FilesystemConnector`, чтобы `S3LineConnector` (53.2) переиспользовал ту же
-  логику без копипасты. Только функции, без состояния источника:
-  `is_supported_file` / `decode_text_bytes` / `file_pass_prefilter` / `scan_text` /
-  `extract_document_text` + константы `DEFAULT_TEXT_EXTENSIONS`,
-  `DOCUMENT_EXTENSIONS`, `IMAGE_EXTENSIONS`, `CRED_FILENAMES`. `extract_document_text`
-  принимает **байты** (не путь) — чтобы FS и S3 могли переиспользовать.
-- 📁 `scanner/connectors/factory.py` — реестр `source_type → фабрика`:
-  `register_line_connector()` / `create_line_connector()` / `registered_types()`.
-  В 53.1b зарегистрирован только `filesystem` (в конце `filesystem.py`).
-  Для `s3`/`minio` — `ValueError` с текстом «S3 support arrives in day 53.2»,
-  чтобы сканер упал с понятным сообщением, а не открывал `s3://bucket` как папку.
-- 📁 `scanner/src/config_loader.py` — `S3ConnectorConfig`
-  (`endpoint`/`bucket`/`prefix`/`secure`/`use_path_style`/`region`) и опциональное
-  поле `ConnectorConfig.s3`. **Секретов нет** — только ENV `S3_ACCESS_KEY` /
-  `S3_SECRET_KEY` на хосте сканера.
-- 📁 `scanner/config/scanner_config.json` — секция `connector.s3` (дефолтный шаблон,
-  перекрывается payload'ом задачи от Manager).
-- 📁 `scanner/requirements.txt` — `boto3>=1.34.0` (код в 53.1b его не импортирует).
-- 📁 3 файла unit-тестов (24 теста): `test_factory_v31330.py`,
-  `test_text_scanner_extract_v31330.py`, `test_catalog_entries_s3_v31330.py`.
+- Блок 1 (Smoke) + AD-контейнер.
 
-### Changed
+### Files
 
-- ♻️ `scanner/connectors/filesystem.py` — рефакторинг на `_text_scanner`
-  (**поведение не меняется**): удалены `_scan_text`, `_file_pass_prefilter`,
-  `_extract_document`; `_is_supported` → `is_supported_file`; `scan_file` читает
-  байты и зовёт `extract_document_text` + `shared_scan_text`; `_read_text`
-  использует `decode_text_bytes`. Осталось FS-специфичное: `_discover_files`,
-  `_within_size`, `scan_path` (ThreadPool), `scan_file` (диспетчер по расширению).
-- ♻️ `scanner/src/managed_scanner.py` — коннектор выбирается по `source_type` из
-  payload задачи через фабрику (`_init_line_pipeline` → `create_line_connector`);
-  добавлено поле `_current_source_type`; коннектор пересоздаётся на каждой задаче;
-  новый helper `_parent_of_path()` корректно вычисляет родителя для
-  `s3://bucket/key` (`Path(...).parent` давал `s3:/bucket`).
-
-### Tests
-
-- `tests/unit/`: **402 passed** (было 378, +24), регрессий нет.
-- Обновлён `tests/unit/test_ocr_bbox_v31317.py`: моки переведены с удалённых
-  приватных методов (`_extract_document`, `_scan_text`) на функции-модули
-  (`fs_mod.extract_document_text`, `fs_mod.shared_scan_text`). Проверяемая логика
-  BUG-077 в `scan_file` не менялась.
-
-### Известные ограничения
-
-- Сканер по-прежнему **не умеет S3** — это граница 53.1b. Задача `source_type=s3`
-  завершается `failed` с сообщением «S3 support arrives in day 53.2».
-- `scanner/connectors/s3_connector.py` (247 строк, `ISourceConnector`) не тронут и
-  не используется — его место займёт новый `S3LineConnector` в 53.2.
+- `day_43_*`, `day_44_*`.
 
 ---
 
-## [3.13.29] — 2026-10-03 — День 53.1a: `source_type` для S3-ресурсов (BACKLOG-097, часть 1: Manager)
+## [v3.13.3-v3.13.7] — 2026-09-05..09
 
 ### Added
 
-- 📁 `manager/src/db/migrations/versions/006_add_source_type.py` — колонка
-  `scan_tasks.source_type VARCHAR(20) NOT NULL DEFAULT 'filesystem'` + индекс
-  `ix_scan_tasks_source_type`. Идемпотентная (inspect-guard, как 002/005): на
-  свежих БД колонка создаётся из `Base.metadata`, `add_column` пропускается.
-- 📁 `manager/src/db/models.py` — `ScanTask.source_type`
-  (`String(20), default="filesystem", nullable=False, index=True`) сразу после
-  `source_path`.
-- `POST /api/resources` — создание **S3/MinIO-ресурсов**: query-параметры
-  `type` (`s3` | `minio`), `endpoint`, `secure`, `use_path_style`, `region`;
-  `path` вида `s3://bucket[/prefix]`. В `scan_config` добавляется секция
-  `connector.s3` (`endpoint` / `bucket` / `prefix` / `secure` /
-  `use_path_style` / `region`). Дефолтный endpoint — `S3_DEFAULT_ENDPOINT`
-  или `host.docker.internal:9000` (MinIO Блока 6).
-- `GET /api/scanner/tasks/pending` — в payload задачи появился **`source_type`**
-  (fallback-цепочка `task.source_type → resource.type → 'filesystem'`),
-  чтобы сканер выбирал коннектор явно, а не угадывал по префиксу `s3://`.
-
-### Fixed
-
-- 📁 `manager/src/api/resources.py` — **регрессия BUG-059:** уникальность
-  ресурса проверялась только по `path`, хотя миграция
-  `004_resources_path_type_unique` разрешает одинаковый `path` с разным
-  `type`. Теперь проверяется пара `(path, type)`.
-- Валидация типа ресурса: whitelist `filesystem` / `s3` / `minio`, всё
-  остальное → `400`. Раньше произвольный `type` молча попадал в БД.
-- Валидация S3-пути: схема должна быть `s3://` / `minio://`, `bucket`
-  (netloc) — непустой, иначе `400`.
-
-### Changed
-
-- `POST /api/resources/{id}/scan` — в `ScanTask` прописывается
-  `source_type` из `Resource.type` (в `lowercase`).
-- Секреты S3 в `scan_config` **не пишутся** — только ENV на хосте сканера
-  (`S3_ACCESS_KEY` / `S3_SECRET_KEY`), единая политика TASK-018.
-
-### Тесты
-
-- 📁 `tests/unit/test_s3_resource_v31329.py` — **19 unit-тестов**: создание
-  filesystem/s3/minio-ресурсов, дефолты и кастомный endpoint, endpoint из ENV,
-  валидация пути, уникальность `(path, type)`, `source_type` в задаче,
-  `source_type` в payload пендинга (включая нормализацию регистра и
-  приоритет `task.source_type` над `resource.type`).
-- `tests/unit` — **378 passed** (было 359 + 19 новых), регрессий нет.
-- Миграция 006 проверена на SQLite **и** PostgreSQL: `upgrade head`,
-  `downgrade → upgrade` (round-trip), повторный `upgrade head` (идемпотентность).
-
-### Not fixed (требует отдельного ТЗ)
-
-- Сканер по-прежнему игнорирует `source_type` и создаёт `FilesystemConnector`
-  жёстко — это **53.1b** (фабрика коннекторов, `_text_scanner.py`, boto3).
-- WebUI-форма добавления S3-ресурса отсутствует (только API/Swagger) — **53.3**.
+- Начало v3.0.0 (WebUI, AD, безопасность, Findings Refactor).
 
 ---
 
-## [3.13.28] — 2026-10-03 — Фикс-спринт Блок 9: 10 багов безопасности (BUG-103/105/106/107/108/110/111/114/115/116)
-
-### Fixed
-
-- **BUG-115 🟡 medium — `/api/findings/count` без явного `require_auth`** — 📁 `manager/src/api/findings.py`
-  Эндпоинт не декларировал `Depends(require_auth)`, полагаясь только на
-  `AuthMiddleware`, закрывающий `/api/*`. Анонимный доступ фактически
-  блокировался middleware (проверено на v3.13.27: 401 c
-  `WWW-Authenticate: Negotiate`), поэтому это **эшелонированная защита**, а не
-  открытая утечка: при любом ослаблении/пробросе middleware (например, через
-  WebUI-прокси) маршрут оставался без собственной проверки.
-  **Решение:** `Depends(require_auth)` на маршрут.
-
-- **BUG-110 🔴 critical — reveal падал в 500 при недоступном ключе расшифровки** — 📁 `manager/src/api/findings.py`
-  Ошибка `decrypt()` пробрасывалась наружу. **Решение:** отлов `ValueError`,
-  ответ `409 Conflict` (не 500) + аудит-событие `finding_reveal_failed`.
-  Успешный reveal остался `200`.
-
-- **BUG-114 🟠 high — экспорт находок не аудировался** — 📁 `manager/src/api/findings.py`
-  Событие создавалось, но без `source_host`, из-за чего источник выгрузки
-  установить было невозможно; `file_path` писался одним значением вместо списка.
-  **Решение:** `request` в сигнатуре, `source_host` из клиента, агрегация
-  `file_path` (до 10 путей, остальные сворачиваются в `...`).
-
-- **BUG-111 🟠 high — ошибка расшифровки роняла список находок** — 📁 `manager/src/api/findings.py`
-  `_resolve_text()` не перехватывал исключение: одна «битая» находка валила
-  весь `GET /api/findings`. **Решение:** `except Exception` → masked-заглушка,
-  листинг остаётся доступным.
-
-- **BUG-107 🟠 high — CRL не проверялся по TLS** — 📁 `manager/src/core/security.py`, `manager/src/auth/middleware.py`
-  Сертификаты не сверялись со списком отзыва. **Решение:** `VERIFY_CRL_CHECK_LEAF`,
-  проверка DER через `getpeercert(binary_form=True)` → `is_revoked()` в
-  `_check_mtls()`, конвертация DER↔PEM (`_to_pem`).
-
-- **BUG-108 🟠 high — `run_manager.py` игнорировал `CertificateManager`** — 📁 `run_manager.py`
-  Собственный `ssl.SSLContext` без проверки CRL и без единой точки конфигурации.
-  **Решение:** единый `get_server_ssl_context()`; strict → `CERT_REQUIRED`,
-  relaxed → `CERT_OPTIONAL`; `${VAR:-default}` через `_resolve_env`.
-
-- **BUG-106 🟡 medium — machine-эндпоинты не проходили mTLS-проверку** — 📁 `manager/src/auth/middleware.py`
-  `_is_public()` помечал `/api/scanner*`, `/api/audit/agents/*`,
-  `/api/audit/events` публичными, и `_check_mtls()` не вызывался в `dispatch()`.
-  **Решение:** machine-prefixes исключены из public, `_check_mtls()` вызывается
-  явно, CN клиента попадает в `request.state.client_cert_cn`.
-
-- **BUG-105 🟡 medium — контейнер Manager монтировал неверный каталог PKI** — 📁 `docker-compose.yml`
-  Было `./manager/certs:/app/certs`, при генерации `scripts/generate_certs.py`
-  кладёт сертификаты в `./certs`. При `mtls_enabled=true` Manager не находил PKI.
-  **Решение:** `./certs:/app/certs:ro`.
-
-- **BUG-103 🟡 medium — метрики не видели 401 и раздували cardinality** — 📁 `manager/src/metrics.py`, `manager/src/main.py`
-  `MetricsMiddleware` стоял **внутри** `AuthMiddleware`, поэтому отказы
-  авторизации не попадали в `dcap_http_requests_total`; кроме того, метка
-  `endpoint` бралась из сырого пути, и каждый `/api/findings/{id}` создавал
-  новую серию. **Решение:** middleware зарегистрирован последним (outermost);
-  нормализация через шаблон маршрута с regex-fallback (`{id}`, `{uuid}`, `{hash}`).
-
-- **BUG-116 🟡 medium — повторный прогон reencrypt ломал дедупликацию** — 📁 `scripts/reencrypt_findings.py`, `webui/templates/findings.html`, `webui/static/js/findings.js`
-  После ротации `hmac_key` все fingerprint'ы пересчитывались, но дубликаты
-  не помечались, а UI не знал о статусе `duplicate`. **Решение:** пересчёт FP
-  новым ключом с использованием `Resource.path`, флаги `--dedup` /
-  `--delete-duplicates`, статус `duplicate` + фильтр и badge в WebUI.
+## [v3.13.0-v3.13.2] — 2026-09-01..04
 
 ### Added
-- 📁 `tests/unit/test_security_block9_v31328.py` — 42 unit-теста на все 10 багов.
-- 📁 `tests/e2e/test_security_block9_e2e_v31328.py` — 5 E2E-тестов против живого Manager.
 
-### Fixed (вне scope Блока 9, найдено при прогоне E2E)
-- **Регресс зависимости — свежая сборка падала на `ModuleNotFoundError: No module named 'psycopg'`** — 📁 `manager/src/db/session.py`, `manager/src/db/migrations/env.py`
-  `requirements.txt` не закрепляет SQLAlchemy; в свежей сборке подтянулся
-  SQLAlchemy 2.1.3, где голая схема `postgresql://` по умолчанию тянет
-  отсутствующий psycopg v3 (проект ставит `psycopg2-binary`). Рабочий образ
-  содержал SQLAlchemy 2.0.54 и поэтому маскировал проблему.
-  **Решение:** `_normalize_url()` — явная схема `postgresql+psycopg2://`;
-  используется в `session.py` и в Alembic `env.py`. Явные драйверы
-  (`+psycopg`, `+pg8000`) не трогаются.
-
-### Тесты
-- `tests/unit`: **359 passed** (было 317 + 42 новых), регрессий нет.
-- `tests/e2e`: **46 passed, 12 skipped** против живого Manager на `:18000`.
-- `manager/tests`: 44 passed, 1 пре-существующее падение (`test_retention.py::test_archiver_findings`,
-  `Finding.file_path` → `fragment_path`, не связано со спринтом).
-
-### Fixed — Блок 6 (Агенты)
-
-**BUG-120 🔴 critical — S3-агент лез в AWS S3 вместо MinIO** — 📁 `.env`, `docker-compose.yml`, `docker-compose.s3.yml`
-S3-агент не отправлял события (`events_sent: 0` за 3 недели). Причина:
-в `.env` задан `S3_ENDPOINT=https://s3.amazonaws.com` и пустые credentials.
-**Решение:** `S3_ENDPOINT=http://host.docker.internal:9000`, MinIO развёрнут нативно.
-Live: 16 событий в `audit_logs` (`event_source='s3_agent'`).
-
-**BUG-122 🟡 medium — systemd-unit Linux-агента не portable** — 📁 `audit-agent-linux/service/*`
-Unit-файл содержал `User=kirill` и `/home/kirill/dcap-system/...` — на любом другом хосте не работал.
-**Решение:** плейсхолдеры `__DCAP_USER__` / `__DCAP_HOME__` / `__DCAP_PYTHON__` + `install.sh` подставляет.
-
-### Added — Блок 6 (Агенты)
-
-- **Windows-агент как служба** (`DCAPAuditAgent`, Automatic) — читает Security Log, отправляет 4663/4656/4660.
-- **Linux-агент в WSL 2** — systemd-user (`~/.config/systemd/user/dcap-audit-agent.service`), использует `watchdog`.
-- **MinIO нативный** (`E:\Dev\MinIO\bin\minio.exe`) — бакет `dcap-audit-logs`, seed-логи.
-- **Setup-скрипты:** `scripts/minio-seed/access-logs/*.json`, `*.csv`.
-- **Audit Policy + SACL на Windows** — `auditpol` + `FileSystemAuditRule` через `S-1-1-0`.
-- **Ubuntu 22.04 в WSL 2** — установлен, systemd включён через `/etc/wsl.conf`.
-
-### Known issues (v3.1.0)
-
-- **BUG-123** — Windows-агент: сбор прав = 0 (2 бага: распаковка ACE, `win32security.*` → `win32file.*`).
-- **BUG-135** — S3-агент: `json.loads` падает на BOM.
-- **BUG-125** — Linux-агент: `MANAGER_URL` env игнорируется.
-- **BUG-130** — Linux-агент: retry без backoff.
-- **BUG-131** — WSL → Manager: `localhost:8000` терялся при зависании Docker (само-исправился).
-- **BUG-132** — S3-агент не переустанавливает соединение после перезагрузки Docker.
+- См. предыдущие CHANGELOG.
 
 ---
 
-## [3.13.27] — 2026-09-30 — День 50, BUG-102: Retention и sweep_scheduled_scans падали на Mapper[Finding] ... 'User'
-
-### Fixed
-- **BUG-102 🔴 critical — Retention и `sweep_scheduled_scans` не работали вообще** — 📁 `manager/src/workers/tasks.py` (+ `celery_app.py`, `retention/*`, `services/access_service.py`)
-  Тот же класс бага, что BUG-096, но в другом модуле: `Finding.reviewer` объявлен
-  строкой — `relationship("User", ...)`, а сам `User` определён в
-  `manager/src/auth/models.py`. Celery-воркер этот модуль не импортировал, поэтому
-  первое же обращение к `Finding` роняло инициализацию mapper'ов **всего** registry:
-
-  ```
-  When initializing mapper Mapper[Finding(findings)],
-  expression 'User' failed to locate a name ('User')
-  ```
-
-  Ошибка каскадная: после первого сбоя `Mapper[Finding]` все последующие попытки
-  падали с «One or more mappers failed to initialize». `run_retention` при этом
-  **формально отчитывался об успехе** — все 5 шагов (архивация audit, архивация
-  findings, очистка архивных таблиц, очистка tasks, экспорт) возвращали
-  `{"archived": 0, "error": "When initializing mapper ..."}`, то есть цикл не делал
-  ничего. `sweep_scheduled_scans` возвращал `{"error": "When initializing mapper ..."}`
-  и не запускал запланированные сканирования.
-  **Решение:** явный импорт `User` в точку входа воркера до первого обращения к
-  моделям (Вариант A ТЗ) + fail-fast `configure_mappers()` в `celery_app.py`
-  (Вариант B, страховка). Вариант C (`db/__init__.py`) отклонён: `auth.models`
-  импортирует `Base` из `db.models`, при первом импорте `auth.models` возникает
-  частичный цикл.
-  **Проверено «заодно»:** тот же дефект был в `retention/archiver.py`,
-  `retention/cleaner.py`, `retention/exporter.py` и `services/access_service.py` —
-  они работали только потому, что в API-процессе раньше них импортировался
-  `auth.models`; в воркере и при standalone-запуске гарантии не было.
-  Live: `POST /api/retention/run?dry_run=true` → все 5 шагов без `error`;
-  `POST /api/retention/start` (Celery) → задача выполнена за 0.15 с без
-  mapper-ошибки; `sweep_scheduled_scans` → `{'dispatched': []}`, ошибки нет.
+## [v3.12.0] — 2026-08-31
 
 ### Added
-- **TASK-073 — тесты BUG-102** — 📁 `tests/unit/test_celery_mapper_v31327.py` (13), `tests/e2e/test_retention_e2e.py` (1)
-  Ключевой приём: регрессионные проверки выполняются в **чистом подпроцессе**,
-  который импортирует ровно то, что импортирует Celery-воркер. Проверка в том же
-  процессе pytest не годится — `User` нужен в registry глобально и появляется там
-  при первом же импорте любого API-модуля, поэтому баг маскировался бы и тест
-  проходил бы на сломанном коде. На коде без фикса падают 12 из 13 тестов с
-  настоящим сообщением `failed to locate a name ('User')`.
-  Функциональный сценарий (`run_retention` + `sweep_scheduled_scans` на временной
-  SQLite) готовит схему в родительском процессе и открывает её из подпроцесса —
-  так `Base.metadata.create_all` не требует импортировать `auth.models`, и падение
-  остаётся именно mapper-ошибкой, а не `NoReferencedTableError`.
-- **TEST-NOTE-7.1…7.5** — зафиксированы в `ROADMAP.md` (`findings_archive` —
-  legacy-таблица вне ARCHITECTURE.md; `last_run`/`last_result` retention живут
-  только в памяти; `findings.ttl_days=180` без архивации; dry_run через API
-  работает и без Celery; Flower не видит worker'ов).
 
-### Changed
-- Версия 3.13.26 → **3.13.27**: `.env`, `.env.example`, `docker-compose.yml`
-  (включая устаревшие fallback `${VERSION:-3.13.12}`, из-за которых образы
-  собирались со старой версией при отсутствии `.env`).
-- Полный прогон: **317 unit passed** (было 304, +13), **47 E2E passed / 6 skipped**
-  (было 46/6, +1).
+- Findings Refactor (v3.9.0-v3.10.0):
+  - Гибрид: masked + encrypted.
+  - AES-256-GCM.
+  - HMAC-SHA256 fingerprint (вместо SHA256).
+  - Миграция `003_findings_refactor.py`.
 
 ---
 
-## [3.13.26] — 2026-09-29 — День 49, BUG-098 / BUG-099 / BUG-100 / BUG-101: аудит ревью, сброс ревью-полей, пагинация и путь FP
-
-### Fixed
-- **BUG-101 🔴 — PATCH + bulk не писались в `audit_logs`** — 📁 `manager/src/api/findings.py`
-  Смена статуса находки нигде не аудировалась: за 30 минутlive-активности в журнале
-  оказалось 0 записей `finding_confirmed` / `finding_false_positive` / `finding_updated`
-  (только `auth_login`), хотя PATCH и bulk вызывались 10+ раз. Сравнение подтвердило,
-  что аудит в модуле работает (`finding_reveal`, `fragment_accessed`, `findings_exported`).
-  **Исправление:** хелпер `_log_finding_status_change()` с маппингом статуса на `event_type`
-  (`confirmed` → `finding_confirmed`, `false_positive` → `finding_false_positive`,
-  `archived` → `finding_archived`, `new` → `finding_reset`), вызов в `update_finding`
-  (`via='patch'`) и в `bulk_update` (`via='bulk'`, **по записи на каждую находку** —
-  Вариант A из ТЗ, удобнее искать по `finding_id` в SIEM). Записи копятся без коммита и
-  пишутся одним коммитом вызывающего кода — bulk не делает N commit'ов.
-  В `metadata_json`: `action`, `finding_id`, `category`, `finding_type`, `old_status`,
-  `new_status`, `comment`, `via`. В `audit_logs.user` — реальный пользователь.
-  Live: 4 записи от PATCH (включая `finding_reset`) + 2 от bulk за одну операцию.
-- **BUG-101 (открытый вопрос ТЗ) — DELETE findings тоже не аудировался** — 📁 `manager/src/api/findings.py`
-  Проверено в ходе фикса: `DELETE /api/findings/{id}` (только Admin) удалял находку без
-  следа в журнале. Добавлена запись `finding_deleted` (`old_status`, `resource_id`,
-  `via='delete'`), которая создаётся **до** `db.delete()` и уходит в том же коммите —
-  после коммита инстанс expire'ится и `fragment_path`/`category` уже не прочитать.
-- **BUG-100 🟡 — PATCH `status=new` не очищал поля ревью** — 📁 `manager/src/api/findings.py`
-  Сброс ревью оставлял `reviewed_by` / `reviewed_at` от предыдущего ревьюера, и находка
-  со статусом `new` выглядела одобренной (а `/false-positives` сортирует по `reviewed_at`).
-  **Исправление:** общая функция `_apply_status()` — при `status='new'` поля ревью
-  очищаются в `None`, `comment` берётся из тела запроса (решение ТЗ). Тот же путь
-  использует `bulk_update`, поэтому поведение PATCH и bulk больше не расходится.
-- **BUG-099 🟡 — `/false-positives?offset=-1` / `?limit=-5` → 500** — 📁 `manager/src/api/findings.py`
-  В `list_false_positives` остались старые `limit: int = Query(100, le=1000)` /
-  `offset: int = 0` без нижних границ — отрицательные значения доходили до
-  `.offset(-1)` / `.limit(-5)`, и PostgreSQL отвечал ошибкой → HTTP 500.
-  **Исправление:** `OptInt` + `_clamp_int()` как в `list_findings`.
-  Проверен весь `manager/src/api/`: остальные эндпоинты защищены валидацией
-  `ge/le` (422 вместо 500), `retention.py` — явной проверкой (400). Реальных
-  случаев 500 не осталось.
-- **BUG-098 🟡 — `/false-positives` отдавал `file_path` = директория** — 📁 `manager/src/api/findings.py`
-  `file_path` брался из `res_map` (путь **ресурса** = сканируемая папка) раньше
-  `fragment_path` (путь **файла**), поэтому один и тот же finding давал разные пути
-  в `/false-positives` и в `/findings?status=false_positive`. **Исправление:**
-  `fragment_path` в приоритете, `res_map` — только fallback для находок без фрагмента.
-  Live: `C:\test\scanner_clean\pii\phones_clean.txt` (ожидаемое из ТЗ значение).
+## [v3.0.0-v3.11.0] — 2026-06..08
 
 ### Added
-- Тесты (40 новых, юнит-прогон 264 → 301):
-  - `tests/unit/test_audit_status_change_v31326.py` — 18 (все 4 статуса через PATCH,
-    bulk по записи на находку, `metadata` old/new, `via=patch|bulk`, реальный `user`,
-    аудит удаления, отсутствие записей при 404);
-  - `tests/unit/test_patch_reset_clears_review_v31326.py` — 8 (очистка `reviewed_by` /
-    `reviewed_at`, `comment` из тела, сброс из `false_positive` и `confirmed`,
-    регрессия «для confirmed/false_positive/archived ревью проставляется»);
-  - `tests/unit/test_fp_pagination_v31326.py` — 8 (`offset=-1`, `limit=-5`, `limit=0`,
-    `limit=99999`, пустые параметры, валидная пагинация, offset за концом);
-  - `tests/unit/test_fp_file_path_v31326.py` — 6 (путь файла, не директория;
-    согласованность с `/findings`; fallback на путь ресурса; несколько строк).
-
-### Changed
-- `update_finding`, `bulk_update` и `delete_finding` принимают `request: Request` —
-  нужен `source_host` для записи аудита.
-- `tests/unit/test_false_positives_v31325.py` — ассерт `file_path` обновлён: ранее тест
-  закреплял **баговое** значение (директорию ресурса), теперь — путь файла.
-
----
-
-## [3.13.25] — 2026-09-28 — День 48.3, BUG-096 / BUG-096b / BUG-097: /false-positives, зависшие задания и осиротевшие пачки
-
-### Fixed
-- **BUG-096 — 500 на `/api/findings/false-positives`** (TASK-064): в `manager/src/api/findings.py`
-  использовалась несуществующая ссылка `_m.User`. `User` — это модель `manager/src/auth/models.py`,
-  а не `manager/src/db/models.py`, поэтому любой запрос к эндпоинту падал с
-  `AttributeError: module 'manager.src.db.models' has no attribute 'User'` (HTTP 500).
-  Исправлено: импорт `User` из `manager.src.auth.models`, `Resource` — из `manager.src.db.models`.
-  Live: `GET /api/findings/false-positives` → 200.
-- **BUG-097 — задания навечно застревали в статусе `assigned`, в логах 404 на `/tasks/{id}/results`** (TASK-066).
-  Полная цепочка причин (установлена на живой системе):
-  1. E2E создавал задание на `tmp_path`, который pytest удалял после теста; сканер
-     падал на несуществующем пути, а исключение глушилось внешним `except Exception`
-     в `main()` — задание оставалось в `assigned` до `TASK_TIMEOUT_MINUTES` (30 минут)
-     в Manager, и каждое новое задание вставало в очередь за зависшими;
-  2. офлайн-пачка `scanner/data/offline/task_43.json` по удалённой задаче
-     ретраилась **бесконечно** — 404 на каждом цикле `main()`.
-  Исправлено в `scanner/src/managed_scanner.py`:
-  - новый `SubmitStatus` (`OK` / `RETRY` / `LOST`) и `submit_results_status()`:
-    404/410 → `LOST`; прежний `submit_results()` сохранён как bool-обёртка;
-  - `_flush_offline()` отбрасывает пачку потерянного задания (файл удаляется)
-    вместо бесконечного retry; `LOST` не прерывает разбор очереди;
-  - главный цикл: исключение в `_execute_task()` больше не оставляет задание
-    в `assigned` — задание сразу переводится в `failed` через
-    `_fail_task_safely()`, причина логируется со стеком (`logger.exception`).
-  В `manager/src/api/scanner.py` 404 на `/tasks/{task_id}/results` теперь
-  логируется с `task_id`, `scanner_id`/CN клиента и `batch`/`total` (было
-  без контекста в generic-логе).
-- **BUG-096b — падавшие E2E-тесты** (TASK-065):
-  - `test_full_scan_cycle`: `finding_type` (`pii`/`credentials`/`code`) и
-    гранулярный `category` вместо устаревших полей;
-  - `tests/fixtures/manager.py`: `_get_with_retry()` — обход разрыва
-    keep-alive соединения (`RemoteDisconnected` при опросе каждые 5 с против
-    uvicorn `timeout_keep_alive=5`), 3 попытки с паузой и закрытием соединения;
-  - `test_scanner_findings`: precheck активного сканера (иначе skip вместо
-    таймаута 300 с), ожидание задания 240 с + `@pytest.mark.timeout(600)`
-    (глобальный `timeout = 300` в `pyproject.toml` убивал тест ровно в момент
-    ожидания), освобождение зависших заданий перед прогоном, задание больше не
-    забирается вручную через `/tasks/pending` (это переводило его в `assigned`,
-    и реальный сканер его уже не видел — полный цикл проходит за ~15 с),
-    ассерт на `fingerprint` заменён на реальный контракт `/api/findings`.
-
-### Tests
-- 264 unit passed (было 242: +8 BUG-096, +14 BUG-097).
-- 50 E2E passed, 2 skipped (было 47 passed, 3 failed, 2 skipped).
-
----
-
-## [3.13.24] — 2026-09-27 — День 48.2, BUG-095: аудит входов и управления пользователями
-
-### Added
-- **Аудит аутентификации (TASK-061)** — `manager/src/auth/audit.py` (новый модуль):
-  - `log_auth_event()` — единая запись в `audit_logs`, **fail-open** (сбой аудита не ломает
-    аутентификацию: `logger.warning` + `rollback`, эндпоинт продолжает работать);
-  - `_sanitize()` — рекурсивное вырезание из `metadata` ключей с паролями/токенами/секретами
-    (`password`, `*_token`, `*_secret`, `*_hash`, `*_salt`, `*_credential`);
-  - `classify_login_failure()` — `user_not_found` / `user_inactive` / `invalid_credentials`;
-  - `role_diff()` — дифф ролей для `role_assigned` / `role_revoked`.
-- Новые `event_type` в `audit_logs` (`event_source=api`, `file_path` = точный URL, `source_host` = IP):
-  - `auth_login` (`auth_source`, `auth_method`, `auth_mode`, `roles`),
-  - `auth_failed` (`reason`, `attempted_username`) — **без пароля и хеша**,
-  - `auth_logout` (`jti`, не сам токен).
-- **Аудит управления пользователями (TASK-062)** — `user_created`, `user_updated`
-  (в т.ч. `status_changed` при блокировке/разблокировке), `user_deleted`,
-  `user_password_changed` (self-service и сброс админом: `by_admin`, `self_service`),
-  `role_assigned` / `role_revoked` (по диффу ролей, в т.ч. из `PUT /users/{id}`).
-
-### Changed
-- `manager/src/auth/router.py`: `login`, `logout`, `change-password`, `users` (create/update/delete),
-  `users/{id}/status`, `users/{id}/roles` — добавлен `request: Request` и запись аудита;
-  `update_user` теперь пишет `changes` только по реально изменённым полям, PII-поля
-  (`email`, `full_name`) — как `"changed"` без значений.
-- `update_user`: `is_active` пишется в `changes` только при фактическом изменении.
-
-### Security
-- Пароли, хеши, токены и JWT-секреты **не могут** попасть в `metadata` (проверено unit-тестами
-  и live-запросом: `SELECT COUNT(*) ... LIKE '%пароль%'` → 0).
-- Причина неудачи входа видна только в аудите; HTTP-ответ остаётся «Invalid credentials»
-  (нет перечисления существующих учёток).
-- `auth_refresh` намеренно не логируется (refresh каждые 15 мин → шум) — решение из ТЗ.
-
-### Tests
-- `tests/unit/test_auth_audit_v31324.py` — **15 тестов** (6 аутентификация, 7 управление
-  пользователями/паролями/ролями, 2 безопасность метаданных) → 15 passed.
-- `tests/e2e/test_auth_audit_e2e.py` — **2 теста** (полный флоу: создание → роли →
-  блокировка → неудачный вход → удаление → logout; несуществующий пользователь) → 2 passed.
-- Полный unit-набор: **242 passed** (было 227).
-- Полный E2E: 47 passed, 3 failed, 2 skipped — все 3 падения **предсуществующие и вне ТЗ**
-  (см. ниже).
-
-### Live-проверка
-Все 9 `event_type` пишутся в PostgreSQL; `auth_login` (admin 72, auditor 4), `auth_failed`
-(admin 3 + тестовые), `auth_logout` (9), `user_created` (8), `user_updated` (7),
-`user_deleted` (7), `user_password_changed` (`by_admin: true`), `role_assigned` (7).
-
-### Known issues (найдено при полном E2E, вне ТЗ — не правил)
-- **BUG-096**: `GET /api/findings/false-positives` → **500**
-  (`manager/src/api/findings.py:324` — `_m.User`, а `User` в `manager.src.auth.models`).
-- **BUG-096b**: устаревшие E2E-тесты `test_full_scan_cycle`, `test_real_scanner_end_to_end` —
-  ждут `finding_type in {pii, credentials}` после рефакторинга v3.13.22 (теперь granular
-  `category`: email/person/phone/aws_key).
-- `docker-compose.override.yml` для прогона E2E (лимит логина 5/мин) удалён после проверки.
-
----
-
-## [3.13.23] — 2026-09-27 — День 48.1, TASK-060: «аудит reveal пишет dcap» — ложное срабатывание
-
-### Changed
-- **BUG-087 (ТЗ) / BUG-094 (факт) — 🔴 баг НЕ подтверждён, код приложения корректен.**
-  Диагностика ТЗ строилась на запросе `SELECT id, created_at, user FROM audit_logs`:
-  в PostgreSQL `user` — зарезервированное слово (синоним `CURRENT_USER`), поэтому
-  возвращалось **имя роли БД** `dcap`, а не значение колонки. Реальный `INSERT`
-  содержит корректного пользователя (`'auditor'`). Гипотезы H1–H7 не подтвердились:
-  нет SQLAlchemy-listener'ов, DEFAULT/TRIGGER/RULE, подмены в middleware/dependencies,
-  второго писателя `AuditLog` или hardcoded `"dcap"`. **Правки кода не требуются.**
-- Проверены остальные писатели аудита: `findings_exported` (admin 11 / auditor 4) и
-  `fragment_accessed` (admin 11 / auditor 9) — реальные пользователи, проблемы нет.
-
-### Added
-- `tests/unit/test_audit_reveal_user_v31323.py` — 7 тестов: `audit_logs.user` ==
-  `revealed_by` для reveal/export/fragment, `!= "dcap"`, admin ≠ auditor, имя колонки
-  `user` и отсутствие Python-side `default` (регрессия на переименование).
-- `tests/e2e/test_audit_reveal_user_e2e.py` — 3 теста: live-reveal → `/api/audit`
-  отдаёт `user == "auditor"`, стабильность при повторах, прямая SQL-проверка
-  `SELECT "user", user` (колонка ≠ `CURRENT_USER`).
-
-### Documentation
-- `docs/admin-guide/10-troubleshooting.md` — раздел 6 «Ложный "баг": `audit_logs.user`
-  показывает `dcap`»: правильный SQL с кавычками, подтверждение INSERT'а, приём
-  для других зарезервированных имён колонок (`order`, `group`, `default`).
-- `prompts/reports/day_48.1_bug087_audit_user_report.md` — отчёт с разбором H1–H7,
-  live-доказательствами и обратной связью архитектору.
-
-### Tests
-- 7 unit + 3 E2E (новые); полный unit-набор: **227 passed** (было 220).
-- Контейнеры manager/webui/celery пересобраны на `3.13.23` (healthy).
-
-### Known gaps (не в ТЗ)
-- `auth_login`, `user_created`, `change_password` **не пишутся** в `audit_logs`
-  (кандидат в бэклог: BUG-095).
-- ⚠️ Коллизия ID: BUG-087 уже занят Днём 48 (TASK-054, прокси-заголовки WebUI);
-  данный случай зафиксирован как **BUG-094**.
-
----
-
-## [3.13.22] — 2026-09-27 — День 48, Блок 5 (WebUI) п.2.3: фильтры, пагинация, аудит, экспорт
-
-### Fixed
-- **BUG-087** (TASK-054, `webui/api/routes.py`): прокси WebUI пробрасывал только `content-type`
-  и терял все остальные заголовки Manager — из-за этого не работала пагинация (`X-Total-Count`
-  был 667 в Manager и отсутствовал в WebUI), не доходили `X-Fragment-Mode`/`X-Fragment-Hash`/
-  `X-Bounding-Box` и `Content-Disposition` (имя файла экспорта). Добавлены `HOP_BY_HOP`
-  и `forwarded_headers()`: копируются все заголовки ответа, кроме hop-by-hop
-  (`connection`, `transfer-encoding`, `content-length`, `content-encoding`, `keep-alive`,
-  `upgrade`, `proxy-*`, `te`, `trailer`) и `set-cookie` (JWT WebUI передаёт Bearer-заголовком,
-  cookie Manager'а через прокси не доходят — иначе ломалась бы авторизация).
-- **BUG-088** (TASK-055, `webui/static/js/finding_detail.js`): фрагмент (`/fragment?format=png`)
-  грузился через `<img src>` — браузер не отправляет `Authorization: Bearer` (JWT в localStorage,
-  cookie не пробрасываются) → 401, изображение не показывалось. Теперь `fetch` + `Blob` + objectURL
-  с заголовками авторизации; в UI выводятся `X-Fragment-Mode` и сокращённый `X-Fragment-Hash`
-  (hex-дамп — через безопасный textContent); при 401 выполняется переход на `/login`.
-- **BUG-089** (TASK-056, `manager/src/api/webui.py`): `/api/access/resources` и
-  `/api/access/resources/{id}/entries` отдавали **500** на PostgreSQL — `AccessEntry.is_active == 1`
-  сравнивал Boolean-колонку с целым (`operator does not exist: boolean = integer`). Заменено на
-  `== True` (2 места).
-- **BUG-090** (TASK-057, `manager/src/api/findings.py`): фильтр «Категория» в WebUI принимает
-  список через запятую (`phone, email...`), но backend сравнивал строкой целиком → всегда 0 находок.
-  Теперь `_parse_categories` + `_apply_category_filter`: legacy-категории (`pii`, `credentials`,
-  `code`) фильтруются по `finding_type`, остальные — по `category`, объединение через ИЛИ
-  (`or_`), а не И. Дополнительно: пустые числовые параметры (`?task_id=&limit=&offset=&resource_id=`)
-  больше не дают 422, добавлены фильтры `detector`, `fragment_type`, `search`
-  (путь к файлу + маскированные значения), `order_by=id`; те же правила в `/count` и `/export`.
-- **BUG-091** (TASK-058, `manager/src/api/audit.py`, `webui/templates/audit.html`): `event_source`
-  принимался в `/api/audit`, но не передавался в SQL-фильтр — «Источник» в UI игнорировался
-  (`api` и `scanner` возвращали одинаковые 47 событий). Добавлен фильтр по `event_source`;
-  статические списки «Источник/Тип» (windows_agent/linux_agent, read/write/delete) заменены на
-  реальные значения из `/api/audit/stats` (`by_source`, `by_type`).
-- **BUG-093** (TASK-059, `webui/static/js/findings.js`): экспорт findings вызывался
-  `window.location.href = '/api/findings/export'` — переход браузера без `Authorization`
-  → 401 (у пользователя скачивался JSON с ошибкой). Теперь `fetch` + `Blob` + `<a download>`
-  с именем файла из `Content-Disposition`, обработка 401 → редирект на `/login`.
-
-### Changed
-- `manager/src/api/findings.py`: `OptInt = Annotated[Optional[int], BeforeValidator(_blank_to_none), Query()]`
-  + `_clamp_int()`. **FastAPI 0.137 gotcha:** `BeforeValidator` в `Annotated` теряется, если
-  `Query(...)` указан в default (`create_model_field` берёт annotation из `field_info`), поэтому
-  `Query()` вынесен внутрь `Annotated`, а дефолт — через `=`. Числовые `le`/`ge` несовместимы
-  с `Optional[int]` (TypeError на `None`), поэтому границы limit/offset задаёт `_clamp_int`.
-  `has_fragment` учитывает `fragment_data` (BACKLOG-086), а не только `fragment_path`.
-- `webui/templates/findings.html`: фильтры перестроены в две строки — поиск, «Категория (через запятую)»,
-  «Детектор», «Фрагмент», «Задание», статус/тип/severity + кнопки «Применить» и «Сброс».
-- `webui/static/js/findings.js`: `collectFilters()` + новый `resetFilters()`, поиск по Enter,
-  показ общего количества находок в заголовке списка.
-- `webui/templates/audit.html`: `loadFilterOptions()`/`fillSelect()`; `d.total ?? events.length`
-  (раньше `d.total || events.length` скрывал 0).
-- `docker-compose.yml` — manager/webui/celery → 3.13.22.
-
-### Tests
-- `tests/unit/test_webui_block5_v31322.py` (33): прокси-заголовки (4), фильтры findings (18 —
-  CSV-категории, legacy-микс, detector, fragment_type, search, order_by, пустые параметры, count,
-  export, has_fragment), `/api/access/*` без 500 (3), `/api/audit` event_source (5).
-- Итого **220 passed** (187 + 33) — регрессий нет.
-- `tests/e2e/test_webui_block5_v31322.py` (8) против живого стека: X-Total-Count через прокси,
-  CSV-категории и пустые параметры, новые фильтры, export 200/401, fragment 200/401,
-  `/api/access/resources`, `event_source`, рендер `/findings` и `/audit`.
-  В E2E один логин на модуль — `/api/auth/login` ограничен 5 попытками в минуту.
-
-### Verified (live)
-- `docker compose build manager webui` + `up -d` → `/api/health` = `3.13.22`.
-- BUG-087: Manager `X-Total-Count: 667` → WebUI `X-Total-Count: 667`; fragment через WebUI
-  200 `image/png` 8255 B, `X-Fragment-Mode: embedded`, `X-Fragment-Hash: 9ecadc2f…`,
-  без токена — 401.
-- BUG-090: `category=phone` → 11, `category=phone,email` → 623, `?task_id=`/`?limit=`/`?offset=` → 200
-  (total 667), `/count?category=phone,email` → `{"count":623}`, `detector`/`fragment_type`/`search`/`order_by=id` → 200.
-- BUG-089: `/api/access/resources` → 200 (7 ресурсов), `/entries` → 200.
-- BUG-091: `/api/audit` без фильтра — 48 событий, `event_source=api` — 44, `event_type=finding_reveal` — 25.
-- BUG-093: export CSV 200 (99 907 B, `Content-Disposition: attachment; filename="findings_20260927_002857.csv"`),
-  JSON 200, `?task_id=&resource_id=&limit=` → 200, без токена — 401.
-
----
-
-## [3.13.21] — 2026-09-26 — BUG-086: masking контекстов (критический блокер v3.0.0)
-
-### Fixed
-- **BUG-086** (TASK-053, `scanner/src/encryption.py`): `mask_context` маскировал только 6 паттернов
-  из 19 в `MASK_RULES` — в `context_before_masked`/`context_after_masked` утекали сырые
-  credentials/US-phone (Finding 1439: `GITHUB_TOKEN=ghp_…`, `BASIC_AUTH=Basic …`;
-  Finding 1461: `us: +1 415 555 0199`). Viewer+ видел секреты через API.
-  Новая реализация — конвейер `_CONTEXT_PATTERNS`: список `(regex, category)` на ВСЕ категории
-  (21 паттерн: ghp_/github_pat_→github_token, xoxb→slack_token, AKIA→aws_key, sk-/sk_live_→api_key,
-  discord→discord_token, JWT eyJ…, PEM→ssh_key, Basic→basic_auth, scheme://→database_url,
-  generic password/api_key/token в KEY=VALUE — маскируется только значение (2 capture-группы),
-  email, +7/+1/международные телефоны, паспорт/СНИЛС/ИНН/кредитные карты).
-  Специфичные категории — раньше generic. `person` и `high_entropy` в контексте НЕ маскируются
-  (high_entropy — до v3.1.0).
-
-### Changed
-- `scanner/src/encryption.py` — `mask_context` полностью переписан (стали специфичными,
-  generic-паттерны KEY=VALUE маскируют только значение).
-- `docker-compose.yml` — manager/webui/celery → 3.13.21.
-
-### Tests
-- `tests/unit/test_mask_context_v31321.py` (20): github/slack/aws/api_key/basic_auth/database_url/
-  jwt/password/generic token (9), телефоны RU/US/US-скобки (3), регрессии PII
-  email/inn/passport/credit_card/person-not-masked (5), edge empty/no_secrets/multiple (3).
-- Итого **187 passed** (167 + 20), в т.ч. регрессия `test_encryption`, `test_finding_fragments`.
-- `tests/e2e/test_mask_context_e2e.py` (1): контексты последнего скана не содержат сырых
-  credentials/US-phone (проверка через API Manager, viewer-роль).
-
-### Verified (live)
-- БД: findings task 39 → удалены; новый task (id 41) → 29 findings; SQL-проверка
-  `context_before_masked ~ ghp_…|Basic …|xoxb-…|+1…|AKIA…|sk-…` → **0 совпадений**.
-- API (viewer/viewer123): findings 1496/1500/1503/1521/1522 — `raw_in_contexts=False`:
-  `GITHUB_TOKEN=ghp_*****`, `BASIC_AUTH=Basic ***`, `DATABASE_URL=postgresql://***@cleandb.local…`,
-  `us: 14***199`.
-- `/api/health` → `{"status":"healthy","version":"3.13.21"}`.
-
----
-
-## [3.13.20] — 2026-09-26 — BUG-080/081: reliability сканера (heartbeat backoff + graceful shutdown)
-
-### Fixed
-- **BUG-080** (TASK-051, `scanner/src/heartbeat.py`): heartbeat при недоступном Manager больше
-  не спамит лог. Backoff 5→10→30→60→120 с (`BACKOFF_STEPS`), фейлы — на DEBUG,
-  WARNING только на 1-й попытке и далее каждые 5, INFO «Heartbeat restored after N failure(s)».
-  Пауза — `_stop.wait()` вместо `time.sleep()`: stop()/SIGINT мгновенно прерывает ожидание.
-- **BUG-081** (TASK-052): Ctrl+C больше не оставляет осиротевший OCRWorker на Windows.
-  `ManagedScanner._handle_sigint` (SIGINT + SIGBREAK) ставит флаги остановки;
-  `stop()` = остановка heartbeat + `_shutdown_classifiers()`; `ocr_worker.stop_ocr_worker` —
-  graceful: None в request_queue → join(5) → terminate → join(2) → kill.
-
-### Changed
-- `scanner/classifiers/ocr_worker.py` — порядок завершения процесса (было terminate → join).
-- `docker-compose.yml` — manager/webui/celery → 3.13.20.
-
-### Tests
-- `tests/unit/test_heartbeat_backoff.py` (4): backoff_steps, resets_on_success,
-  warning_not_spam (WARNING на 1/5/10), stop_event_interrupts_sleep (мгновенный выход).
-- `tests/unit/test_scanner_shutdown.py` (3): sigint_sets_stop_event, stop_sends_none_to_ocr_queue,
-  stop_terminates_stubborn_process (real mp.Process, terminate/kill).
-- Итого **167 passed** (160 + 7), в т.ч. регрессия `test_stale_tasks`, `test_scanner_middleware_rbac`.
-
-### Verified (live)
-- BUG-080: docker stop manager → единственный `Heartbeat failing (1 attempts), next retry in 5s`,
-  тишина далее; docker start → `Heartbeat restored after 4 failure(s)`.
-- BUG-081: CTRL+C (эмуляция CTRL_BREAK в группе) → `[Scanner] SIGINT received`,
-  graceful reенте: HeartbeatThread stopped → OCRWorker остановлен → `[X] Сканер остановлен`, rc=0.
-
----
-
-## [3.13.19] — 2026-09-26 — BACKLOG-086: встроенные OCR-фрагменты («Файл удалили — доказательство осталось»)
-
-### Added
-- **BACKLOG-086** (TASK-045): модель `Finding` + 5 колонок — `fragment_data` (LargeBinary),
-  `fragment_mime`, `fragment_hash` (SHA-256), `fragment_size`, `fragment_embedded_at`.
-- **TASK-049**: миграция `005_add_fragment_columns` (идемпотентная, inspect); применена к live PG.
-- **TASK-046/050** (`scanner/src/managed_scanner.py`): `_embed_fragment` — для `image_region`
-  с существующим файлом и размером ≤ `MAX_FRAGMENT_EMBED_SIZE` (env, default 2 МБ) встраивает
-  весь PNG (base64 + SHA-256 + mime); `_split_by_size` — батчинг результатов по
-  `MAX_BATCH_SIZE_BYTES` (env, default 20 МБ, до 500 finding'ов), применён в `submit_results`.
-  `text_line`/`byte_range` не встраиваются (текст — в `line_text_encrypted`; byte_range — v3.1.0).
-- **TASK-047** (`manager/src/api/scanner.py`): декодирование `fragment_base64` → `fragment_data`
-  + метаданные при создании Finding.
-- **TASK-048** (`manager/src/api/findings.py`):
-  - `/api/findings/{id}/fragment` — **embedded-first**: при `fragment_data` отдаёт PNG из БД
-    с `X-Fragment-Mode: embedded` + `X-Fragment-Hash`; без данных — падение на full-image (по пути);
-    RBAC ужесточён Viewer+ → **Auditor+** (BUG-079);
-  - новый `GET /api/findings/{id}/fragment/hash` (Auditor+) — метаданные `{finding_id, hash, size, mime, embedded_at}`;
-  - аудит доступа: `AuditLog(event_type="fragment_accessed", metadata={"action","finding_id","mode"})`.
-- `docker-compose.yml` — manager/webui/celery → 3.13.19; env `MAX_FRAGMENT_EMBED_SIZE` /
-  `MAX_BATCH_SIZE_BYTES` (pass-through, дефолты 2097152 / 20971520).
-- `.env.example` — переменные фрагментов.
-
-### Tests
-- `tests/unit/test_fragment_embed_v31319.py` (8) — Manager: сохранение fragment из payload,
-  text_line не встраивается, embedded-ответ с hash, fallback full-image, 404, RBAC (viewer 403),
-  `/fragment/hash`, аудит `fragment_accessed`.
-- `tests/unit/test_scanner_fragment_embed.py` (6) — Scanner: встраивание малого PNG, лимит 2 МБ,
-  text_line {}, hash = SHA-256 данных, кастомный лимит (env), `_split_by_size`.
-- `tests/unit/test_ocr_bbox_v31317.py` — фикс `_make_entity` (SimpleNamespace: `fragment_* = None`).
-- `pytest tests/unit/` — **160 passed** (146 + 14).
-- `tests/e2e/test_fragment_e2e.py` — **passed live**: удаление исходного PNG → `/fragment` всё ещё 200 embedded.
-
-### Confirmed live (task 39)
-- `C:\test\scanner_clean` → 29 findings, 7 файлов, 0 failed.
-- `image_region` (ids 1444/1445): `fragment_size=8255`, `fragment_mime=image/png`, `fragment_data=8255 B`,
-  hash `SHA-256` совпадает с `X-Fragment-Hash` ответа; текст-findings — fragment_* = NULL.
-- Исходник `screenshot_clean.png` удалён с диска → `GET /api/findings/1444/fragment` (auditor) → 200,
-  `Content-Length: 8255` — фрагмент из БД; viewer → 403; `/fragment/hash` → корректный JSON;
-  audit_logs: `fragment_accessed` (mode embedded/hash).
-
-### Docs
-- `ARCHITECTURE.md` — модель + фрагменты/API (`/fragment` Auditor+, `/fragment/hash`, аудит),
-  событие ИБ `fragment_accessed`.
-- `docs/admin-guide/05-security.md` — раздел «Неизменяемые доказательства».
-- `ROADMAP.md`, `STATE.md` — v3.13.19; отложено: BACKLOG-087 (дедуп фрагментов), BACKLOG-088 (шифрование).
-
----
-
-## [3.13.18] — 2026-09-26 — BUG-077 diag (причина H3: Manager дефолтил bbox) + live-подтверждение
-
-### Fixed
-- **BUG-077 (live-диагностика, TASK-044)**: фикс TASK-041 не отражался в БД — после task 36
-  `bounding_box` по-прежнему `{0,0,0,0}`. Исключены гипотезы H1/H2/H4/H5/H6/H7 (pyc свежий,
-  единственный filesystem.py, процесс сканера = `run_scanner.py`, `"x": 0` в сканере нет).
-  **Причина — H3**: сканер шлёт `bounding_box: null` (managed_scanner.py:673), но Manager
-  при сохранении применял `finding_data.get("bounding_box") or ({"x":0,...} if image_region)`:
-  `None or default` → в БД уходил `{0,0,0,0}`.
-  - `manager/src/api/scanner.py` — убран дефолт, теперь `bounding_box=finding_data.get("bounding_box")`
-    (честный `NULL` для OCR до BACKLOG-085, v3.1.0).
-
-### Changed
-- `docker-compose.yml` — manager/webui/celery → 3.13.18.
-
-### Tests
-- `tests/unit/test_ocr_bbox_v31317.py` — +`TestFragmentFallback` (2 теста):
-  image_region + bbox=None → 200 + весь PNG + `X-Fragment-Mode: full-image`;
-  файл отсутствует → 404.
-- `pytest tests/unit/` — 146 passed (144 + 2).
-
-### Confirmed live (task 38)
-- SQL: `bounding_box = NULL` для обоих `image_region` (ids 1415/1416), 29 findings,
-  разбивка = task 35 (15 категорий, без регрессий).
-- API: `bounding_box` пусто, `has_fragment = True`, `file_path` → PNG.
-
-### Docs
-- `docs/admin-guide/10-troubleshooting.md` — создан (раздел «Код сканера не влияет»,
-  bbox={0,0,0,0}, устаревшая версия, зависшие контейнеры).
-
----
-
-## [3.13.17] — 2026-09-25 — BUG-077 (bbox=None для OCR + fallback full-image)
-
-### Fixed
-- **BUG-077** (TASK-041): OCR-finding'и получали захардкоженный `bounding_box = {x:0, y:0, width:0, height:0}`. Координаты не вычисляются (Tesseract вызывается без tsv) — теперь честно `None`, чтобы API/WebUI не пытались вырезать несуществующий регион.
-  - `scanner/connectors/filesystem.py` — OCR-блок `scan_file`.
-- **BUG-077** (TASK-042): endpoint `/api/findings/{id}/fragment` для `image_region` без bbox возвращает **весь PNG** с заголовком `X-Fragment-Mode: full-image` (Вариант 1). Файл недоступен → 404.
-
-### Changed
-- `docker-compose.yml` — VERSION агентов синхронизирован: `s3_agent`, `audit_agent_linux` 3.13.12 → 3.13.16 (TASK-043); manager/webui → 3.13.17.
-
-### Tests
-- `tests/unit/test_ocr_bbox_v31317.py` — 2 теста (OCR bbox=None, text finds bbox=None).
-- `pytest tests/unit/` — 144 passed.
-
-### Notes
-- Полный OCR-пайплайн с реальным bbox (tesseract tsv) — **BACKLOG-085 (v3.1.0)**.
-- BUG-078 не создавался: `has_fragment` в API считается по `fragment_path`, а не по bbox — кнопка фрагмента у OCR уже активна (fragment = сам PNG).
-
----
-
-## [3.13.16] — 2026-09-22 — Fix-спринт №7 (BUG-075)
-
-### Fixed
-- **BUG-075**: Presidio URL recognizer ловил доменную часть email-адреса как отдельный url (`company.example` для `carol.new@company.example`). В таких строках нет `://`, поэтому фильтр ТЗ №6 не срабатывал.
-  - `_filter_url_over_email_finding` расширен: собирает все email-значения (match_text email-findings + email-паттерны из line_text, case-insensitive), отбрасывает url, чей match_text целиком входит в email.
-  - Покрыт дубль url в одной строке (разные start_pos/end_pos).
-
-### Changed
-- `docker-compose.yml`, `.env.example` — VERSION 3.13.16.
-
-### Tests
-- `tests/unit/test_pii_filters_v31316.py` — 7 тестов (domain of email url removed, multiple urls same line, real url kept, email without url kept, + регрессия).
-- `pytest tests/unit/` — 142 passed.
-
----
-
-## [3.13.15] — 2026-09-22 — Fix-спринт №6 (BUG-071…074)
-
-### Fixed
-- **BUG-071**: url-over-email не фильтровался — Presidio обрезает url по `@`, спаны url/email не пересекались.
-- **BUG-072**: `organization = "INN"` (аббревиатура) — spaCy en-проход.
-- **BUG-073**: `uk_nhs` на US-телефоне `+1 415 555 0199`.
-- **BUG-074**: email из URL-логина `postgresql://user:pass@host/db`.
-
-### Changed
-- `_filter_url_over_email_finding` — работа по `line_text` (не по спанам): если строка содержит `://` И email-признак — отбрасываются все url/email этой строки.
-- `_filter_spacy_noise` + `_filter_spacy_noise_classification` — добавлено условие: `len(val) <= 5 and val.isupper() and val.isascii() and val.isalpha()` (INN/SSN/DOB/URL/API).
-- Новая `_filter_uk_nhs_with_phone` — отбрасывает `uk_nhs`, если в строке уже есть `phone`.
-
-### Tests
-- `tests/unit/test_pii_filters_v31315.py` — 7 тестов.
-- `pytest tests/unit/` — 135 passed.
-
----
-
-## [3.13.14] — 2026-09-21 — Fix-спринт №5 (BUG-065, 066b, 067d, 069/070)
-
-### Fixed
-- **BUG-066b**: `scan_text`/`scan_line` не фильтровали url-over-email (модель `Finding`, поля `start_pos/end_pos`).
-- **BUG-067d**: OCR-изображения не помечались `fragment_type=image_region`, `detector=ocr`, `bounding_box`.
-- **BUG-069**: ложные `date_time` из en-прохода Presidio.
-- **BUG-070**: ложные `person`/`organization` из en-прохода Presidio.
-- **BUG-065**: credentials-паттерны (`database_url`, `github_token`, `slack_token`, `basic_auth`).
-
-### Changed
-- `_filter_url_over_email_finding` — добавлен для модели `Finding`.
-- `filesystem.py` — для `_IMAGE_EXTENSIONS` findings помечаются `image_region`/`ocr`/`bounding_box`.
-- `_filter_spacy_noise` — добавлен для `scan_text`/`scan_line`.
-- `credentials_classifier` — 5 фиксов (signature prefixes, placeholder patterns, BASIC_AUTH, SLACK_TOKEN, `_is_placeholder` для URL).
-
-### Tests
-- Smoke-тесты credentials — 4 кейса зелёные.
-
----
-
-## [3.13.13] — 2026-09-21 — Fix-спринт №4 (BUG-067c, 063)
-
-### Fixed
-- **BUG-067c**: `ocr_enabled` брался из неверной секции конфига.
-- **BUG-063**: `credit_card` не детектировался — Presidio `ru`-проход не находил US-сущности.
-
-### Changed
-- `ocr_enabled` — из `classifiers.pii` (TASK-029).
-- Двухпроходный Presidio `ru`+`en` (TASK-030).
-
----
-
-## [3.13.12] — 2026-09-21 — Fix-спринт №3 (BUG-061, 063, 067)
-
-### Fixed
-- **BUG-061**: сканер не восстанавливал HTTP после падения Manager.
-- **BUG-063** (Luhn): credit_card без валидной Luhn-суммы.
-- **BUG-067** (OCR): OCR не работал.
-- **BUG-066** (url): SQL-очистка 607 url.
-
-### Added
-- HTTP retry в `ManagerClient` (total=5, backoff=0.5).
-- `_is_valid_luhn` в `pii_classifier`.
-
----
-
-## [3.13.11] — 2026-09-21 — Fix-спринт №2 (ENV-ключи)
-
-### Changed
-- Docker Secrets убраны для Findings (TASK-018).
-- Ключи Findings — только через ENV: `FINDINGS_ENCRYPTION_KEY`, `FINDINGS_HMAC_KEY`, `FINDINGS_KEY_ID`.
-- `scripts/reencrypt_findings.py` — ротация ключей (TASK-016).
-- Scanner fail-fast без ключей (TASK-017).
-- Документация обновлена (TASK-019).
-
-### Tests
-- `tests/unit/test_reencrypt.py`, `tests/unit/test_encryption.py`.
-- `tests/e2e/test_key_rotation.py` — offline.
-
----
-
-## [3.13.10] — 2026-09-21 — Fix-спринт №2 (BUG-048b)
-
-### Fixed
-- **BUG-048b**: middleware пропускал JWT для machine-API (scanner endpoints).
-
----
-
-## [3.13.9] — 2026-09-21 — Fix-спринт №1 (Auth/RBAC, 15 багов)
-
-### Fixed
-- **BUG-037**: `_defaults.group_mapping` — ед.ч. vs мн.ч.
-- **BUG-038**: TTL JWT не в env.
-- **BUG-039**: refresh как access.
-- **BUG-041**: reuse старого refresh.
-- **BUG-042**: `secure=False` hardcoded.
-- **BUG-043**: `/api/catalog/tree` → 500.
-- **BUG-044**: `context_before` не маскировал домен.
-- **BUG-045**: `/api/scanner/*` → 500.
-- **BUG-046**: DELETE resources без RBAC.
-- **BUG-047**: DELETE tasks без auth.
-- **BUG-048**: DELETE scanner без auth + 500.
-- **BUG-049…055**: 7 unprotected write-эндпоинтов.
-- **BUG-057**: Scanner legacy mode by default.
-- **BUG-058**: Manager fallback `line_text_encrypted`.
-- **BUG-059**: `POST /api/tasks/create` 500.
-
-### Changed
-- `verify_token(token, expected_type)` — access ≠ refresh.
-- RBAC системно — `Depends(require_role(...))` во все write-эндпоинты.
-- Cookie `Secure` — env `AUTH_COOKIE_SECURE`.
-- `jti` + `iat` + Redis blacklist.
-
----
-
-## [3.13.8] — 2026-09-20 — AD-упаковка
-
-### Added
-- `docker-compose.ad.yml.example` — samba-ad-dc profile `ad`.
-- `scripts/init_ad_test_data.py`.
-
----
-
-## [3.13.7] — 2026-09-19 — BUG-034 (зависшие задачи)
-
-### Fixed
-- **BUG-034**: зависшие задачи сканера.
-
----
-
-## [3.13.3-3.13.6] — 2026-09-19 — Блок 1 (Smoke + Findings)
-
-### Fixed
-- **BUG-034/035/027/022**.
-- **BUG-022.9**: приоритизация категорий при дедупликации.
-
-### Changed
-- Deploy/Config/WebUI.
-
----
-
-## [3.12.0] — 2026-09-18 — Findings: фрагменты и экспорт
-
-### Added
-- **BACKLOG-058**: фрагменты изображений (bounding box).
-- **BACKLOG-059**: бинарные — hex-дамп.
-- **BACKLOG-060**: экспорт с маскированием.
-- **BACKLOG-067**: `X-Total-Count` в `/api/findings`.
-
----
-
-## [3.11.0] — 2026-09-17 — WebUI Findings + MD5→SHA-256
-
-### Added
-- **BACKLOG-056**: WebUI — находки + каталог (строки).
-- **BACKLOG-057**: WebUI — reveal + FP.
-- **BACKLOG-061**: WebUI v3.8 — legacy Findings (деградация).
-
-### Fixed
-- **BACKLOG-066**: MD5 → SHA-256 в `_legacy_fingerprint`.
-
----
-
-## [3.10.0] — 2026-09-16 — Scanner: построчное сканирование + FP
-
-### Added
-- **BACKLOG-053**: сканер — построчное сканирование.
-- **BACKLOG-054**: fingerprint + дедупликация.
-- **BACKLOG-055**: FP-фильтр перед отправкой.
-
----
-
-## [3.9.0] — 2026-09-15 — Findings Refactor
-
-### Added
-- **BACKLOG-050**: модель Findings (строка/фрагмент).
-- **BACKLOG-051**: шифрование находок (AES-256-GCM).
-- **BACKLOG-052**: API находок + reveal + аудит.
-
----
-
-## [3.7.0] — 2026-09-12 — Мониторинг + Heartbeat
-
-### Added
-- **BACKLOG-021**: расширенный мониторинг.
-- **BACKLOG-037**: heartbeat-thread для сканера.
-- **BACKLOG-038**: прогресс-пинг в heartbeat.
-- **BACKLOG-041**: Prometheus/Grafana мониторинг.
-- **BACKLOG-042**: Alertmanager + алерты.
-
----
-
-## [3.6.0] — 2026-09-10 — Контейнеризация
-
-### Added
-- **BACKLOG-027**: контейнеризация и деплой.
-
----
-
-## [3.4.0] — 2026-09-08 — Secret Scanner
-
-### Added
-- **BACKLOG-034**: Secret Scanner интеграция.
-
----
-
-## [3.0.0] — 2026-09-01 — Enterprise Ready (начало)
-
-### Added
-- **BACKLOG-010**: S3/MinIO аудит-агент.
-- **BACKLOG-013**: безопасность (mTLS, секреты).
-- **BACKLOG-014**: масштабирование (PG, Redis, Celery).
-- **BACKLOG-015**: WebUI редизайн.
-- **BACKLOG-016**: гибридная аутентификация.
-- **BACKLOG-026**: стандартизация структуры.
-- **BACKLOG-029**: AD интеграция + RBAC.
-- **BACKLOG-030**: архивация данных.
-
----
-
-## [1.0.0-2.1.0] — до 2026-09-01
 
 - Обнаружение, классификация, WebUI, Linux-агент.
+- Модель Finding (строка/фрагмент).
+- RBAC.
+- mTLS.
+- Retention.
+- Аудит (частично).
 
 ---
 
-**Актуально на:** 22.09.2026
-**Текущая версия:** v3.13.16
-**Следующая цель:** v3.0.0 (release)
+## [v1.0.0-v2.1.0] — 2025-2026
+
+### Added
+
+- MVP: сканирование, классификация, WebUI.
+- Блок 1 (Smoke), Блок 2 (Auth/RBAC).
+
+---
+
+**Актуально на:** 12.10.2026
+**Версия:** v3.13.38
+**Следующая версия:** v3.13.39 (53.4a-доп3 — hotfix) → v3.13.40 (53.4a-доп4 — fonts) → v3.14.0 (53.4b)
+📄 C — README_MASTER_SESSION.md
+markdown
+# 📊 DCAP v3.13.38 — Master Session Report
+
+**Дата:** 12.10.2026
+**Версия:** v3.13.38
+**Тип:** Мастер-сессия ручного тестирования (WebUI 1–17 + RBAC)
+**Длительность:** ~10 часов
+**Источник:** `STATE_TEST_SESSION.md`
+
+---
+
+## 🎯 Итог одним абзацем
+
+Пройдены **все 17 блоков** WebUI + **RBAC-прогон** (4 роли × ~10 страниц).
+**Backend — работает (96%)**; **Frontend — требует редизайна** (Responsive, RBAC, локализация).
+Найдено **~100 багов** и **~40 улучшений**. Собран **пакет из 4 ТЗ**:
+hotfix (backend-critical) + hotfix (fonts) + 53.4b + 53.4c/d/e.
+
+---
+
+## 📊 Статистика
+
+| Показатель | Значение |
+|-----------|----------|
+| Пройдено блоков | 17 + RBAC |
+| Найдено BUG | **~100** (BUG-141…236) |
+| Найдено BACKLOG | **~40** (BACKLOG-131…155) |
+| Закрыто по ходу | 3 (BUG-138/139/140 — 53.4a-доп) |
+| Critical (hotfix) | 12 |
+| Unit-тестов | **433 passed** |
+| E2E-тестов | **53 passed, 7 skipped** |
+| ТЗ собрано | 4 |
+
+---
+
+## 🚨 Топ-12 критичных (блокеры v3.0.0)
+
+| # | ID | Проблема | Область |
+|---|-----|----------|---------|
+| 1 | **BUG-201** | Смена пароля: 200 OK, пароль не меняется | Backend / security |
+| 2 | **BUG-202** | Audit-log пишется при провале транзакции | Backend / compliance |
+| 3 | **BUG-214** | `/api/audit` доступен viewer/scanner | Backend / RBAC |
+| 4 | **BUG-223** | `GET /api/audit/{id}` — 404 (metadata недоступна) | Backend / compliance |
+| 5 | **BUG-181** | Нет аудита ролей | Backend / compliance |
+| 6 | **BUG-168** | Системные роли редактируются (RBAC риск) | Backend / RBAC |
+| 7 | **BUG-212** | Шрифты — fallback (unicode-range latin-only) | Frontend / design |
+| 8 | **BUG-148** | Scanner не читает `.env` (S3-секреты) | Scanner |
+| 9 | **BUG-142** | Dashboard KPI «Ресурсов» = 0 | Frontend |
+| 10 | **BUG-232** | Модалки ломаются на mobile | Frontend / responsive |
+| 11 | **BUG-233** | Гамбургер не работает | Frontend / responsive |
+| 12 | **BUG-213** | Frontend RBAC не работает | Frontend / RBAC |
+
+---
+
+## 📋 Разбивка по блокам
+
+### Блок 12 — Users
+**BUG:** 156, 157, 158, 159, 160, 161, 162, 164, 165, 166.
+**BACKLOG:** 131, 132, 134, 135, 136, 137, 141, 142, 143, 144, 145, 131.
+**Критично:** форма создания/редактирования сломана.
+
+### Блок 13 — Roles
+**BUG:** 167, 168, 170, 171, 172, 173, 174, 176, 177, 178, 179, 180, 181.
+**BACKLOG:** 146, 148, 149, 150, 151, 152.
+**Критично:** системные роли редактируются; нет аудита; нет permissions.
+
+### Блок 14 — Settings
+**BUG:** 187, 188, 189, 190, 191, 192, 194, 195, 196, 197, 198, 199, 200, 201.
+**BACKLOG:** 153.
+**Критично:** смена пароля не работает; смена auth_mode → лок-аут.
+
+### Блок 15 — Console
+**BUG:** 104, 142, 203, 204, 205, 206, 207, 210, 211.
+**BACKLOG:** 104, 154, 155.
+**Оценка:** ✅ (в основном warnings).
+
+### Блок 16 — Network
+**BUG:** 212.
+**Оценка:** ✅ (favicon + шрифты).
+
+### Блок 17 — Responsive
+**BUG:** 228, 229, 230, 231, 232, 233, 234.
+**Оценка:** 🔴 ~30% (только KPI).
+
+### Блок B — RBAC
+**BUG:** 213, 214, 215, 216, 217, 218, 219, 220, 222, 223, 224, 225, 227.
+**Оценка:** 🔴 Frontend RBAC сломан.
+
+### Блок C — SIEM
+**BUG:** 235.
+**Оценка:** ✅ 404 (ожидаемо, BACKLOG-072).
+
+---
+
+## 📁 Пакет ТЗ
+
+| № | Файл | Содержание | Приоритет | Длительность |
+|---|------|-----------|-----------|--------------|
+| 1 | `prompts/tz/day_53_4a_add3_hotfix.md` | BUG-201/202/214/223/181/168/142/148 | 🔴🔴 | 3–5 дней |
+| 2 | `prompts/tz/day_53_4a_add4_fonts.md` | BUG-212 | 🔴 | 0.5 дня |
+| 3 | `prompts/tz/day_53_4b_webui_pages_1.md` | 53.4b: login/dashboard/findings + RBAC + Responsive | 🔴 | 3–5 дней |
+| 4 | `prompts/tz/day_53_4cde_webui_pages_2_5.md` | 53.4c/d/e | 🟡 | 10–15 дней |
+
+**Общая оценка:** ~4 недели до полного закрытия.
+
+---
+
+## ✅ Что **работает** (важно зафиксировать)
+
+- ✅ **Backend** — 96% (тесты зелёные).
+- ✅ **Reveal** — работает, аудит пишется (BUG-095).
+- ✅ **Маскирование** — email: `us***@ex***.com` (BUG-044).
+- ✅ **`user_roles` M:N** — работает.
+- ✅ **Backend self-protection** — `Cannot delete yourself` / `Cannot disable yourself`.
+- ✅ **KPI-карточки** — адаптивны.
+- ✅ **Chart.js** — работает (не адаптивен).
+- ✅ **Dovetail-тема** — цвета, сетка, 8px, иконки.
+
+---
+
+## ❌ Что **сломано**
+
+### Backend (критично)
+- Смена пароля — **не работает**.
+- Аудит — **пишется при откате**.
+- `/api/audit` — **открыт** для viewer/scanner.
+- `GET /api/audit/{id}` — **не существует**.
+- Аудит ролей — **отсутствует**.
+- Системные роли — **редактируются**.
+
+### Frontend
+- RBAC — **не работает** (sidebar, router, кнопки).
+- Responsive — **30%** (sidebar, гамбургер, модалки, таблицы, Chart.js).
+- Шрифты — **fallback** (unicode-range).
+- Локализация — **частичная**.
+- Ошибки — `[object Object]`, английский, alert-danger.
+- Формы — **сломаны** (`/users`, `/roles`).
+
+### Scanner
+- `.env` — **не читается**.
+
+---
+
+## 🔮 Что дальше
+
+### Немедленно
+1. **53.4a-доп3** (hotfix backend-critical) — **отправить разработчику**.
+2. **53.4a-доп4** (fonts) — **быстро**, **параллельно**.
+
+### Краткосрочно
+3. **53.4b** (WebUI этап 2: login/dashboard/findings + RBAC + Responsive).
+4. **53.4c/d/e** (остальные страницы + полировка + документация).
+
+### После 53.4e
+5. **55** — GitHub-пакет.
+6. **56** — BUG-117 hotfix (Manager-маскирование).
+7. **57** — **релиз v3.0.0**.
+
+### v3.1.0+
+- Formal Grammars (CFG/AST).
+- Rust Scanner.
+- DLP/ICAP.
+- SIEM.
+
+---
+
+## 📚 Связанные документы
+
+- **`STATE.md`** — текущее состояние (v3.13.38).
+- **`ROADMAP.md`** — план v3.0.0/v3.1.0/v3.2.0/v4.0.0.
+- **`ARCHITECTURE.md`** — архитектура, API, модели.
+- **`CHANGELOG.md`** — история версий.
+- **`STATE_TEST_SESSION.md`** — протокол тестирования.
+- **`DESIGN.md`** — Dovetail-референс (перенос в `docs/` в 53.4e).
+- **`prompts/tz/*.md`** — 4 ТЗ.
+
+---
+
+## 🎓 Уроки мастер-сессии
+
+1. **Backend защищает — frontend нет.** Классическая проблема SPA: RBAC на backend ✅, но **UI не фильтрует** разделы/кнопки → UX-провал + security-риск (info leak).
+2. **`[object Object]`** — симптом **неразобранных ошибок FastAPI 422**. Один `formatApiError()` — **закроет 10+ BUG**.
+3. **`unicode-range`** — **невидимый** баг. **Все** видят fallback, но **никто не замечает**, потому что **система выглядит нормально**. Тест с `Arial vs InterTest` — **эталонная диагностика**.
+4. **Аудит без `commit`** — **тихая** ошибка. **Хуже**, чем отсутствие аудита: логи **говорят**, что действие **было** — а его **не было**.
+5. **Гамбургер — не работает.** Классика: **кнопка есть**, **обработчик отсутствует**.
+6. **Responsive — это не "мелочь".** ~30% багов — **на mobile**. В Dovetail (dark-only) — **обязательно**.
+7. **53.4a был объявлен «закрытым», но шрифты не работали.** **Урок:** «файлы подключены» ≠ «шрифты применяются».
+8. **E2E-артефакты накапливаются.** 106 сканеров + `e2e_*` users + `test_event*` в audit. Нужна **очистка** в 53.4e.
+
+---
+
+**Конец `README_MASTER_SESSION.md`**
+**Дата:** 12.10.2026
+**Версия:** v3.13.38
+**Следующий шаг:** 53.4a-доп3 (hotfix)

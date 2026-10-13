@@ -1,8 +1,8 @@
 > **Обновляется архитектором.** План — редко, бэклог — по мере.
 > Текущее состояние — в `STATE.md`. Архитектура — в `ARCHITECTURE.md`.
 
-**Обновлено:** 10.10.2026
-**Стратегия:** Windows First → Linux → S3/MinIO → Enterprise Ready → UI-редизайн → Rust + DLP + SIEM
+**Обновлено:** 12.10.2026
+**Стратегия:** Windows First → Linux → S3/MinIO → Enterprise Ready → UI-редизайн → Rust + DLP + SIEM → ML
 
 ---
 
@@ -11,9 +11,10 @@
 | Версия | Статус | Ключевые фичи |
 |--------|--------|---------------|
 | v1.0.0-v2.1.0 | ✅ | Обнаружение, классификация, WebUI, Linux-агент |
-| **v3.0.0** | **🔄 Финальный этап** | **Enterprise Ready: S3-сканер, AD, mTLS, архивация, Findings Refactor, ENV-ключи, RBAC, Блок 9, Блок 6, WebUI-редизайн (Dovetail, 53.4a ✅, 53.4a-доп ✅)** |
-| v3.1.0 | 📋 | Rust Scanner (CIFS/NFS), DLP/ICAP, SMB, Webhook, облака, Per-scanner keys, SIEM, Cython, BOM fix (BUG-135), BUG-123/125/126/129/130, BUG-118 |
-| v4.0.0 | 📋 | ML-классификаторы, Zero-Trust, распределённый Manager, Kafka/Kinesis SIEM |
+| **v3.0.0** | **🔄 Финальный этап** | **Enterprise Ready + WebUI-редизайн (Dovetail, 53.4a ✅, 53.4a-доп ✅). Мастер-сессия v3.13.38 — найдено ~100 BUG + ~40 BACKLOG.** |
+| v3.1.0 | 📋 | Rust Scanner (CIFS/NFS), DLP/ICAP, SMB, Webhook, облака, Per-scanner keys, SIEM, Cython, Formal Grammars, BOM fix (BUG-135), BUG-117/118/123/125/126/129/130 |
+| v3.2.0 | 📋 | ML-классификаторы, embeddings, near-duplicate |
+| v4.0.0 | 📋 | Zero-Trust, распределённый Manager, Kafka/Kinesis SIEM |
 
 ---
 
@@ -23,25 +24,28 @@
 
 | День | Задача | BACKLOG/BUG | Статус |
 |------|--------|-------------|--------|
-| 28-47.7 | (WebUI, AD, Findings Refactor, Scanner deep, Мониторинг, Masking) | см. STATE | ✅ до v3.13.21 |
-| 48-50.2 | (WebUI, аудит, Retention, BUG-102) | | ✅ до v3.13.27 |
+| 28-50.2 | (WebUI, AD, Findings Refactor, Scanner deep, Мониторинг, Masking, Retention, Блок 9, Блок 6) | см. STATE | ✅ до v3.13.27 |
 | **51 (Блок 9)** | **Фикс-спринт Блок 9 (Безопасность)** — 10 BUG | TASK-074…084 | ✅ **v3.13.28** |
 | **52 (Блок 6)** | **Блок 6 (Агенты): Windows + Linux + S3 + MinIO** | TASK-085…103 | ✅ **v3.13.28** |
 | **53.1a (BACKLOG-097 ч.1)** | **Manager: `source_type` + S3-ресурсы, миграция 006** | TASK-104…109 | ✅ **v3.13.29** |
 | **53.1b (BACKLOG-097 ч.2)** | **Scanner: фабрика + `_text_scanner.py` + boto3** | TASK-110…117 | ✅ **v3.13.30** |
 | **53.2 (BACKLOG-097 ч.3)** | **Scanner: S3LineConnector (streaming, ENV, OCR)** | TASK-118…123 | ✅ **v3.13.31** |
 | **53.3 (BACKLOG-097 ч.4)** | **E2E на MinIO + WebUI-форма S3 + docs** | TASK-129…133 | ✅ **v3.13.32** |
-| **53.3-test-stand-fix** | **Тестовый стенд: healthcheck, авто-очистка, версии 3.13.34** | — | ✅ **v3.13.34** |
-| **53.3-fix-s3-bucket** | **`S3LineConnector`: bucket только из `scan_config`; BACKLOG-103 заведён** | TASK-134…136 | ✅ **v3.13.35** |
-| **53.3-fs-regress-ocr-diag (BUG-137)** | **Гонка temp-файлов `OCREngine`; фикс + WARNING + тест** | BUG-137 | ✅ **v3.13.36** |
-| **53.3-fs-regress** | **Ручной регресс FS после 53.1b/53.2 (cp1251, PII, OCR)** | — | ✅ **07.10.2026** |
-| **B (ручной FS-регресс после BUG-137)** | **12/12 пунктов чек-листа** | — | ✅ **09.10.2026** |
+| **53.3-test-stand-fix** | **Тестовый стенд: healthcheck, авто-очистка** | — | ✅ **v3.13.34** |
+| **53.3-fix-s3-bucket** | **`S3LineConnector`: bucket только из `scan_config`** | TASK-134…136 | ✅ **v3.13.35** |
+| **53.3-fs-regress-ocr-diag (BUG-137)** | **Гонка temp-файлов `OCREngine`** | BUG-137 | ✅ **v3.13.36** |
+| **53.3-fs-regress** | **Ручной регресс FS** | — | ✅ **07.10.2026** |
+| **B (ручной FS-регресс)** | **12/12 пунктов** | — | ✅ **09.10.2026** |
 | **53.4a (BACKLOG-093, этап 1/5)** | **WebUI-редизайн: токены + base + компоненты + grid-wireframe; локальные шрифты; `theme.js` удалён** | BACKLOG-093 | ✅ **v3.13.37** |
-| **53.4a-доп (BACKLOG-093)** | **WebUI-фиксы: BUG-139 (webfonts FA 6.4.0), BUG-138 (finding_detail/Console), BUG-140 (reveal toggle + кэш, `.reveal-block`)** | BACKLOG-093 | ✅ **v3.13.38** |
-| **53.4b (BACKLOG-093, этап 2/5)** | **WebUI-редизайн: login, dashboard, resources, findings** | BACKLOG-093 | 📋 **следующий** |
-| **53.4c (BACKLOG-093, этап 3/5)** | **WebUI-редизайн: finding_detail, catalog, audit, scanners, access** | BACKLOG-093 | 📋 |
-| **53.4d (BACKLOG-093, этап 4/5)** | **WebUI-редизайн: roles, users, settings, footer, графики (Chart.js)** | BACKLOG-093 | 📋 |
-| **53.4e (BACKLOG-093, этап 5/5)** | **WebUI-редизайн: полировка, скриншоты, `docs/DESIGN.md`** | BACKLOG-093 | 📋 |
+| **53.4a-доп (BACKLOG-093)** | **WebUI-фиксы: BUG-138/139/140** | BACKLOG-093 | ✅ **v3.13.38** |
+| **53.4a-доп3 (hotfix)** | **Backend-critical hotfix: BUG-201/202/214/223/181/168/142/148** | BUG-201,202,214,223,181,168,142,148 | ✅ **v3.13.39** |
+| **53.4a-доп4 (fonts, BUG-212)** | **unicode-range кириллицы + замена jetbrains-mono.woff2 (v2.304 variable) + OFL.txt** | BUG-212 | ✅ **v3.13.40** |
+| **53.4a-доп5 (hotfix + sync)** | **BUG-150 (CASCADE 007, DELETE→204), BUG-149 (S3 bucket-фолбэк), BACKLOG-121 (.btn-primary white), BACKLOG-119 (badge /login), sync ARCHITECTURE.md** | BUG-150, BUG-149, BACKLOG-121, BACKLOG-119, BACKLOG-129 | ✅ **v3.13.41** |
+| **Мастер-сессия v3.13.38** | **WebUI 1–17 + RBAC-прогон; ~100 BUG + ~40 BACKLOG** | — | ✅ **12.10.2026** |
+| **53.4b (BACKLOG-093, этап 2/5)** | **WebUI-редизайн: login, dashboard, resources, findings + RBAC frontend + Responsive** | BACKLOG-093 | 📋 |
+| **53.4c (BACKLOG-093, этап 3/5)** | **WebUI-редизайн: finding_detail, catalog, audit, scanners, access, resources** | BACKLOG-093 | 📋 |
+| **53.4d (BACKLOG-093, этап 4/5)** | **WebUI-редизайн: roles, users, settings, footer, Chart.js палитра** | BACKLOG-093 | 📋 |
+| **53.4e (BACKLOG-093, этап 5/5)** | **WebUI-редизайн: полировка, скриншоты, `docs/DESIGN.md`, favicon, CSP, E2E-очистка** | BACKLOG-093 | 📋 |
 | **52.1** | **Linux-агент: метрики + сквозной поток + BUG-130** | — | 📋 |
 | **52.2** | **Блок 6.5: сбор прав Windows (BUG-123, 127)** | — | 📋 |
 | **54** | **Блок 11 (Отказоустойчивость)** | — | 📋 |
@@ -53,52 +57,40 @@
 > Все 14 страниц WebUI в dark-теме, `theme.js` удалён, скриншоты в `docs/ui-screenshots/`,
 > `docs/DESIGN.md` в репо.
 
-### Бэклог v3.0.0 — активные задачи
+### Бэклог v3.0.0 — активные задачи (топ-50)
 
 | ID | Название | Приоритет | Статус |
 |----|----------|-----------|--------|
-| **BACKLOG-093** | **Редизайн WebUI (Dovetail-style, `DESIGN.md`)** | 🔴 | 🔄 **53.4a ✅ (v3.13.37); 53.4a-доп ✅ (v3.13.38); 53.4b–53.4e 📋** |
-| **Linux-агент дотест** | Метрики, сквозной поток, BUG-130 | 🔴 | 📋 52.1 |
-| **BUG-117** | Manager не маскирует контексты сам | 🔴 | 📋 56 |
+| **BUG-201** | Смена пароля не работает | 🔴🔴 | 📋 53.4a-доп3 |
+| **BUG-202** | Audit пишется при откате | 🔴🔴 | 📋 53.4a-доп3 |
+| **BUG-212** | Fonts unicode-range | 🔴 | 📋 53.4a-доп4 |
+| **BUG-214** | /api/audit → viewer / scanner | 🔴🔴 | 📋 53.4a-доп3 |
+| **BUG-223** | GET /api/audit/{id} — 404 | 🔴🔴 | 📋 53.4a-доп3 |
+| **BUG-181** | Нет аудита ролей | 🔴 | 📋 53.4a-доп3 |
+| **BUG-168** | Системные роли редактируются | 🔴 | 📋 53.4a-доп3 |
+| **BUG-142** | KPI Ресурсов = 0 | 🔴 | 📋 53.4a-доп3 + 53.4b |
+| **BUG-148** | Scanner .env | 🔴 | ✅ v3.13.39 |
+| **BUG-150** | DELETE /api/resources/{id} → 500 (FK NO ACTION) | 🔴🔴 | ✅ v3.13.41 |
+| **BUG-149** | S3-скан 0 files | 🔴🔴 | ✅ v3.13.41 |
+| **BACKLOG-121** | .btn-primary white filled | 🟡 | ✅ v3.13.41 |
+| **BACKLOG-119** | Badge режима /login | 🟡 | ✅ v3.13.41 |
+| **BACKLOG-129** | FK без CASCADE | 🟡 | ✅ v3.13.41 |
+| **BUG-232** | Модалки на mobile | 🔴 | 📋 53.4b |
+| **BUG-233** | Гамбургер не работает | 🔴 | 📋 53.4b |
+| **BUG-213** | Frontend RBAC не работает | 🔴 | 📋 53.4b |
+| **BUG-117** | Manager не маскирует контексты сам | 🔴 | 📋 день 56 |
+| **BUG-118** | Auth middleware 2 соединения | 🔴 | 📋 v3.1.0 |
+| **BUG-135** | S3-агент: BOM | 🟡 | 📋 v3.1.0 |
 | **BUG-123** | Windows-агент: сбор прав = 0 | 🟡 | 📋 52.2 |
-| **BUG-135** | S3-агент: `json.loads` падает на BOM | 🟡 | 📋 v3.1.0 |
+| **BACKLOG-093** | Редизайн WebUI (Dovetail) | 🔴 | 🔄 53.4a-доп3/4 + 53.4b–e |
+| **Linux-агент дотест** | Метрики, сквозной поток, BUG-130 | 🔴 | 📋 52.1 |
+| **BUG-172** | Нет permissions в RBAC | 🔴 | 📋 архитектура |
 | **BACKLOG-028** | Публикация на GitHub | 🔴 | 📋 55 |
 | **BACKLOG-046** | Полный E2E-прогон на CI | 🔴 | 📋 55 |
 | **BACKLOG-044** | Защита `/metrics` | 🟡 | 📋 production |
 | **BACKLOG-094** | WebUI/Manager не пересобирается автоматически | 🟡 | 📋 |
-| **SQLAlchemy pin** | Закрепить версию в `requirements.txt` | 🟡 | ✅ v3.13.28 |
-| **BUG-118** | Auth middleware держит 2 соединения | 🔴 | 📋 v3.1.0 |
-| **BUG-125** | Linux-агент: `MANAGER_URL` env игнорируется | 🟡 | 📋 v3.1.0 |
-| **BUG-126** | S3-агент: `verify_ssl` строковый | 🟢 | 📋 v3.1.0 |
-| **BUG-129** | Windows-агент: шум от собственного чтения | 🟡 | 📋 v3.1.0 |
-| **BUG-130** | Linux-агент: retry без backoff | 🟡 | 📋 v3.1.0 |
-| **BUG-131** | WSL → Manager: localhost терялся | ✅ | само-исправился |
-| **BUG-132** | S3-агент: не переустанавливает соединение | 🟢 | 📋 v3.1.0 |
-| **BUG-121** | README Windows-агента: неверный SACL | 🟢 | 📋 v3.1.0 |
-| **BUG-124** | `docker-compose.s3.yml` конфликт | 🟢 | 📋 v3.1.0 |
-| **BUG-128** | Кириллица в логах | 🟢 | 📋 док |
-| **BACKLOG-039** | Аудит NOT NULL полей | 🟡 | 📋 |
-| **BACKLOG-045** | Параметризация портов экспортеров | 🟢 | 📋 |
-| **BACKLOG-047** | `/api/health` версия — синхронизация | 🟡 | ✅ v3.13.28 |
-| **BACKLOG-065** | Удалить `findings_old` + `findings_archive` | 🟢 | 📋 |
-| **BACKLOG-078** | Linux-агент вне Docker | 🟢 | ✅ v3.13.28 |
-| **BACKLOG-080…082** | Тестирование агентов | 🟡 | ✅ v3.13.28 |
-| **BACKLOG-083** | Alertmanager webhook → Manager | 🟡 | 📋 v3.0.0 |
-| **TEST-NOTE-5.5** | Осиротевшие сканеры после обновления | 🟡 | 📋 |
-| **TEST-NOTE-5.11** | E2E `_assign_task` конкурирует со сканером | 🟡 | 📋 |
-| **TEST-NOTE-5.12** | `--remove-orphans` сносит основной стек | 🟡 | 📋 |
-| **TEST-NOTE-10.1** | Alembic из PowerShell уходит в SQLite | 🟡 | 📋 док |
-| **TEST-NOTE-10.2** | Артефакты E2E-сканеров накапливаются | 🟡 | 📋 бэклог |
-| **TEST-NOTE-10.3** | Дубли секций в `scan_config` старых FS-ресурсов | 🟡 | 📋 бэклог |
-| **TEST-NOTE-10.8** | 2 legacy-теста WebUI (непустая таблица findings) | 🟡 | 📋 отдельный день |
-| **BACKLOG-099 (внутр.)** | S3-сканер: `skip_prefixes` | 🟢 | 📋 v3.1.0 |
-| **BACKLOG-100 (внутр.)** | S3-сканер: параллельное сканирование | 🟢 | 📋 v3.1.0 |
-| **BACKLOG-101 (внутр.)** | WebUI: stroke-SVG иконки (замена FA) | 🟢 | 📋 v3.1.0 |
-| **BACKLOG-102 (внутр.)** | WebUI: light-тема (после dark-only) | 🟢 | 📋 v3.1.0 |
-| **BACKLOG-103** | S3-сканер: fallback на config-секреты | 🟡 | 📋 v3.1.0 |
-| **Cyrylic-subsets** | `unicode-range` в `inter.css` / `jetbrains-mono.css` | 🟢 | 📋 v3.1.0 |
-| **Chart.js palette** | Монохром + `#6798ff` под Dovetail | 🟡 | 📋 53.4d |
-| **`DESIGN.md` → `docs/`** | `git mv` в 53.4e | 🟢 | 📋 53.4e |
+| **BUG-155…236** | (все остальные) | 🟡/🟢 | 📋 53.4b–e |
+| **BACKLOG-131…155** | (все UI-улучшения) | 🟡/🟢 | 📋 53.4b–e |
 
 ### Бэклог v3.0.0 — ЗАКРЫТЫЕ (кратко)
 
@@ -125,7 +117,8 @@
 | 53.3-fs-regress | **Ручной регресс FS (cp1251, PII, OCR)** | **07.10.2026** |
 | B (ручной FS-регресс после BUG-137) | **12/12 пунктов** | **09.10.2026** |
 | **53.4a (BACKLOG-093, этап 1/5)** | **WebUI-редизайн: токены + base + компоненты + grid-wireframe; локальные шрифты; `theme.js` удалён** | **v3.13.37** |
-| **53.4a-доп (BACKLOG-093)** | **WebUI-фиксы: BUG-138/139/140 (webfonts, finding_detail, reveal)** | **v3.13.38** |
+| **53.4a-доп (BACKLOG-093)** | **WebUI-фиксы: BUG-138/139/140** | **v3.13.38** |
+| **Мастер-сессия v3.13.38** | **WebUI 1–17 + RBAC; ~100 BUG + ~40 BACKLOG** | **12.10.2026** |
 
 ---
 
@@ -168,6 +161,7 @@
 | TEST-NOTE-6.8 | Кириллица в логах — PS 5.1 читает ANSI |
 | TEST-NOTE-6.9 | Docker Desktop зависает после длительной работы |
 | TEST-NOTE-6.10 | Rate-limit 300/60s мешает тестированию |
+| TEST-NOTE-6.11 | `secure=false` = `verify=False` |
 
 ### TEST-NOTE — Блок 9
 
@@ -189,41 +183,35 @@
 | TEST-NOTE-9.17 | `require_viewer` = `require_auth` |
 | TEST-NOTE-9.18 | `user_roles` без PK/CASCADE |
 
-### TEST-NOTE — День 53.1a
-
-| ID | Название |
-|----|----------|
-| TEST-NOTE-10.1 | Alembic из PowerShell на Windows уходит в SQLite |
-| TEST-NOTE-10.2 | Артефакты E2E-сканеров накапливаются (101+) |
-| TEST-NOTE-10.3 | Дубли секций в `scan_config` старых FS-ресурсов |
-
-### TEST-NOTE — День 53.2
+### TEST-NOTE — Дни 53.1a–53.4
 
 | ID | Название | Статус |
 |----|----------|--------|
-| TEST-NOTE-10.4 | BUG-136 меняет поведение FS-пути (cp1251 теперь декодируется) | ✅ закрыто в B (12/12) |
-| TEST-NOTE-10.5 | Smoke FS в 53.1b был слабый (1 файл) | ✅ закрыто в 53.3-fs-regress |
-
-### TEST-NOTE — День 53.3
-
-| ID | Название | Статус |
-|----|----------|--------|
-| TEST-NOTE-10.6 | healthcheck `manager_test`/`webui_test` + `up --wait` | ✅ **fixed v3.13.34** |
+| TEST-NOTE-10.1 | Alembic из PowerShell уходит в SQLite | 📋 док |
+| TEST-NOTE-10.2 | Артефакты E2E-сканеров накапливаются (106+) | 📋 53.4e |
+| TEST-NOTE-10.3 | Дубли секций в `scan_config` старых FS-ресурсов | 📋 бэклог |
+| TEST-NOTE-10.4 | BUG-136 меняет поведение FS-пути (cp1251) | ✅ закрыто в B |
+| TEST-NOTE-10.5 | Smoke FS в 53.1b был слабый | ✅ закрыто в 53.3-fs-regress |
+| TEST-NOTE-10.6 | healthcheck `manager_test`/`webui_test` | ✅ **fixed v3.13.34** |
 | TEST-NOTE-10.7 | `run-tests.sh all` делает `down -v` + `up -d --wait` | ✅ **fixed v3.13.34** |
-| TEST-NOTE-10.8 | 2 legacy-теста WebUI требуют непустую таблицу findings | 📋 отдельный день |
+| TEST-NOTE-10.8 | 2 legacy-теста WebUI требуют непустую findings | 📋 отдельный день |
+| TEST-NOTE-10.9 | Docker Compose v5.5.1 поддерживает `up -d --wait` | ✅ |
+| TEST-NOTE-10.10 | 4 E2E-теста флакают без живого сканера на `:18000` | 📋 микро-день |
+| TEST-NOTE-10.11 | `/api/health` в dev-режиме отдаёт `version: unknown` | 📋 док |
+| TEST-NOTE-10.12 | Два Manager на одном порту `:8000` | 📋 док |
+| TEST-NOTE-10.13 | `GET /api/scanner` возвращает `{value, Count}` | 📋 унификация API |
+| TEST-NOTE-10.14 | `files_scanned=10` вместо 9 — не баг | ✅ |
+| TEST-NOTE-10.15 | ~40% находок — ложные (url/organization/us_driver_license/nrp) | 📋 качество детекции |
+| TEST-NOTE-10.16 | `person` не маскируется — связано с BUG-117 | 🔗 BUG-117 |
 
-### TEST-NOTE — День B (ручной FS-регресс)
+### TEST-NOTE — Мастер-сессия v3.13.38
 
 | ID | Название | Статус |
 |----|----------|--------|
-| TEST-NOTE-10.9 | Docker Compose v5.5.1 поддерживает `up -d --wait` | ✅ (pre-flight) |
-| TEST-NOTE-10.10 | 4 E2E-теста флакают без живого сканера на `:18000` | 📋 микро-день или skip |
-| TEST-NOTE-10.11 | `/api/health` в dev-режиме (Manager на хосте) отдаёт `version: unknown` | 📋 док |
-| TEST-NOTE-10.12 | Два Manager на одном порту `:8000` (host + container) | 📋 док / fix в `run_manager.py` |
-| TEST-NOTE-10.13 | `GET /api/scanner` возвращает `{value, Count}` (не плоский массив) | 📋 унификация API |
-| TEST-NOTE-10.14 | `files_scanned=10` вместо 9 (2 PNG в корпусе) — не баг | ✅ |
-| TEST-NOTE-10.15 | ~40% находок — ложные (`url`/`organization`/`us_driver_license`/`nrp`) | 📋 «Качество детекции» |
-| TEST-NOTE-10.16 | `person` не маскируется — связано с BUG-117 | 🔗 BUG-117 |
+| **TEST-NOTE-NEW-1** | `/api/resources` — default limit=100 | 📋 53.4c |
+| **TEST-NOTE-NEW-2** | `/api/access/resources` — без limit | 📋 53.4c |
+| **TEST-NOTE-NEW-3** | Маска `aws_secret` = `=wJalr***` — сохраняет `=` (design по BUG-086) | 📋 design |
+| **TEST-NOTE-NEW-4** | 8 проблем в Console — `[DOM]` password field | 📋 53.4e |
 
 ---
 
@@ -249,25 +237,29 @@
 | 72 | **BUG-118: Auth middleware 1 соединение** | — | 🔴 |
 | 73 | **BUG-125/126/129/130: агенты** | — | 🟡 |
 | 74 | **BUG-117: Manager-маскирование** (если не в v3.0.0) | — | 🔴 |
-| 75 | Red teaming, SAST, SCA | BACKLOG-022 | 🔴 |
-| 76 | Релиз v3.1.0 | — | 🔴 |
+| 75 | **Formal Grammars (CFG + AST)** — JSON/XML/CSV + tree-sitter | — | 🔴 |
+| 76 | **Post-Processor (NER + relations)** | — | 🟡 |
+| 77 | Red teaming, SAST, SCA | BACKLOG-022 | 🔴 |
+| 78 | Релиз v3.1.0 | — | 🔴 |
 
 ### Бэклог v3.1.0
 
 | ID | Название | Приоритет |
 |----|----------|-----------|
-| BACKLOG-036 | Rust Scanner — **CIFS/NFS + параллелизм** | 🔴 |
-| **BUG-135** | S3-агент: `json.loads` падает на BOM | 🟡 |
-| **BUG-123** | Windows-агент: сбор прав = 0 | 🟡 |
-| **BUG-118** | Auth middleware: 1 соединение (eager roles) | 🔴 |
-| **BUG-125** | Linux-агент: `MANAGER_URL` env | 🟡 |
-| **BUG-126** | S3-агент: `verify_ssl` строковый | 🟢 |
-| **BUG-129** | Windows-агент: шум от собственного чтения | 🟡 |
+| BACKLOG-036 | Rust Scanner — CIFS/NFS + параллелизм | 🔴 |
+| **BUG-135** | S3-агент: BOM в JSON | 🟡 |
+| **BUG-123** | Windows-агент: сбор прав | 🟡 |
+| **BUG-118** | Auth middleware: 1 соединение | 🔴 |
+| **BUG-125** | Linux-агент: MANAGER_URL env | 🟡 |
+| **BUG-126** | S3-агент: verify_ssl строковый | 🟢 |
+| **BUG-129** | Windows-агент: шум | 🟡 |
 | **BUG-130** | Linux-агент: retry без backoff | 🟡 |
-| **BUG-132** | S3-агент: не переустанавливает соединение | 🟢 |
+| **BUG-132** | S3-агент: соединение | 🟢 |
 | **BUG-121** | README Windows-агента | 🟢 |
 | **BUG-124** | `docker-compose.s3.yml` конфликт | 🟢 |
 | **BUG-128** | Кириллица в логах | 🟢 |
+| **Formal Grammars** | CFG-парсеры (JSON/XML/CSV) + AST | 🔴 |
+| **Post-Processor** | NER + relations | 🟡 |
 | BACKLOG-089 | Cython-оптимизация | 🟡 |
 | BACKLOG-090 | Быстрые regex | 🟡 |
 | BACKLOG-091 | TruffleHog | 🟡 |
@@ -284,38 +276,35 @@
 | BACKLOG-069 | SIEM: генерация событий | 🔴 |
 | BACKLOG-070 | SIEM: экспорт | 🔴 |
 | BACKLOG-072 | SIEM: WebUI | 🟡 |
-| BACKLOG-076 | Manager: `findings_updated` | 🟡 |
+| BACKLOG-076 | Manager: findings_updated | 🟡 |
 | BACKLOG-077 | Сканер: heartbeat до инициализации | 🟢 |
 | BACKLOG-080…082 | Тестирование агентов | 🟡 |
 | BUG-060 | BOM ломает маскирование email | 🟢 |
-| BUG-076 | Scanner: `current_task` | 🟢 |
-| BUG-083 | `order_by=severity` | 🟢 |
-| BUG-085 | `/fragment` text_line → 404 | 🟢 |
+| BUG-076 | Scanner: current_task | 🟢 |
+| BUG-083 | order_by=severity | 🟢 |
+| BUG-085 | /fragment text_line → 404 | 🟢 |
 | BACKLOG-011 | Webhook для MinIO | 🟢 |
 | BACKLOG-012 | Облачные хранилища | 🟢 |
 | BACKLOG-017 | Обработка архивов | 🟡 |
 | BACKLOG-018 | Распределённая архитектура | 🔴 |
 | BACKLOG-022 | Red teaming, SAST, SCA | 🔴 |
-| **BACKLOG-103** | Убрать fallback на config-секреты в `S3LineConnector`/`S3Connector` | 🟡 |
-| **BACKLOG-099 (внутр.)** | S3-сканер: `skip_prefixes` | 🟢 |
-| **BACKLOG-100 (внутр.)** | S3-сканер: параллельное сканирование | 🟢 |
-| **BACKLOG-101 (внутр.)** | WebUI: stroke-SVG иконки (замена FA) | 🟢 |
-| **BACKLOG-102 (внутр.)** | WebUI: light-тема (после dark-only) | 🟢 |
-| **Cyrylic-subsets** | `unicode-range` в `inter.css` / `jetbrains-mono.css` | 🟢 |
+| **BACKLOG-099…103** | S3-сканер (skip_prefixes, параллелизм, FA, light, fallback) | 🟢 |
+| **Cyrylic-subsets** | unicode-range — закрыть в 53.4a-доп4 | ✅ (перенесено) |
 
 ---
 
-## 📋 v4.0.0 — AI/ML + DISTRIBUTED
+## 📋 v3.2.0 — ML + DISTRIBUTED
 
 | День | Задача | Приоритет |
 |------|--------|-----------|
-| 77-78 | ML-классификаторы | 🔴 |
-| 79 | Аномалии в аудите | 🟡 |
-| 80-81 | Zero-Trust архитектура | 🔴 |
-| 82 | Распределённый Manager | 🔴 |
-| 83 | SIEM: Kafka / Kinesis | 🟡 |
-| 84 | Версионирование данных | 🟢 |
-| 85 | Релиз v4.0.0 | 🔴 |
+| 79-80 | ML-классификаторы (embeddings) | 🔴 |
+| 81 | Near-duplicate detection (MinHash) | 🟡 |
+| 82 | Аномалии в аудите | 🟡 |
+| 83 | Zero-Trust архитектура | 🔴 |
+| 84 | Распределённый Manager | 🔴 |
+| 85 | SIEM: Kafka / Kinesis | 🟡 |
+| 86 | Версионирование данных | 🟢 |
+| 87 | Релиз v3.2.0 | 🔴 |
 
 ---
 
@@ -324,10 +313,13 @@
 | Версия | Задач | Выполнено | Прогресс |
 |--------|-------|-----------|----------|
 | v1.0.0-v2.1.0 | 27 | 27 | 100% ✅ |
-| **v3.0.0** | **~132** | **~127** | **~96% 🔄** |
-| v3.1.0 | 40 | 0 | 0% 📋 |
+| **v3.0.0** | **~235** | **~135** | **~57% 🔄** |
+| v3.1.0 | 45 | 0 | 0% 📋 |
+| v3.2.0 | 9 | 0 | 0% 📋 |
 | v4.0.0 | 9 | 0 | 0% 📋 |
-| **ИТОГО** | **~208** | **~154** | **~74%** |
+| **ИТОГО** | **~325** | **~162** | **~50%** |
+
+> ⚠️ Резкий скачок задач в v3.0.0 — **мастер-сессия 12.10.2026** (WebUI 1–17 + RBAC): ~100 BUG + ~40 BACKLOG.
 
 ---
 
@@ -347,11 +339,12 @@
 - **`STATE_TEST_SESSION.md`** — протокол тестирования.
 - **`ARCHITECTURE.md`** — архитектура, модели, API, SIEM.
 - **`docs/DESIGN.md`** — style reference WebUI (Dovetail). ⚠️ Пока `DESIGN.md` в корне (перенос в 53.4e).
+- **ТЗ (активные):** `prompts/tz/day_53_4b_webui_pages_1.md`, `day_53_4cde_webui_pages_2_5.md`.
 - **ТЗ (архив):** `TZ_FIX_SPRINT.md` … `TZ_BLOCK6_*.md`, `day_53_*_*.md`.
 - **`SECURITY.md`**, **`docs/security_checklist.md`**, **`docs/admin-guide/05-security.md`**.
 
 ---
 
-**Актуально на:** 09.10.2026
-**Версия:** v3.13.37
-**Следующая цель:** 53.4b–53.4e (WebUI-редизайн) → 55 (GitHub-пакет) → 57 (релиз v3.0.0)
+**Актуально на:** 13.10.2026
+**Версия:** v3.13.41
+**Следующая цель:** 53.4b → 53.4c/d/e → 55 (GitHub-пакет) → 57 (релиз v3.0.0)

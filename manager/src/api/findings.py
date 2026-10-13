@@ -34,6 +34,7 @@ from manager.src.api.schemas_findings import (
     FindingStatsResponse, FalsePositiveResponse,
     CheckFingerprintsRequest, CheckFingerprintsResponse,
 )
+from manager.src.api.audit_helper import with_audit
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/findings", tags=["findings"])
@@ -929,21 +930,37 @@ def update_finding(
     db: Session = Depends(get_db),
     user: User = Depends(require_auditor),
 ):
-    """Обновить статус находки (confirmed / false_positive / archived / new)."""
+    """Обновить статус находки (confirmed / false_positive / archived / new).
+
+    BUG-202 (v3.13.39): изменение статуса и аудит-запись коммитятся одной
+    транзакцией (with_audit) — при откате записи аудита не остаётся.
+    """
     finding = db.query(Finding).filter(Finding.id == finding_id).first()
     if not finding:
         raise HTTPException(404, "Finding not found")
 
     old_status = finding.status
-    _apply_status(finding, body.status, body.comment, user)
-    _log_finding_status_change(
-        db, user, finding, old_status, body.status, request,
-        comment=body.comment, via="patch",
-    )
+    meta = {
+        "action": "status_changed",
+        "finding_id": finding.id,
+        "category": finding.category,
+        "finding_type": finding.finding_type,
+        "old_status": old_status,
+        "new_status": body.status,
+        "comment": body.comment,
+        "via": "patch",
+    }
+    with with_audit(
+        db,
+        _STATUS_EVENT_MAP.get(body.status, "finding_updated"),
+        request=request,
+        user=user,
+        file_path=finding.fragment_path or f"finding:{finding.id}",
+        metadata=meta,
+    ):
+        _apply_status(finding, body.status, body.comment, user)
 
-    db.commit()
     db.refresh(finding)
-
     return _finding_to_response(finding, user)
 
 

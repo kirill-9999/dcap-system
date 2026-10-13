@@ -55,6 +55,17 @@ def _setup_utf8():
 def main():
     """Запуск сканера"""
     _setup_utf8()
+    # BUG-148 (v3.13.39): start_scanner.bat читал только FINDINGS_* из secrets/,
+    # .env (S3_ACCESS_KEY / S3_SECRET_KEY и др.) не загружался. Python-dotenv
+    # подтягивает корневой .env до загрузки конфига — переменные попадают
+    # в os.environ (config_loader/ManagedScanner их уважают).
+    try:
+        from dotenv import load_dotenv
+
+        load_dotenv(Path(__file__).resolve().parent / ".env")
+    except ImportError:
+        print("[WARN] python-dotenv не установлен — .env не загружается. "
+              "pip install python-dotenv")
     # Проверяем аргументы
     args = sys.argv[1:]
     

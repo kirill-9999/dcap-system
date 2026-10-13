@@ -26,8 +26,12 @@ from .schemas import (
 from .manager import AuthManager
 from .audit import classify_login_failure, log_auth_event, role_diff
 from .rate_limit import login_limiter
+from ..api.audit_helper import with_audit
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
+
+# BUG-168 (v3.13.39): системные роли нельзя переименовывать и менять AD-group.
+SYSTEM_ROLES = {"admin", "auditor", "scanner", "viewer"}
 
 # Регистр глобального AuthManager (заполняется в main.py при старте)
 _auth_manager: AuthManager = None  # type: ignore
@@ -262,32 +266,64 @@ async def change_password(
     current_user: User = Depends(require_auth),
     db: Session = Depends(get_db),
 ):
-    """Смена пароля (только для локальных пользователей)."""
-    if not current_user.is_local_user():
+    """Смена пароля (только для локальных пользователей).
+
+    BUG-201 (v3.13.39): пароль не менялся, хотя возвращался 200 OK. Две причины:
+      1) AuthMiddleware грузит request.state.user в СВОЕЙ сессии и закрывает её
+         после call_next; мутация этого объекта в хендлере не попадала в сессию
+         get_db() — фактический commit был пустым;
+      2) отдельной проверки хеша в БД не было.
+    Решение: пользователь пере-запрашивается в сессии хендлера (db), хеш
+    обновляется и коммитится именно там. После commit пишется аудит.
+    """
+    # user в сессии этого запроса (get_db), а не detached-объект из middleware.
+    user = db.query(User).filter(User.id == current_user.id).first()
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="User not found",
+        )
+
+    if not user.is_local_user():
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Password change only available for local users",
         )
 
-    if not current_user.check_password(request_data.old_password):
+    if not user.check_password(request_data.old_password):
         raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
+            status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Current password is incorrect",
         )
 
-    current_user.set_password(request_data.new_password)
+    if request_data.confirm_password is not None:
+        if request_data.new_password != request_data.confirm_password:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Passwords do not match",
+            )
+
+    if len(request_data.new_password) < 8:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Password too short",
+        )
+
+    user.set_password(request_data.new_password)
     db.commit()
+    # Подтверждаем, что хеш реально обновился в БД (см. BUG-201).
+    db.refresh(user)
 
     # BUG-095 (TASK-062): факт смены пароля. Ни старый, ни новый пароль не пишутся.
     log_auth_event(
         db,
         "user_password_changed",
-        current_user,
+        user,
         request,
         metadata={
             "action": "password_changed",
-            "target_user_id": current_user.id,
-            "target_username": current_user.username,
+            "target_user_id": user.id,
+            "target_username": user.username,
             "by_admin": False,
             "self_service": True,
         },
@@ -631,11 +667,16 @@ async def list_roles(
 
 @router.post("/roles", response_model=dict)
 async def create_role(
+    request: Request,
     role_data: RoleCreate,
     admin: User = Depends(require_admin),
     db: Session = Depends(get_db),
 ):
-    """Создание роли (только Admin)."""
+    """Создание роли (только Admin).
+
+    BUG-181 (v3.13.39): раньше CRUD ролей не логировался — создать/удалить
+    роль можно было без следов в audit_logs.
+    """
     existing = db.query(Role).filter(Role.name == role_data.name).first()
     if existing:
         raise HTTPException(status_code=400, detail="Role already exists")
@@ -645,8 +686,15 @@ async def create_role(
         description=role_data.description,
         ad_group=role_data.ad_group,
     )
-    db.add(role)
-    db.commit()
+    meta = {
+        "action": "role_created",
+        "role_name": role_data.name,
+        "ad_group": role_data.ad_group,
+    }
+    with with_audit(db, "role_created", request=request, user=admin, metadata=meta):
+        db.add(role)
+        db.flush()
+        meta["role_id"] = role.id
     db.refresh(role)
     return role.to_dict()
 
@@ -666,35 +714,72 @@ async def get_role(
 
 @router.put("/roles/{role_id}", response_model=dict)
 async def update_role(
+    request: Request,
     role_id: int,
     role_data: RoleUpdate,
     admin: User = Depends(require_admin),
     db: Session = Depends(get_db),
 ):
-    """Обновление роли (только Admin)."""
+    """Обновление роли (только Admin).
+
+    BUG-168 (v3.13.39): системные роли (admin/auditor/scanner/viewer) нельзя
+    переименовывать и менять AD-group — иначе RBAC ломается. Допустимо менять
+    только description. BUG-181: изменение пишется в audit_logs.
+    """
     role = db.query(Role).filter(Role.id == role_id).first()
     if not role:
         raise HTTPException(status_code=404, detail="Role not found")
 
-    if role_data.name is not None:
-        role.name = role_data.name
-    if role_data.description is not None:
-        role.description = role_data.description
-    if role_data.ad_group is not None:
-        role.ad_group = role_data.ad_group
+    changes: dict = {}
 
-    db.commit()
+    if role.name in SYSTEM_ROLES:
+        if role_data.name is not None and role_data.name != role.name:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Cannot rename system role",
+            )
+        if role_data.ad_group is not None and role_data.ad_group != role.ad_group:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Cannot change AD group for system role",
+            )
+        if role_data.description is not None:
+            role.description = role_data.description
+            changes["description"] = "changed"
+    else:
+        if role_data.name is not None and role_data.name != role.name:
+            role.name = role_data.name
+            changes["name"] = "changed"
+        if role_data.description is not None and role_data.description != role.description:
+            role.description = role_data.description
+            changes["description"] = "changed"
+        if role_data.ad_group is not None and role_data.ad_group != role.ad_group:
+            role.ad_group = role_data.ad_group
+            changes["ad_group"] = "changed"
+
+    meta = {
+        "action": "role_updated",
+        "role_id": role.id,
+        "role_name": role.name,
+        "changes": changes,
+    }
+    with with_audit(db, "role_updated", request=request, user=admin, metadata=meta):
+        db.flush()
     db.refresh(role)
     return role.to_dict()
 
 
 @router.delete("/roles/{role_id}")
 async def delete_role(
+    request: Request,
     role_id: int,
     admin: User = Depends(require_admin),
     db: Session = Depends(get_db),
 ):
-    """Удаление роли (только Admin)."""
+    """Удаление роли (только Admin).
+
+    BUG-168: системные роли не удаляются. BUG-181: удаление пишется в аудит.
+    """
     role = db.query(Role).filter(Role.id == role_id).first()
     if not role:
         raise HTTPException(status_code=404, detail="Role not found")
@@ -703,9 +788,15 @@ async def delete_role(
     if role.name in ("admin", "auditor", "scanner", "viewer"):
         raise HTTPException(status_code=400, detail=f"Cannot delete system role '{role.name}'")
 
-    role.users = []
-    db.delete(role)
-    db.commit()
+    meta = {
+        "action": "role_deleted",
+        "role_id": role.id,
+        "role_name": role.name,
+    }
+    with with_audit(db, "role_deleted", request=request, user=admin, metadata=meta):
+        role.users = []
+        db.delete(role)
+        db.flush()
     return {"status": "ok", "detail": "Role deleted"}
 
 

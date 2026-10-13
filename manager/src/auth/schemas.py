@@ -90,3 +90,5 @@ class RoleListResponse(BaseModel):
 class ChangePasswordRequest(BaseModel):
     old_password: str
     new_password: str
+    # BUG-201 (v3.13.39): подтверждение нового пароля — защита от опечаток.
+    confirm_password: Optional[str] = None

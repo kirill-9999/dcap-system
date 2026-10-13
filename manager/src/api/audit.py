@@ -17,8 +17,9 @@ from datetime import datetime, timedelta
 
 from manager.src.db.session import get_db
 from manager.src.db import models
-from manager.src.auth.dependencies import require_admin
+from manager.src.auth.dependencies import require_admin, require_auditor
 from manager.src.auth.models import User
+from manager.src.api.schemas_audit import AuditLogDetail
 
 router = APIRouter(tags=["audit"])
 
@@ -294,6 +295,9 @@ def get_audit_events(
     limit: int = Query(100, ge=1, le=1000),
     offset: int = Query(0, ge=0),
     db: Session = Depends(get_db),
+    # BUG-214 (v3.13.39): просмотр журнала — только Auditor+ (объекты аудита
+    # содержат PII и ход ревью). Viewer/scanner → 403.
+    _user: User = Depends(require_auditor),
 ):
     """Получить аудит-события с фильтрацией"""
     query = db.query(models.AuditLog)
@@ -340,13 +344,22 @@ def get_audit_events(
 
 
 @router.get("/api/audit/stats")
-def get_audit_stats(days: int = Query(7, ge=1, le=30), db: Session = Depends(get_db)):
+def get_audit_stats(
+    days: int = Query(7, ge=1, le=30),
+    db: Session = Depends(get_db),
+    # BUG-214 (v3.13.39): статистика аудита — только Auditor+.
+    _user: User = Depends(require_auditor),
+):
     """Статистика по аудиту за N дней"""
     since = datetime.utcnow() - timedelta(days=days)
 
     from sqlalchemy import func
 
     total = db.query(models.AuditLog).filter(models.AuditLog.created_at >= since).count()
+
+    # BUG-142 (v3.13.39): dashboard.js читает s.total_resources (KPI «Ресурсов»),
+    # но stats его не возвращал — KPI всегда был 0.
+    total_resources = db.query(func.count(models.Resource.id)).scalar()
 
     type_stats = (
         db.query(models.AuditLog.event_type, func.count(models.AuditLog.id).label("count"))
@@ -385,7 +398,28 @@ def get_audit_stats(days: int = Query(7, ge=1, le=30), db: Session = Depends(get
         "by_source": [{"source": s[0], "count": s[1]} for s in source_stats],
         "agents_total": agents_total,
         "agents_online": agents_online,
+        "total_resources": total_resources,
     }
+
+
+@router.get("/api/audit/{log_id}", response_model=AuditLogDetail)
+def get_audit_log(
+    log_id: int,
+    db: Session = Depends(get_db),
+    # BUG-223 (v3.13.39): деталь события — только Auditor+. Зарегистрирован
+    # ПОСЛЕ GET /api/audit/agents, чтобы не перекрывать списки агентов.
+    _user: User = Depends(require_auditor),
+):
+    """Полное аудит-событие по id, включая содержимое metadata_json.
+
+    BUG-223 (v3.13.39): раньше GET /api/audit/{id} отсутствовал — прочитать
+    metadata конкретного события (например, finding_id у finding_reveal) было
+    невозможно, только по списку.
+    """
+    entry = db.query(models.AuditLog).filter(models.AuditLog.id == log_id).first()
+    if not entry:
+        raise HTTPException(404, "Audit log not found")
+    return entry
 
 
 @router.delete("/api/audit/agents/{agent_id}")
