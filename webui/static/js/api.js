@@ -1,3 +1,6 @@
+// BUG-216 (v3.14.0): перевод ошибок бэкенда на русский.
+// Определение errorToRussian — в auth.js (нужен и на /login, где api.js не грузится).
+
 const api = {
     _headers() {
         const headers = { 'Content-Type': 'application/json' };
@@ -5,17 +8,26 @@ const api = {
         return headers;
     },
 
-    async request(method, endpoint, data) {
-        const opts = { method, headers: this._headers() };
-        if (data !== undefined) opts.body = JSON.stringify(data);
-        const r = await fetch(endpoint, opts);
+    _handleErrors(r) {
         if (r.status === 401) {
             if (typeof Auth !== 'undefined') Auth.setToken(null);
             if (window.location.pathname !== '/login') window.location.href = '/login';
         }
+        // BUG-213 (v3.14.0): не хватает прав — роутер уводит на главную.
+        if (r.status === 403 && window.location.pathname !== '/') {
+            window.location.href = '/';
+        }
+        return r;
+    },
+
+    async request(method, endpoint, data) {
+        const opts = { method, headers: this._headers() };
+        if (data !== undefined) opts.body = JSON.stringify(data);
+        const r = await fetch(endpoint, opts);
+        this._handleErrors(r);
         if (!r.ok) {
             const err = await r.json().catch(() => ({ detail: r.statusText || ('HTTP ' + r.status) }));
-            throw new Error(err.detail || ('HTTP ' + r.status));
+            throw new Error(errorToRussian(err.detail || ('HTTP ' + r.status)));
         }
         return r.json();
     },
@@ -37,13 +49,10 @@ const api = {
                 url.searchParams.append(k, params[k]);
         });
         const r = await fetch(url.toString(), { headers: this._headers() });
-        if (r.status === 401) {
-            if (typeof Auth !== 'undefined') Auth.setToken(null);
-            if (window.location.pathname !== '/login') window.location.href = '/login';
-        }
+        this._handleErrors(r);
         if (!r.ok) {
             const err = await r.json().catch(() => ({ detail: r.statusText || ('HTTP ' + r.status) }));
-            throw new Error(err.detail || ('HTTP ' + r.status));
+            throw new Error(errorToRussian(err.detail || ('HTTP ' + r.status)));
         }
         const text = await r.text();
         let data = [];

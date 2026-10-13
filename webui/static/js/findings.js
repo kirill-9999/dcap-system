@@ -11,7 +11,19 @@ const FindingsPage = {
 
   async init() {
     this.limit = parseInt(new URLSearchParams(location.search).get('limit') || '50', 10);
+    // BUG-213 (v3.14.0): ждём сессию — RBAC.roles нужен для фильтрации кнопок.
+    if (typeof whenSessionReady === 'function') {
+      try { await whenSessionReady(); } catch (e) { /* продолжим без ролей */ }
+    }
+    this.canAudit = typeof RBAC !== 'undefined' && RBAC.isAuditor();
     this.bindEvents();
+    if (!this.canAudit) {
+      // Экспорт и массовые операции — только Auditor+ (backend require_auditor).
+      const exportBtn = document.getElementById('export-btn');
+      if (exportBtn) exportBtn.style.display = 'none';
+      const bulk = document.getElementById('bulk-actions');
+      if (bulk) bulk.style.display = 'none';
+    }
     await this.load();
   },
 
@@ -164,13 +176,13 @@ const FindingsPage = {
   },
 
   renderItem(f) {
+    // BUG-207 (v3.14.0): статусы на русском.
     const statusBadge = {
-      new: '<span class="badge bg-primary">🆕 new</span>',
-      confirmed: '<span class="badge bg-success">✅ confirmed</span>',
-      false_positive: '<span class="badge bg-danger">❌ false_positive</span>',
-      archived: '<span class="badge bg-secondary">📦 archived</span>',
-      // BUG-116 (v3.13.28): дубли после ротации ключа Findings
-      duplicate: '<span class="badge bg-warning text-dark">♻️ duplicate</span>',
+      new: '<span class="badge bg-primary">🆕 Новое</span>',
+      confirmed: '<span class="badge bg-success">✅ Подтверждено</span>',
+      false_positive: '<span class="badge bg-danger">❌ Ложное</span>',
+      archived: '<span class="badge bg-secondary">📦 Архив</span>',
+      duplicate: '<span class="badge bg-warning text-dark">♻️ Дубликат</span>',
     }[f.status] || escapeHtml(f.status);
 
     const typeBadge = {
@@ -187,12 +199,24 @@ const FindingsPage = {
       ? `${f.file_path || 'файл'}:${f.line_number}`
       : (f.file_path || '—');
 
+    // BUG-213: чекбоксы массовых операций и кнопки смены статуса — Auditor+.
+    const checkboxHtml = this.canAudit
+      ? `<input type="checkbox" class="form-check-input me-2 finding-checkbox"
+                 data-id="${f.id}" ${this.selected.has(f.id) ? 'checked' : ''}>`
+      : '';
+
+    const actionsHtml = (this.canAudit && f.status === 'new')
+      ? `
+        <button class="btn btn-sm btn-success finding-act" data-action="confirm" data-id="${f.id}" title="Подтвердить"><i class="fas fa-check"></i><span class="act-label">Подтвердить</span></button>
+        <button class="btn btn-sm btn-danger finding-act" data-action="fp" data-id="${f.id}" title="Ложное срабатывание"><i class="fas fa-times"></i><span class="act-label">Ложное</span></button>
+      `.trim()
+      : '';
+
     return `
       <div class="card mb-2 finding-row" data-id="${f.id}">
         <div class="card-body py-2">
           <div class="d-flex align-items-start">
-            <input type="checkbox" class="form-check-input me-2 finding-checkbox"
-                   data-id="${f.id}" ${this.selected.has(f.id) ? 'checked' : ''}>
+            ${checkboxHtml}
             <div class="flex-grow-1">
               <div class="d-flex flex-wrap justify-content-between align-items-center">
                 <div>
@@ -214,10 +238,7 @@ const FindingsPage = {
                 </details>
               ` : ''}
               <div class="mt-2">
-                ${f.status === 'new' ? `
-                  <button class="btn btn-sm btn-success" data-action="confirm" data-id="${f.id}" title="Подтвердить">✅</button>
-                  <button class="btn btn-sm btn-danger" data-action="fp" data-id="${f.id}" title="Ложное">❌</button>
-                ` : ''}
+                ${actionsHtml}
                 ${f.can_reveal ? `
                   <button class="btn btn-sm btn-outline-primary" data-action="reveal" data-id="${f.id}" title="Показать оригинал">👁️ Reveal</button>
                 ` : ''}
@@ -297,7 +318,7 @@ const FindingsPage = {
       }
       if (!r.ok) {
         const err = await r.json().catch(() => ({ detail: r.statusText }));
-        throw new Error(err.detail || ('HTTP ' + r.status));
+        throw new Error(errorToRussian(err.detail || ('HTTP ' + r.status)));
       }
       const blob = await r.blob();
       const cd = r.headers.get('Content-Disposition') || '';

@@ -39,13 +39,24 @@ async function loadDashboard() {
         updateRecentFindings(Array.isArray(findings) ? findings.slice(0, 10) : []);
     } catch(e) { console.error('Dashboard findings error:', e); }
     try {
-        const scanners = await api.get('/api/scanners');
-        updateScannerPanel(Array.isArray(scanners) ? scanners : []);
+        const scannerData = await api.get('/api/scanners');
+        updateScannerPanel(Array.isArray(scannerData) ? scannerData : []);
     } catch(e) { console.error('Dashboard scanners error:', e); }
+    try {
+        // BUG-203 (v3.14.0): KPI «Алерты» реализован через /api/access/alerts/stats
+        // (total алертов по доступам). Недоступно — остаётся 0.
+        const alerts = await api.get('/api/access/alerts/stats');
+        const ael = document.getElementById('kpiAlerts');
+        if (ael) ael.textContent = (alerts && alerts.total != null) ? alerts.total : 0;
+    } catch(e) { console.error('Dashboard alerts error:', e); }
     try {
         const data = await api.get('/api/audit', {limit: 10});
         updateRecentEvents(data.events || []);
     } catch(e) { console.error('Dashboard events error:', e); }
+}
+
+function legendPosition() {
+    return window.innerWidth < 768 ? 'bottom' : 'right';
 }
 
 function updateScannerPanel(scanners) {
@@ -58,7 +69,7 @@ function updateScannerPanel(scanners) {
     let html = '';
     const now = Date.now();
     for (const s of scanners) {
-        const hb = s.last_heartbeat ? new Date(s.last_heartbeat).getTime() : 0;
+        const hb = s.last_heartbeat ? parseUtc(s.last_heartbeat) : 0;
         const ageSec = hb ? Math.max(0, Math.round((now - hb) / 1000)) : null;
         const active = s.status === 'active' || s.status === 'ACTIVE' || (ageSec !== null && ageSec < 120);
         const icon = active ? '\ud83d\udfe2' : '\ud83d\udfe1';
@@ -134,7 +145,8 @@ function renderFindingsCharts(findings) {
             labels: catLabels,
             datasets: [{ data: catValues, backgroundColor: palette.slice(0, catLabels.length) }]
         },
-        options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'bottom' } } }
+        // BUG-229 (v3.14.0): адаптив + положение легенды на мобильных.
+        options: { responsive: true, maintainAspectRatio: false, aspectRatio: 1, plugins: { legend: { position: legendPosition() } } }
     });
 
     const resMap = {};
@@ -154,6 +166,7 @@ function renderFindingsCharts(findings) {
             indexAxis: 'y',
             responsive: true,
             maintainAspectRatio: false,
+            aspectRatio: 1,
             plugins: { legend: { display: false } },
             scales: { x: { beginAtZero: true } }
         }
@@ -169,9 +182,9 @@ function renderAuditCharts(s) {
         type: 'bar',
         data: {
             labels: byType.map(t => t.type),
-            datasets: [{ label: '\u0421\u043e\u0431\u044b\u0442\u0438\u044f', data: byType.map(t => t.count), backgroundColor: palette.slice(0, byType.length) }]
+            datasets: [{ label: 'События', data: byType.map(t => t.count), backgroundColor: palette.slice(0, byType.length) }]
         },
-        options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { y: { beginAtZero: true } } }
+        options: { responsive: true, maintainAspectRatio: false, aspectRatio: 1, plugins: { legend: { display: false } }, scales: { y: { beginAtZero: true } } }
     });
 
     const bySource = s.by_source || [];
@@ -181,7 +194,7 @@ function renderAuditCharts(s) {
             labels: bySource.map(x => x.source),
             datasets: [{ data: bySource.map(x => x.count), backgroundColor: palette.slice(0, bySource.length) }]
         },
-        options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'bottom' } } }
+        options: { responsive: true, maintainAspectRatio: false, aspectRatio: 1, plugins: { legend: { position: legendPosition() } } }
     });
 }
 
@@ -193,7 +206,7 @@ function updateRecentEvents(events) {
     const ticons = {read:'\ud83d\udcd6',write:'\u270f\ufe0f',delete:'\ud83d\uddd1\ufe0f',move:'\ud83d\udce6'};
     let html = '';
     for (const e of events) {
-        const t = new Date(e.created_at).toLocaleString('ru-RU');
+        const t = formatDate(e.created_at);
         html += '<tr><td>' + t + '</td><td>' + (e.user||'\u2014') + '</td><td style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + (e.file_path||'\u2014') + '</td><td><span class="badge badge-primary">' + (ticons[e.event_type]||'') + ' ' + (e.event_type||'') + '</span></td><td>' + (icons[e.event_source]||'\ud83d\udccb') + ' ' + (e.event_source||'\u2014') + '</td></tr>';
     }
     tbody.innerHTML = html;
@@ -204,15 +217,19 @@ function updateRecentFindings(findings) {
     if (!tbody) return;
     if (!findings.length) { tbody.innerHTML = '<tr><td colspan="6" class="text-center text-muted">\u041d\u0435\u0442 \u043d\u0430\u0445\u043e\u0434\u043e\u043a</td></tr>'; return; }
     const statusBadge = {
+        // BUG-207 (v3.14.0): статусы находок на русском.
         new: 'badge-primary', confirmed: 'badge-success', false_positive: 'badge-danger', archived: 'badge-secondary',
+    };
+    const statusName = {
+        new: 'новое', confirmed: 'подтверждено', false_positive: 'ложное', archived: 'архив', duplicate: 'дубликат',
     };
     let html = '';
     for (const f of findings) {
-        const t = new Date(f.first_seen_at || f.created_at || Date.now()).toLocaleString('ru-RU');
+        const t = (f.first_seen_at || f.created_at) ? formatDate(f.first_seen_at || f.created_at) : '—';
         const loc = (f.file_path || '') + (f.line_number ? ':' + f.line_number : '');
-        const val = (f.match_text || f.value || '').length > 40 ? (f.match_text || f.value || '').substring(0, 40) + '\u2026' : (f.match_text || f.value || '\u2014');
-        const fl = loc.length > 45 ? '\u2026' + loc.substring(loc.length - 40) : (loc || '\u2014');
-        html += '<tr><td>' + t + '</td><td><span class="badge ' + (f.finding_type === 'credentials' ? 'badge-warning' : 'badge-primary') + '">' + (f.finding_type||'') + '</span></td><td style="max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + val + '</td><td style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"><code>' + fl + '</code></td><td>' + ((f.confidence||0) * 100).toFixed(0) + '%</td><td><span class="badge ' + (statusBadge[f.status] || 'badge-primary') + '">' + (f.status||'') + '</span></td></tr>';
+        const val = (f.match_text || f.value || '').length > 40 ? (f.match_text || f.value || '').substring(0, 40) + '…' : (f.match_text || f.value || '—');
+        const fl = loc.length > 45 ? '…' + loc.substring(loc.length - 40) : (loc || '—');
+        html += '<tr><td>' + t + '</td><td><span class="badge ' + (f.finding_type === 'credentials' ? 'badge-warning' : 'badge-primary') + '">' + (f.finding_type||'') + '</span></td><td style="max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + val + '</td><td style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"><code>' + fl + '</code></td><td>' + ((f.confidence||0) * 100).toFixed(0) + '%</td><td><span class="badge ' + (statusBadge[f.status] || 'badge-primary') + '">' + (statusName[f.status] || f.status || '') + '</span></td></tr>';
     }
     tbody.innerHTML = html;
 }

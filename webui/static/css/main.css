@@ -15,10 +15,60 @@
 .page-content { flex: 1; padding: var(--spacing-6); }
 .text-center { text-align: center; }
 .text-muted { color: var(--color-text-muted) !important; }
-@media (max-width: 768px) {
-    .sidebar { width: var(--sidebar-collapsed-width); }
+
+/* ============================================================
+ * Responsive sidebar + гамбургер (BUG-228/233, v3.14.0)
+ * ============================================================ */
+
+/* Оверлей под офканвас-панелью (виден только ≤768px) */
+.sidebar-overlay {
+    display: none;
+    position: fixed;
+    top: 0; left: 0; right: 0; bottom: 0;
+    background: rgba(0, 0, 0, 0.5);
+    z-index: 999;
+}
+.sidebar-overlay.open { display: block; }
+
+/* Кнопка-гамбургер в шапке контента — видна только на мобильном */
+.sidebar-open-btn {
+    display: none;
+    background: none;
+    border: none;
+    color: var(--color-ash);
+    font-size: 18px;
+    padding: 4px 8px;
+    margin-right: 8px;
+    border-radius: var(--radius-sm);
+    cursor: pointer;
+}
+.sidebar-open-btn:hover { background: var(--color-border); }
+
+/* 769–1024px: сайдбар в виде «рельсов» (иконки без подписей) */
+@media (min-width: 769px) and (max-width: 1024px) {
+    .sidebar { width: 60px; }
+    .sidebar .nav-label,
     .sidebar .hide-on-collapse { display: none !important; }
-    .main-content { margin-left: var(--sidebar-collapsed-width); }
+    .main-content { margin-left: 60px; }
+}
+
+/* ≤768px: офканвас-панель, гамбургер, оверлей */
+@media (max-width: 768px) {
+    .sidebar {
+        position: fixed;
+        left: -250px;
+        width: 250px;
+        transition: left 0.3s;
+        z-index: 1000;
+    }
+    .sidebar.open { left: 0; }
+    .sidebar.open .nav-label,
+    .sidebar.open .hide-on-collapse { display: inline !important; }
+    .sidebar.open .user-name,
+    .sidebar.open .user-roles { display: block !important; }
+    .sidebar-overlay.open { display: block; }
+    .sidebar-open-btn { display: inline-flex; align-items: center; }
+    .main-content { margin-left: 0; }
     .kpi-grid { grid-template-columns: repeat(2, 1fr); }
     .charts-grid { grid-template-columns: 1fr; }
     .page-content { padding: var(--spacing-3); }

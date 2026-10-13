@@ -63,7 +63,7 @@ async function loadAudit() {
         var html = '<div class="table-responsive"><table class="table table-sm"><thead><tr><th>Время</th><th>Пользователь</th><th>Файл</th><th>Тип</th><th>Источник</th><th>Хост</th></tr></thead><tbody>';
         for (var i = 0; i < events.length; i++) {
             var e = events[i];
-            var t = new Date(e.created_at).toLocaleString('ru-RU');
+            var t = formatDate(e.created_at);
             html += '<tr><td>'+t+'</td><td>'+(e.user||'-')+'</td><td style="max-width:250px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+(e.file_path||'')+'</td><td><span class="badge badge-primary">'+(ticons[e.event_type]||'')+' '+(e.event_type||'')+'</span></td><td>'+(icons[e.event_source]||'')+' '+(e.event_source||'')+'</td><td>'+(e.source_host||'-')+'</td></tr>';
         }
         c.innerHTML = html + '</tbody></table></div>';

@@ -2,6 +2,22 @@
 // Хранение JWT в localStorage и отправка через заголовок Authorization (Bearer).
 // Прокси WebUI форвардит этот заголовок в Manager, который валидирует токен.
 
+// BUG-216 (v3.14.0): перевод ошибок бэкенда на русский.
+function errorToRussian(detail) {
+    if (detail === null || detail === undefined || detail === '') return detail;
+    const msg = String(detail);
+    const map = {
+        'Invalid credentials': 'Неверный логин или пароль',
+        'Current password is incorrect': 'Неверный текущий пароль',
+        'Passwords do not match': 'Пароли не совпадают',
+        'Cannot delete yourself': 'Вы не можете удалить себя',
+        'Cannot disable yourself': 'Вы не можете заблокировать себя',
+    };
+    if (map[msg]) return map[msg];
+    if (/^Required roles:/i.test(msg)) return 'Недостаточно прав. Обратитесь к администратору';
+    return msg;
+}
+
 const Auth = {
     TOKEN_KEY: "dcap_access_token",
 

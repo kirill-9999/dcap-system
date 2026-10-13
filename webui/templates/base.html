@@ -18,7 +18,7 @@
     <aside class="sidebar" id="sidebar">
         <div class="sidebar-header">
             <a href="/" class="sidebar-logo"><span>🛡️</span><span class="hide-on-collapse">DCAP</span></a>
-            <button class="sidebar-toggle" onclick="toggleSidebar()"><i class="fas fa-bars"></i></button>
+            <button class="sidebar-toggle" id="sidebar-toggle"><i class="fas fa-bars"></i></button>
         </div>
         <nav class="sidebar-nav">
             <a href="/" class="nav-item {% if page == 'Дашборд' %}active{% endif %}" data-page="dashboard">
@@ -80,9 +80,11 @@
             </div>
         </div>
     </aside>
+    <div class="sidebar-overlay" id="sidebarOverlay" onclick="closeSidebarMobile()"></div>
     <main class="main-content" id="mainContent">
         <header class="page-header">
             <div class="header-left">
+                <button class="sidebar-open-btn" id="mobileSidebarToggle" onclick="toggleSidebar()" aria-label="Открыть меню"><i class="fas fa-bars"></i></button>
                 <nav aria-label="Breadcrumb">
                     <ol class="breadcrumb">
                         <li class="breadcrumb-item active">{{ page|default('Главная') }}</li>
@@ -105,31 +107,7 @@
 <script src="/static/js/auth.js"></script>
 <script src="/static/js/api.js"></script>
 <script src="/static/js/main.js"></script>
-<script>
-// Защита страниц: если не авторизованы — редирект на /login
-document.addEventListener('DOMContentLoaded', async () => {
-    if (window.location.pathname !== '/login' && typeof Auth !== 'undefined') {
-        const ok = await Auth.check();
-        if (ok) {
-            // Имя пользователя и роли
-            try {
-                const me = await Auth.me();
-                if (me) {
-                    const nameEl = document.getElementById('currentUserName');
-                    if (nameEl) nameEl.textContent = me.full_name || me.username || 'Пользователь';
-                    const rolesEl = document.getElementById('currentUserRoles');
-                    if (rolesEl && me.roles) rolesEl.textContent = me.roles.join(', ');
-                    // Показывать админ-разделы только для admin
-                    const isAdmin = (me.roles || []).includes('admin');
-                    document.querySelectorAll('.nav-admin').forEach(el => {
-                        el.style.display = isAdmin ? '' : 'none';
-                    });
-                }
-            } catch (e) {}
-        }
-    }
-});
-</script>
+<script src="/static/js/datetime.js"></script>
 {% block scripts %}{% endblock %}
 </body>
 </html>

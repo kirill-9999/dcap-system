@@ -290,6 +290,29 @@
 .progress-bar { background: var(--color-blue-cornflower); }
 
 /* ============================================================
+ * Modal — адаптив (BUG-232, v3.14.0)
+ * ============================================================ */
+@media (max-width: 480px) {
+    .modal-dialog {
+        max-width: 100%;
+        margin: 0;
+    }
+    .modal .modal-content,
+    .modal-dialog .modal-content {
+        width: 100%;
+        max-width: 100%;
+        border-radius: 0;
+        max-height: 100vh;
+        overflow-y: auto;
+    }
+    .modal .modal-body,
+    .modal-dialog .modal-body {
+        max-height: calc(100vh - 200px);
+        overflow-y: auto;
+    }
+}
+
+/* ============================================================
  * Utilities
  * ============================================================ */
 .text-muted { color: var(--color-ash) !important; }

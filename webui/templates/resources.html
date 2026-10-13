@@ -2,7 +2,7 @@
 {% block title %}DCAP — Ресурсы{% endblock %}
 {% block content %}
 <h2 class="mb-4"><i class="fas fa-database text-primary"></i> Ресурсы</h2>
-<button class="btn btn-primary mb-3" onclick="showModal('create-resource-modal')"><i class="fas fa-plus"></i> Добавить ресурс</button>
+<button class="btn btn-primary mb-3" id="add-resource-btn" onclick="showModal('create-resource-modal')"><i class="fas fa-plus"></i> Добавить ресурс</button>
 <div class="table-wrapper" id="resources-table"><div class="text-center p-4 text-muted">Загрузка...</div></div>
 <div class="modal" id="create-resource-modal">
     <div class="modal-content">
@@ -108,7 +108,7 @@ async function createResource() {
         }
         if (!r.ok) {
             const err = await r.json().catch(() => ({ detail: r.statusText }));
-            alert(err.detail || ('HTTP ' + r.status));
+            alert(errorToRussian(err.detail || ('HTTP ' + r.status)));
             return;
         }
         closeModal('create-resource-modal');
@@ -127,14 +127,26 @@ async function loadResources() {
     var c = document.getElementById('resources-table');
     if (!resources.length) { c.innerHTML = '<div class="text-center p-4 text-muted">Нет ресурсов</div>'; return; }
     var html = '<div class="table-responsive"><table class="table table-sm"><thead><tr><th>ID</th><th>Тип</th><th>Путь</th><th>Статус</th><th>Создан</th><th></th></tr></thead><tbody>';
+    // BUG-213: сканирование — только scanner/admin (backend require_scanner).
+    var canScan = typeof RBAC !== 'undefined' && RBAC.isScanner();
     for (var i = 0; i < resources.length; i++) {
         var r = resources[i];
         var st = r.enabled ? '✅' : '❌';
-        var btn = r.enabled ? '<button class="btn btn-sm btn-outline-primary" onclick="rescanResource('+r.id+')" title="Сканировать"><i class="fas fa-play"></i></button>' : '';
-        html += '<tr><td>#'+r.id+'</td><td>'+r.type+'</td><td><code>'+r.path+'</code></td><td>'+st+'</td><td>'+(r.created_at?new Date(r.created_at).toLocaleString('ru-RU'):'-')+'</td><td>'+btn+'</td></tr>';
+        var btn = (r.enabled && canScan) ? '<button class="btn btn-sm btn-outline-primary" onclick="rescanResource('+r.id+')" title="Сканировать"><i class="fas fa-play"></i></button>' : '';
+        html += '<tr><td>#'+r.id+'</td><td>'+r.type+'</td><td><code>'+r.path+'</code></td><td>'+st+'</td><td>'+(r.created_at?formatDate(r.created_at):'-')+'</td><td>'+btn+'</td></tr>';
     }
     c.innerHTML = html + '</tbody></table></div>';
 }
-document.addEventListener('DOMContentLoaded', loadResources);
+document.addEventListener('DOMContentLoaded', async function () {
+    if (typeof whenSessionReady === 'function') {
+        try { await whenSessionReady(); } catch (e) { /* */ }
+    }
+    // Добавление ресурса — только admin (backend POST /api/resources: require_admin).
+    if (typeof RBAC !== 'undefined' && !RBAC.isAdmin()) {
+        var addBtn = document.getElementById('add-resource-btn');
+        if (addBtn) addBtn.style.display = 'none';
+    }
+    loadResources();
+});
 </script>
 {% endblock %}

@@ -7,20 +7,26 @@ const FindingDetail = {
   async init() {
     try {
       this.finding = await api.get(`/api/findings/${window.FINDING_ID}`);
+      if (typeof whenSessionReady === 'function') {
+        try { await whenSessionReady(); } catch (e) { /* */ }
+      }
+      this.canAudit = typeof RBAC !== 'undefined' && RBAC.isAuditor();
       this.render();
     } catch (e) {
       document.getElementById('finding-detail').innerHTML =
-        `<div class="alert alert-danger">Ошибка: ${escapeHtml(e.message)}</div>`;
+        `<div class="alert alert-danger">Ошибка: ${escapeHtml(errorToRussian(e.message))}</div>`;
     }
   },
 
   render() {
     const f = this.finding;
+    const canAudit = this.canAudit;
+    const statusRu = this.statusName(f.status);
     const html = `
       <div class="card">
         <div class="card-header d-flex justify-content-between align-items-center">
           <h4 class="mb-0">Находка #${f.id}</h4>
-          <span class="badge bg-${this.statusColor(f.status)}">${escapeHtml(f.status)}</span>
+          <span class="badge bg-${this.statusColor(f.status)}">${statusRu}</span>
         </div>
         <div class="card-body">
           <dl class="row">
@@ -43,10 +49,10 @@ const FindingDetail = {
             <dd class="col-sm-9">#${f.resource_id || '—'} / #${f.task_id || '—'}</dd>
 
             <dt class="col-sm-3">Впервые замечено</dt>
-            <dd class="col-sm-9">${f.first_seen_at ? new Date(f.first_seen_at).toLocaleString('ru-RU') : '—'}</dd>
+            <dd class="col-sm-9">${f.first_seen_at ? formatDate(f.first_seen_at) : '—'}</dd>
 
             <dt class="col-sm-3">Последнее сканирование</dt>
-            <dd class="col-sm-9">${f.last_seen_at ? new Date(f.last_seen_at).toLocaleString('ru-RU') : '—'}</dd>
+            <dd class="col-sm-9">${f.last_seen_at ? formatDate(f.last_seen_at) : '—'}</dd>
 
             <dt class="col-sm-3">Шифрование</dt>
             <dd class="col-sm-9">
@@ -63,7 +69,7 @@ const FindingDetail = {
           <div class="small text-muted mt-1" id="fragment-meta"></div>
 
           <div class="mt-3">
-            ${f.can_reveal && f.fragment_type !== 'image_region'
+            ${canAudit && f.can_reveal && f.fragment_type !== 'image_region'
               ? `<button class="btn btn-outline-primary" id="reveal-btn"><i class="fas fa-eye me-1"></i>Показать оригинал</button>`
               : ''}
           </div>
@@ -73,15 +79,17 @@ const FindingDetail = {
           <div class="mb-2">
             <textarea class="form-control" id="comment" placeholder="Комментарий (опционально)" rows="2">${escapeHtml(f.comment || '')}</textarea>
           </div>
-          <button class="btn btn-success" id="confirm-btn"><i class="fas fa-check me-1"></i>Подтвердить</button>
-          <button class="btn btn-danger" id="fp-btn"><i class="fas fa-times me-1"></i>Ложное срабатывание</button>
+          ${canAudit
+            ? `<button class="btn btn-success" id="confirm-btn"><i class="fas fa-check me-1"></i>Подтвердить</button>
+               <button class="btn btn-danger" id="fp-btn"><i class="fas fa-times me-1"></i>Ложное срабатывание</button>`
+            : '<span class="text-muted small">Изменение статуса доступно Auditor+</span>'}
         </div>
       </div>
     `;
     document.getElementById('finding-detail').innerHTML = html;
     if (document.getElementById('hex-dump')) this.loadHexFragment();
     this.loadImageFragment();
-    this.bindEvents();
+    if (canAudit) this.bindEvents();
   },
 
   /**
@@ -243,7 +251,12 @@ const FindingDetail = {
   },
 
   statusColor(s) {
-    return { new: 'primary', confirmed: 'success', false_positive: 'danger', archived: 'secondary' }[s] || 'secondary';
+    return { new: 'primary', confirmed: 'success', false_positive: 'danger', archived: 'secondary', duplicate: 'warning' }[s] || 'secondary';
+  },
+
+  // BUG-207 (v3.14.0): статус находки на русском.
+  statusName(s) {
+    return { new: 'новое', confirmed: 'подтверждено', false_positive: 'ложное', archived: 'архив', duplicate: 'дубликат' }[s] || s;
   },
 };
 

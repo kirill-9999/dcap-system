@@ -29,7 +29,7 @@ const FalsePositivesPage = {
     const typeName = { pii: 'PII', credentials: 'Cred', code: 'Code' };
 
     list.innerHTML = items.map(fp => {
-      const reviewed = fp.reviewed_at ? new Date(fp.reviewed_at).toLocaleString('ru-RU') : '—';
+      const reviewed = fp.reviewed_at ? formatDate(fp.reviewed_at) : '—';
       const reviewedBy = fp.reviewed_by_username || fp.reviewed_by || '—';
       return `
       <div class="card mb-2 finding-row" data-id="${fp.id}">
@@ -65,7 +65,6 @@ const FalsePositivesPage = {
     } catch (e) {
       showError(e.message);
     }
-  },
   },
 };
 

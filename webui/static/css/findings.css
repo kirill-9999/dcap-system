@@ -69,3 +69,23 @@
     padding: 0 2px;
     border-radius: 2px;
 }
+
+/* BUG-205 (v3.14.0): placeholder не вылезает за край поля */
+.form-control-sm::placeholder {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+/* BUG-206 (v3.14.0): кнопки действий находки — иконка+подпись, Dovetail */
+.finding-act {
+    gap: 6px;
+}
+.finding-act i {
+    font-size: 12px;
+    width: 12px;
+    text-align: center;
+}
+@media (max-width: 480px) {
+    .finding-act .act-label { display: none; }
+}

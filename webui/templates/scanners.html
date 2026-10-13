@@ -17,7 +17,7 @@ async function loadScannersPage() {
     for (var i = 0; i < scanners.length; i++) {
         var s = scanners[i];
         var sc = s.status === 'active' ? 'online' : 'offline';
-        var hb = s.last_heartbeat ? new Date(s.last_heartbeat).toLocaleString('ru-RU') : '-';
+        var hb = s.last_heartbeat ? formatDate(s.last_heartbeat) : '-';
         html += '<tr><td>#'+s.id+'</td><td>'+s.name+'</td><td><span class="status-badge '+sc+'">'+s.status+'</span></td><td>'+hb+'</td><td>'+((s.total_files_scanned||0))+'</td></tr>';
     }
     c.innerHTML = html + '</tbody></table></div>';
@@ -30,7 +30,7 @@ async function loadScannersPage() {
     for (var i = 0; i < agents.length; i++) {
         var a = agents[i];
         var sc = a.status === 'online' ? 'online' : 'offline';
-        var hb = a.last_heartbeat ? new Date(a.last_heartbeat).toLocaleString('ru-RU') : '-';
+        var hb = a.last_heartbeat ? formatDate(a.last_heartbeat) : '-';
         html2 += '<tr><td>#'+a.id+'</td><td><strong>'+a.name+'</strong></td><td>'+a.hostname+'</td><td><span class="status-badge '+sc+'">'+a.status+'</span></td><td>'+(a.events_sent||0)+'</td><td>'+hb+'</td></tr>';
     }
     c2.innerHTML = html2 + '</tbody></table></div>';
