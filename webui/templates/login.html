@@ -67,12 +67,18 @@
         const loginBtn = document.getElementById('loginBtn');
 
         // Режим аутентификации (для подсказки)
+        // BACKLOG-119 (v3.13.41): badge показываем только для windows_integrated;
+        // для local/hybrid — скрываем («Гибридный режим» избыточен).
         fetch('/api/auth/mode')
             .then(r => r.json())
             .then(d => {
                 const b = document.getElementById('modeBadge');
-                b.textContent = d.mode === 'windows_integrated' ? 'Windows Authentication' :
-                                d.mode === 'hybrid' ? 'Гибридный режим' : 'Локальный вход';
+                if (d.mode === 'windows_integrated') {
+                    b.textContent = 'Windows Authentication';
+                    b.style.display = '';
+                } else {
+                    b.style.display = 'none';
+                }
             })
             .catch(() => {});
 

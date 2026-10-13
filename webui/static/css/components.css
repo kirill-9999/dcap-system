@@ -41,14 +41,27 @@
 
 /* Primary — dark carbon (не blue!) */
 .btn-primary {
-    background: var(--color-card-carbon);
-    color: var(--color-snow);
-    border-color: var(--color-steel-border);
+    background-color: var(--color-snow);   /* #ffffff */
+    color: var(--color-page-ink);         /* #0a0a0a */
+    border: none;
 }
-.btn-primary:hover, .btn-primary:focus {
-    background: var(--color-deep-coal);
-    border-color: var(--color-graphite);
-    color: var(--color-snow);
+.btn-primary:hover {
+    background-color: var(--color-ash);   /* #a7a7a7 */
+    color: var(--color-page-ink);
+    border: none;
+}
+.btn-primary:focus,
+.btn-primary:active {
+    background-color: var(--color-snow);
+    color: var(--color-page-ink);
+    border: none;
+    box-shadow: none;
+}
+.btn-primary:disabled,
+.btn-primary.disabled {
+    background-color: var(--color-fog);   /* #7c7c7c */
+    color: var(--color-page-ink);
+    border: none;
 }
 
 /* Secondary / outline */

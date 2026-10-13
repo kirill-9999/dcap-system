@@ -123,12 +123,41 @@ def test_constructor_reads_secrets_from_env(monkeypatch):
         assert kwargs["aws_secret_access_key"] == "env-secret"
 
 
-def test_constructor_requires_bucket():
+def test_constructor_allows_missing_bucket_with_path():
+    """BUG-149: bucket можно не указывать в config — он определяется из path
+    (s3://bucket/prefix) в scan_path (legacy-ресурсы без connector.s3)."""
     with patch("scanner.connectors.s3_line_connector.boto3") as mock_boto:
         mock_boto.client.return_value = MagicMock()
-        with pytest.raises(ValueError) as exc:
-            S3LineConnector({"endpoint": "x"})
-        assert "bucket" in str(exc.value)
+        connector = S3LineConnector({"endpoint": "x:9000"})
+        assert connector._bucket == ""  # bucket отложен до scan_path
+
+
+def test_scan_path_bucket_fallback_from_path():
+    """BUG-149: bucket из path, когда в config его нет; чтение — тот же bucket."""
+    connector, mock_client = _make_connector(
+        _list_one_page(["x.txt"]),
+        mock_get=lambda **kw: {"Body": _BodyEmpty()},
+    )
+    connector.config.pop("bucket", None)
+    connector._bucket = ""
+    connector.scan_path("s3://legacy-bucket/logs", [_DummyClassifier()])
+    kwargs = mock_client.list_objects_v2.call_args.kwargs
+    assert kwargs["Bucket"] == "legacy-bucket", (
+        "bucket должен браться из path при отсутствии в config"
+    )
+    assert kwargs["Prefix"] == "logs"
+    # self._bucket запомнен — чтение использует тот же bucket.
+    assert connector._bucket == "legacy-bucket"
+
+
+def test_scan_path_without_bucket_anywhere_raises():
+    """BUG-149: bucket нет ни в config, ни в path → понятный ValueError."""
+    connector, _ = _make_connector(_list_one_page(["x.txt"]))
+    connector.config.pop("bucket", None)
+    connector._bucket = ""
+    with pytest.raises(ValueError) as exc:
+        connector.scan_path("/plain/folder/path", [_DummyClassifier()])
+    assert "bucket" in str(exc.value)
 
 
 def test_stop_event_stops_iteration():

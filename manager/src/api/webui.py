@@ -36,6 +36,8 @@ from pathlib import Path
 import json
 import io
 import logging
+import os
+from urllib.parse import urlparse
 
 from manager.src.db.session import get_db
 from manager.src.db import models
@@ -248,6 +250,33 @@ def get_classifiers(db: Session = Depends(get_db)):
 # СОЗДАНИЕ ЗАДАНИЯ / РЕСУРСА (WebUI-формат)
 # ============================================================
 
+def _apply_s3_connector(config: Dict[str, Any], path: str) -> Dict[str, Any]:
+    """Заполнить scan_config.connector.s3 для s3/minio ресурса (BUG-149).
+
+    Legacy-эндпоинты WebUI (/api/tasks/create, /api/resources/create) не
+    получали connector.s3 → S3LineConnector на сканере падал (bucket не
+    задан) и задание возвращало 0 files. Здесь собираем connector.s3 из
+    path (s3://bucket[/prefix]) аналогично POST /api/resources.
+    Endpoint — из ENV S3_DEFAULT_ENDPOINT (как в resources.py) с fallback
+    на host.docker.internal:9000 (WebUI-форма не даёт поле endpoint).
+    """
+    parsed = urlparse(path)
+    if parsed.scheme not in ("s3", "minio") or not parsed.netloc:
+        raise HTTPException(
+            400, "S3 path must be 's3://bucket[/prefix]'"
+        )
+    config["connector"] = config.get("connector", {})
+    config["connector"]["s3"] = {
+        "endpoint": os.environ.get("S3_DEFAULT_ENDPOINT") or "host.docker.internal:9000",
+        "bucket": parsed.netloc,
+        "prefix": parsed.path.lstrip("/"),
+        "secure": False,
+        "use_path_style": True,
+        "region": "us-east-1",
+    }
+    return config
+
+
 @router.post("/api/tasks/create")
 def create_task(
     payload: Dict[str, Any],
@@ -280,14 +309,19 @@ def create_task(
     if resource:
         resource_id = resource.id
     else:
-        config = json.dumps({
+        config = {
             "extensions": [e.strip() for e in extensions.split(",") if e.strip()],
             "max_file_size_mb": max_file_size_mb,
             "recursive": recursive,
-        })
+        }
+        # BUG-149 (v3.13.41): ресурсы s3/minio, созданные через WebUI, не получали
+        # connector.s3 → построчный S3-конвейер падал и возвращал 0 files.
+        # Собираем connector.s3 из path (аналогично POST /api/resources).
+        if resource_type in ("s3", "minio"):
+            config = _apply_s3_connector(config, resource_path)
         resource = models.Resource(path=resource_path, type=resource_type,
                                    status="ACTIVE", enabled=True,
-                                   scan_config=json.loads(config))
+                                   scan_config=config)
         db.add(resource)
         try:
             db.flush()
@@ -310,6 +344,8 @@ def create_task(
     task = models.ScanTask(
         resource_id=resource_id,
         source_path=resource_path,
+        # День 53.1a: тип источника из ресурса (lowercase — как Resource.type).
+        source_type=(resource.type or "filesystem").lower(),
         status="pending",
         files_scanned=0,
         files_failed=0,
@@ -359,6 +395,9 @@ def create_resource_webui(
         "max_file_size_mb": max_file_size_mb,
         "recursive": recursive,
     }
+    # BUG-149 (v3.13.41): connector.s3 для s3/minio ресурсов (см. create_task).
+    if resource_type in ("s3", "minio"):
+        config = _apply_s3_connector(config, resource_path)
 
     resource = models.Resource(
         path=resource_path,

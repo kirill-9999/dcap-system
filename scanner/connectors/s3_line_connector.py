@@ -97,8 +97,15 @@ class S3LineConnector:
             raise ValueError(
                 "S3LineConnector: задайте S3_ACCESS_KEY / S3_SECRET_KEY в ENV"
             )
+        # BUG-149 (v3.13.41): bucket в config может отсутствовать — ресурсы
+        # s3/minio, созданные через legacy-эндпоинты WebUI, не получали
+        # connector.s3. В этом случае bucket берётся из path (s3://bucket/prefix)
+        # в scan_path(). Если bucket нет ни там, ни в config — упадём в scan_path.
         if not self._bucket:
-            raise ValueError("S3LineConnector: параметр 'bucket' обязателен")
+            logger.warning(
+                "[S3Line] bucket не задан в config — будет определён из "
+                "path (s3://bucket/prefix) в scan_path (BUG-149)"
+            )
 
         # Клиент boto3.
         protocol = "https" if self._secure else "http"
@@ -133,14 +140,20 @@ class S3LineConnector:
     # Обход объектов
     # =====================================================================
 
-    def _discover_keys(self, prefix: str) -> List[str]:
+    def _discover_keys(self, prefix: str = "", bucket: Optional[str] = None) -> List[str]:
         """Список ключей в bucket под prefix, отфильтрованных по extensions/size."""
+        bucket = bucket or self._bucket
+        if not bucket:
+            raise ValueError(
+                "S3LineConnector: bucket не определён — задайте его в "
+                "scan_config.connector.s3 или в path (s3://bucket/prefix)"
+            )
         result: List[str] = []
         try:
             continuation_token = None
             while True:
                 params: Dict[str, Any] = {
-                    "Bucket": self._bucket,
+                    "Bucket": bucket,
                     "Prefix": prefix or self._prefix,
                     "MaxKeys": 1000,
                 }
@@ -148,6 +161,12 @@ class S3LineConnector:
                     params["ContinuationToken"] = continuation_token
 
                 response = self._client.list_objects_v2(**params)
+                page_keys = sum(1 for o in (response.get("Contents", []) or []) if not o["Key"].endswith("/"))
+                logger.debug(
+                    "[S3Line] list_objects_v2 bucket=%s prefix=%r page_keys=%d truncated=%s",
+                    bucket, prefix or self._prefix, page_keys,
+                    bool(response.get("IsTruncated", False)),
+                )
                 for obj in response.get("Contents", []) or []:
                     key = obj["Key"]
                     if key.endswith("/"):
@@ -170,14 +189,28 @@ class S3LineConnector:
                 continuation_token = response.get("NextContinuationToken")
 
         except (ConnectTimeoutError, ReadTimeoutError) as exc:
-            logger.error("[S3Line] Timeout при list_objects: %s", exc)
+            # BUG-149 (v3.13.41): раньше таймаут молча превращался в 0 файлов —
+            # теперь поднимаем исключение, чтобы ошибка была видна (не "No files").
+            msg = f"[S3Line] Timeout при list_objects (bucket={bucket}, prefix={prefix!r}): {exc}"
+            logger.error(msg)
+            raise
         except ClientError as exc:
             code = exc.response.get("Error", {}).get("Code", "Unknown")
-            logger.error("[S3Line] ClientError list_objects: %s", code)
+            logger.error(
+                "[S3Line] ClientError list_objects (bucket=%s, prefix=%r): %s",
+                bucket, prefix or self._prefix, code,
+            )
             raise
         except BotoCoreError as exc:
-            logger.error("[S3Line] BotoCoreError list_objects: %s", exc)
+            logger.error(
+                "[S3Line] BotoCoreError list_objects (bucket=%s, prefix=%r): %s",
+                bucket, prefix or self._prefix, exc,
+            )
             raise
+        logger.debug(
+            "[S3Line] list_objects_v2 итого: bucket=%s prefix=%r keys=%d",
+            bucket, prefix or self._prefix, len(result),
+        )
         return result
 
     # =====================================================================
@@ -193,29 +226,50 @@ class S3LineConnector:
     ) -> List[Finding]:
         """Сканирует bucket по prefix. Возвращает список Finding.
 
-        Bucket — всегда из scan_config.connector.s3.bucket (payload задачи,
-        см. 53.1a). Путь задаётся только как префикс:
-          - 's3://bucket/prefix' — используется prefix из него (bucket игнорируется),
+        Bucket — преимущественно из scan_config.connector.s3.bucket (payload
+        задачи, см. 53.1a), при его отсутствии — из path (BUG-149, v3.13.41).
+        Путь задаётся как префикс:
+          - 's3://bucket/prefix' — prefix из него (bucket — если нет в config),
           - 's3://bucket'        — пустой prefix,
           - '' или None          — prefix из конфига.
 
         progress_callback(stage, current, total, file_path): stage 1 = скан.
         stop_event: threading.Event — прерывание после текущего объекта.
         """
-        # Bucket — всегда из scan_config.connector.s3.bucket (см. 53.1a):
+        # Bucket — обычно из scan_config.connector.s3 (см. 53.1a):
         # Manager кладёт bucket в payload задачи, а path (s3://bucket/prefix)
         # используется только как suffix для префикса. Если в path указан
         # другой bucket — он игнорируется намеренно (контракт ресурса —
         # bucket фиксирован на момент создания).
+        #
+        # BUG-149 (v3.13.41): у legacy-ресурсов (созданных через WebUI без
+        # connector.s3) bucket в config отсутствует — берём его из path.
+        # Приоритет: config.bucket > path.bucket.
+        effective_bucket = self._bucket
         source_prefix = self._prefix
         if path:
             parsed = urlparse(path)
             if parsed.scheme in ("s3", "minio"):
                 source_prefix = (parsed.path or "").lstrip("/")
+                if not effective_bucket and parsed.netloc:
+                    effective_bucket = parsed.netloc
+                    logger.info(
+                        "[S3Line] bucket взят из path: %s (конфиг без connector.s3)",
+                        effective_bucket,
+                    )
             else:
                 source_prefix = (path or "").lstrip("/")
 
-        keys = self._discover_keys(source_prefix)
+        if effective_bucket != self._bucket:
+            # BUG-149: bucket из path — запоминаем, чтобы scan_file/_read_text
+            # читали объекты из того же bucket (коннектор создаётся на задачу).
+            self._bucket = effective_bucket
+
+        logger.info(
+            "[S3Line] scan_path: endpoint=%s, bucket=%s, prefix=%r",
+            self._endpoint, effective_bucket, source_prefix,
+        )
+        keys = self._discover_keys(source_prefix, effective_bucket)
         total = len(keys)
         if not total:
             if progress_callback:
