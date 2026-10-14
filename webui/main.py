@@ -1,6 +1,6 @@
 # webui/main.py
 from fastapi import FastAPI, Request
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, FileResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from fastapi.middleware.cors import CORSMiddleware
@@ -14,6 +14,34 @@ from webui.api.routes import router
 from webui.config import WEBUI_HOST, WEBUI_PORT, DEBUG, VERSION
 
 app = FastAPI(title="DCAP WebUI", version=VERSION)
+
+# BUG-126 (53.4e): Content-Security-Policy и базовые security-заголовки.
+# Прагматичный CSP: 'unsafe-inline' для script/style (в шаблонах остаются
+# inline-обработчики onclick/onchange); сами <script>-блоки вынесены в файлы.
+# Строгий CSP без 'unsafe-inline' — в бэклоге.
+CSP_POLICY = (
+    "default-src 'self'; "
+    "script-src 'self' 'unsafe-inline'; "
+    "style-src 'self' 'unsafe-inline'; "
+    "img-src 'self' data:; "
+    "font-src 'self'; "
+    "connect-src 'self'; "
+    "object-src 'none'; "
+    "base-uri 'self'; "
+    "form-action 'self'; "
+    "frame-ancestors 'none'"
+)
+
+
+@app.middleware("http")
+async def security_headers(request: Request, call_next):
+    response = await call_next(request)
+    response.headers["Content-Security-Policy"] = CSP_POLICY
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["X-Frame-Options"] = "DENY"
+    response.headers["Referrer-Policy"] = "same-origin"
+    return response
+
 
 app.add_middleware(
     CORSMiddleware,
@@ -109,6 +137,12 @@ async def page_login(request: Request):
 @app.get("/health")
 async def health():
     return {"status": "ok", "version": VERSION}
+
+
+@app.get("/favicon.ico", include_in_schema=False)
+async def favicon():
+    # BUG-104: браузеры по умолчанию запрашивают /favicon.ico с корня.
+    return FileResponse(os.path.join(STATIC_DIR, "favicon", "favicon.ico"))
 
 
 if __name__ == "__main__":

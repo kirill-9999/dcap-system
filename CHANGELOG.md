@@ -7,6 +7,51 @@
 
 ---
 
+## [v3.14.1] — 2026-10-14
+
+### Changed (53.4b–53.4e, WebUI-редизайн, этапы 2–5)
+
+WebUI переведён на тёмную тему Dovetail (single accent `#6798ff`, 8px радиусы,
+grid-wireframe, zero-shadow). Все 14 страниц переработаны.
+
+- **53.4b** — login, dashboard, resources, findings: RBAC-гейты, datetime.js
+  (UTC→локальное), фильтры, пагинация; `resources.js` (форма Filesystem/MinIO).
+- **53.4c** — finding_detail, catalog, audit, scanners, access: пагинация,
+  role-фильтр аудита, группировка типов событий, модалка metadata, массовое
+  удаление неактивных сканеров (BACKLOG-155), `resources.js` (BUG-147).
+- **53.4d** — роли/пользователи/настройки, футер, палитра графиков:
+  - `/roles`: RU-бейджи системная/пользовательская, `ad_group`, описания
+    системных ролей, confirm/тосты с именем (BUG-171/146/152/167/180,
+    BACKLOG-149/150/151).
+  - `/users`: статусы/тип учётки RU, `created_at`/`last_login`, привязка AD
+    (`domain_user`), пароль + подтверждение, self-защита, сброс пароля,
+    русские ошибки (BUG-160/164/165, BACKLOG-131/132/135/136/137/143/144/145).
+  - Backend: `Role.to_dict` считает только активных (BUG-170);
+    `UserCreate.password` default `""`, `domain_user` в `UserCreate`/`UserUpdate`
+    (BUG-156/BACKLOG-134).
+  - `/settings`: режим аутентификации только для чтения + предупреждение о
+    lockout (BUG-187), счётчики данных через `/api/retention/stats` (BUG-199),
+    пояснения архивации/экспорта/dry-run (BUG-189/190/191), пароль в `<form>`
+    с требованиями и подтверждением (BUG-194/195/196), кнопка смены пароля в
+    шапке (BUG-197), тосты Dovetail (BUG-198).
+  - Footer: время помечено как местное, версия динамическая (BUG-185).
+  - Графика: монохромная палитра Chart.js + акцент #6798ff.
+  - Единый Dovetail-тост (BACKLOG-153).
+- **53.4e (полировка)**:
+  - **BUG-104** — favicon: `webui/static/favicon/` (svg/ico/png) + link-теги,
+    маршрут `/favicon.ico`.
+  - **BUG-126** — CSP и security-заголовки (`webui/main.py`); inline
+    `<script>` вынесены в файлы (`audit.js`, `access.js`, `scanners.js`,
+    `login.js`, `settings.js`, init в `dashboard.js`, `FINDING_ID` через
+    data-атрибут в `finding_detail.js`).
+  - **BACKLOG-138** — унификация модалок (единый порядок кнопок, отступы).
+  - `DESIGN.md` → `docs/DESIGN.md` (git mv).
+  - `docs/ui-screenshots/` — скриншоты страниц × 3 разрешения.
+  - E2E-очистка: `e2e_*` пользователи, `test_event*` аудит, неактивные сканеры
+    (BUG-166/183, TEST-NOTE-10.2).
+
+---
+
 ## [v3.13.41] — 2026-10-13
 
 ### Fixed (53.4a-доп5, hotfix backend + sync)
@@ -195,7 +240,7 @@
   - `inter.woff2` (352 KB, Inter Variable).
   - `jetbrains-mono.woff2` (40 KB).
   - `inter.css`, `jetbrains-mono.css` (с `@font-face`).
-- **`DESIGN.md`** — коммит `34e3383` (референс Dovetail, **в корне** — перенос в `docs/` в 53.4e).
+- **`DESIGN.md`** — коммит `34e3383` (референс Dovetail; в v3.14.1 перенесён в `docs/DESIGN.md`).
 
 ### Changed (53.4a)
 
@@ -861,7 +906,7 @@ hotfix (backend-critical) + hotfix (fonts) + 53.4b + 53.4c/d/e.
 - **`ARCHITECTURE.md`** — архитектура, API, модели.
 - **`CHANGELOG.md`** — история версий.
 - **`STATE_TEST_SESSION.md`** — протокол тестирования.
-- **`DESIGN.md`** — Dovetail-референс (перенос в `docs/` в 53.4e).
+- **`DESIGN.md`** — Dovetail-референс (в v3.14.1 перенесён в `docs/DESIGN.md`).
 - **`prompts/tz/*.md`** — 4 ТЗ.
 
 ---

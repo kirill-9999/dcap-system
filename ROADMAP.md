@@ -1,8 +1,8 @@
 > **Обновляется архитектором.** План — редко, бэклог — по мере.
 > Текущее состояние — в `STATE.md`. Архитектура — в `ARCHITECTURE.md`.
 
-**Обновлено:** 12.10.2026
-**Стратегия:** Windows First → Linux → S3/MinIO → Enterprise Ready → UI-редизайн → Rust + DLP + SIEM → ML
+**Обновлено:** 14.10.2026
+**Стратегия:** Windows First → Linux → S3/MinIO → Enterprise Ready → UI-редизайн → Rust + DLP + SIEM + IoC → Enterprise Operations → OAuth + ML
 
 ---
 
@@ -11,10 +11,10 @@
 | Версия | Статус | Ключевые фичи |
 |--------|--------|---------------|
 | v1.0.0-v2.1.0 | ✅ | Обнаружение, классификация, WebUI, Linux-агент |
-| **v3.0.0** | **🔄 Финальный этап** | **Enterprise Ready + WebUI-редизайн (Dovetail, 53.4a ✅, 53.4a-доп ✅). Мастер-сессия v3.13.38 — найдено ~100 BUG + ~40 BACKLOG.** |
-| v3.1.0 | 📋 | Rust Scanner (CIFS/NFS), DLP/ICAP, SMB, Webhook, облака, Per-scanner keys, SIEM, Cython, Formal Grammars, BOM fix (BUG-135), BUG-117/118/123/125/126/129/130 |
-| v3.2.0 | 📋 | ML-классификаторы, embeddings, near-duplicate |
-| v4.0.0 | 📋 | Zero-Trust, распределённый Manager, Kafka/Kinesis SIEM |
+| **v3.0.0** | **🔄 Финальный этап** | **Enterprise Ready + WebUI-редизайн (Dovetail).** 53.4a-доп5 (v3.13.41), 53.4b (v3.14.0), **53.4c/d/e (v3.14.1) — закрыты (REDESIGN COMPLETE)**. Далее: Grafana-тестирование + RBAC — 53.4e-grafana. |
+| **v3.1.0** | **📋 Расширение** | **13 направлений: IoC, специализация сканеров, диагностика ошибок, экспорт каталога, лёгкий агент, шина событий, Model Registry, централизованное обновление, бэкап, Key Store, кастомные регулярки, метрики в WebUI, OAuth.** + Rust, DLP, SIEM, Cython, Formal Grammars. |
+| v3.2.0 | 📋 | ML-классификаторы, Kafka, Vault, HSM, PITR, macOS, CMDB/DLP consumer |
+| v4.0.0 | 📋 | Zero-Trust, распределённый Manager, Kafka/Kinesis, CEF/LEEF |
 
 ---
 
@@ -25,72 +25,62 @@
 | День | Задача | BACKLOG/BUG | Статус |
 |------|--------|-------------|--------|
 | 28-50.2 | (WebUI, AD, Findings Refactor, Scanner deep, Мониторинг, Masking, Retention, Блок 9, Блок 6) | см. STATE | ✅ до v3.13.27 |
-| **51 (Блок 9)** | **Фикс-спринт Блок 9 (Безопасность)** — 10 BUG | TASK-074…084 | ✅ **v3.13.28** |
-| **52 (Блок 6)** | **Блок 6 (Агенты): Windows + Linux + S3 + MinIO** | TASK-085…103 | ✅ **v3.13.28** |
-| **53.1a (BACKLOG-097 ч.1)** | **Manager: `source_type` + S3-ресурсы, миграция 006** | TASK-104…109 | ✅ **v3.13.29** |
-| **53.1b (BACKLOG-097 ч.2)** | **Scanner: фабрика + `_text_scanner.py` + boto3** | TASK-110…117 | ✅ **v3.13.30** |
-| **53.2 (BACKLOG-097 ч.3)** | **Scanner: S3LineConnector (streaming, ENV, OCR)** | TASK-118…123 | ✅ **v3.13.31** |
-| **53.3 (BACKLOG-097 ч.4)** | **E2E на MinIO + WebUI-форма S3 + docs** | TASK-129…133 | ✅ **v3.13.32** |
-| **53.3-test-stand-fix** | **Тестовый стенд: healthcheck, авто-очистка** | — | ✅ **v3.13.34** |
-| **53.3-fix-s3-bucket** | **`S3LineConnector`: bucket только из `scan_config`** | TASK-134…136 | ✅ **v3.13.35** |
-| **53.3-fs-regress-ocr-diag (BUG-137)** | **Гонка temp-файлов `OCREngine`** | BUG-137 | ✅ **v3.13.36** |
-| **53.3-fs-regress** | **Ручной регресс FS** | — | ✅ **07.10.2026** |
-| **B (ручной FS-регресс)** | **12/12 пунктов** | — | ✅ **09.10.2026** |
-| **53.4a (BACKLOG-093, этап 1/5)** | **WebUI-редизайн: токены + base + компоненты + grid-wireframe; локальные шрифты; `theme.js` удалён** | BACKLOG-093 | ✅ **v3.13.37** |
-| **53.4a-доп (BACKLOG-093)** | **WebUI-фиксы: BUG-138/139/140** | BACKLOG-093 | ✅ **v3.13.38** |
-| **53.4a-доп3 (hotfix)** | **Backend-critical hotfix: BUG-201/202/214/223/181/168/142/148** | BUG-201,202,214,223,181,168,142,148 | ✅ **v3.13.39** |
-| **53.4a-доп4 (fonts, BUG-212)** | **unicode-range кириллицы + замена jetbrains-mono.woff2 (v2.304 variable) + OFL.txt** | BUG-212 | ✅ **v3.13.40** |
-| **53.4a-доп5 (hotfix + sync)** | **BUG-150 (CASCADE 007, DELETE→204), BUG-149 (S3 bucket-фолбэк), BACKLOG-121 (.btn-primary white), BACKLOG-119 (badge /login), sync ARCHITECTURE.md** | BUG-150, BUG-149, BACKLOG-121, BACKLOG-119, BACKLOG-129 | ✅ **v3.13.41** |
-| **Мастер-сессия v3.13.38** | **WebUI 1–17 + RBAC-прогон; ~100 BUG + ~40 BACKLOG** | — | ✅ **12.10.2026** |
-| **53.4b (BACKLOG-093, этап 2/5)** | **WebUI-редизайн: login, dashboard, resources, findings + RBAC frontend + Responsive** | BACKLOG-093 | 📋 |
-| **53.4c (BACKLOG-093, этап 3/5)** | **WebUI-редизайн: finding_detail, catalog, audit, scanners, access, resources** | BACKLOG-093 | 📋 |
-| **53.4d (BACKLOG-093, этап 4/5)** | **WebUI-редизайн: roles, users, settings, footer, Chart.js палитра** | BACKLOG-093 | 📋 |
-| **53.4e (BACKLOG-093, этап 5/5)** | **WebUI-редизайн: полировка, скриншоты, `docs/DESIGN.md`, favicon, CSP, E2E-очистка** | BACKLOG-093 | 📋 |
-| **52.1** | **Linux-агент: метрики + сквозной поток + BUG-130** | — | 📋 |
-| **52.2** | **Блок 6.5: сбор прав Windows (BUG-123, 127)** | — | 📋 |
-| **54** | **Блок 11 (Отказоустойчивость)** | — | 📋 |
-| **55** | **GitHub-пакет** — **только после 53.4e** | BACKLOG-028/046 | 📋 |
-| **56** | **BUG-117 (Manager-маскирование, hotfix)** | — | 📋 |
-| **57** | **Релиз v3.0.0** | — | 📋 |
+| 51 (Блок 9) | Фикс-спринт Блок 9 (Безопасность) — 10 BUG | TASK-074…084 | ✅ v3.13.28 |
+| 52 (Блок 6) | Блок 6 (Агенты): Windows + Linux + S3 + MinIO | TASK-085…103 | ✅ v3.13.28 |
+| 53.1a (BACKLOG-097 ч.1) | Manager: `source_type` + S3-ресурсы, миграция 006 | TASK-104…109 | ✅ v3.13.29 |
+| 53.1b (BACKLOG-097 ч.2) | Scanner: фабрика + `_text_scanner.py` + boto3 | TASK-110…117 | ✅ v3.13.30 |
+| 53.2 (BACKLOG-097 ч.3) | Scanner: S3LineConnector (streaming, ENV, OCR) | TASK-118…123 | ✅ v3.13.31 |
+| 53.3 (BACKLOG-097 ч.4) | E2E на MinIO + WebUI-форма S3 + docs | TASK-129…133 | ✅ v3.13.32 |
+| 53.3-test-stand-fix | Тестовый стенд: healthcheck, авто-очистка | — | ✅ v3.13.34 |
+| 53.3-fix-s3-bucket | `S3LineConnector`: bucket только из `scan_config` | TASK-134…136 | ✅ v3.13.35 |
+| 53.3-fs-regress-ocr-diag (BUG-137) | Гонка temp-файлов `OCREngine` | BUG-137 | ✅ v3.13.36 |
+| 53.3-fs-regress | Ручной регресс FS | — | ✅ 07.10.2026 |
+| B (ручной FS-регресс) | 12/12 пунктов | — | ✅ 09.10.2026 |
+| 53.4a (BACKLOG-093, этап 1/5) | WebUI-редизайн: токены + base + компоненты + grid-wireframe; локальные шрифты; `theme.js` удалён | BACKLOG-093 | ✅ v3.13.37 |
+| 53.4a-доп (BACKLOG-093) | WebUI-фиксы: BUG-138/139/140 | BACKLOG-093 | ✅ v3.13.38 |
+| **53.4a-доп3 (hotfix)** | **Backend-critical hotfix: BUG-201/202/214/223/181/168/142/148** | BUG-201,202,214,223,181,168,142,148 | ✅ v3.13.39 |
+| **53.4a-доп4 (fonts, BUG-212)** | **unicode-range кириллицы + замена jetbrains-mono.woff2 (v2.304 variable) + OFL.txt** | BUG-212 | ✅ v3.13.40 |
+| **53.4a-доп5 (hotfix + sync)** | **BUG-150/149 + BACKLOG-121/119 + sync ARCHITECTURE.md** | BUG-150,149, BACKLOG-121,119 | ✅ v3.13.41 |
+| **53.4b (BACKLOG-093, этап 2/5)** | **WebUI-редизайн: login, dashboard, resources, findings + RBAC frontend + Responsive** | BUG-141…233 | ✅ v3.14.0 |
+| **Мастер-сессия v3.13.38** | **WebUI 1–17 + RBAC-прогон; ~100 BUG + ~40 BACKLOG** | — | ✅ 12.10.2026 |
+| **53.4c (BACKLOG-093, этап 3/5)** | **WebUI-редизайн: finding_detail, catalog, audit, scanners, access, resources** | BUG-104…234 | ✅ v3.14.1 |
+| **53.4d (BACKLOG-093, этап 4/5)** | **WebUI-редизайн: roles, users, settings, footer, Chart.js палитра** | BACKLOG-131…155 | ✅ v3.14.1 |
+| **53.4e (BACKLOG-093, этап 5/5)** | **WebUI-редизайн: полировка, скриншоты, `docs/DESIGN.md`, favicon, CSP, E2E-очистка** | BACKLOG-093 | ✅ v3.14.1 |
+| **53.4e-grafana** | **Grafana: тестирование (TEST-NOTE-8.1…8.6) + RBAC (BACKLOG-307)** | TEST-NOTE-8.1…8.6, BACKLOG-307 | 📋 |
+| **53.4e-grafana-hotfix** | **Grafana: хотфикс (если найдены баги)** | — | 📋 |
+| 52.1 | Linux-агент: метрики + сквозной поток + BUG-130 | — | 📋 |
+| 52.2 | Блок 6.5: сбор прав Windows (BUG-123, 127) | — | 📋 |
+| 54 | Блок 11 (Отказоустойчивость) | — | 📋 |
+| 55 | GitHub-пакет — **только после 53.4e** | BACKLOG-028/046 | 📋 |
+| 56 | BUG-117 (Manager-маскирование, hotfix) | — | 📋 |
+| 57 | Релиз v3.0.0 | — | 📋 |
 
 > ⚠️ **Условие приёмки GitHub-пакета (день 55):** 53.4a–53.4e закрыты.
 > Все 14 страниц WebUI в dark-теме, `theme.js` удалён, скриншоты в `docs/ui-screenshots/`,
-> `docs/DESIGN.md` в репо.
+> `docs/DESIGN.md` в репо, Grafana протестирована + RBAC (BACKLOG-307).
 
 ### Бэклог v3.0.0 — активные задачи (топ-50)
 
 | ID | Название | Приоритет | Статус |
 |----|----------|-----------|--------|
-| **BUG-201** | Смена пароля не работает | 🔴🔴 | 📋 53.4a-доп3 |
-| **BUG-202** | Audit пишется при откате | 🔴🔴 | 📋 53.4a-доп3 |
-| **BUG-212** | Fonts unicode-range | 🔴 | 📋 53.4a-доп4 |
-| **BUG-214** | /api/audit → viewer / scanner | 🔴🔴 | 📋 53.4a-доп3 |
-| **BUG-223** | GET /api/audit/{id} — 404 | 🔴🔴 | 📋 53.4a-доп3 |
-| **BUG-181** | Нет аудита ролей | 🔴 | 📋 53.4a-доп3 |
-| **BUG-168** | Системные роли редактируются | 🔴 | 📋 53.4a-доп3 |
-| **BUG-142** | KPI Ресурсов = 0 | 🔴 | 📋 53.4a-доп3 + 53.4b |
-| **BUG-148** | Scanner .env | 🔴 | ✅ v3.13.39 |
-| **BUG-150** | DELETE /api/resources/{id} → 500 (FK NO ACTION) | 🔴🔴 | ✅ v3.13.41 |
-| **BUG-149** | S3-скан 0 files | 🔴🔴 | ✅ v3.13.41 |
-| **BACKLOG-121** | .btn-primary white filled | 🟡 | ✅ v3.13.41 |
-| **BACKLOG-119** | Badge режима /login | 🟡 | ✅ v3.13.41 |
-| **BACKLOG-129** | FK без CASCADE | 🟡 | ✅ v3.13.41 |
-| **BUG-232** | Модалки на mobile | 🔴 | 📋 53.4b |
-| **BUG-233** | Гамбургер не работает | 🔴 | 📋 53.4b |
-| **BUG-213** | Frontend RBAC не работает | 🔴 | 📋 53.4b |
+| **BUG-232** | Модалки на mobile | 🔴 | 📋 53.4c |
+| **BUG-233** | Гамбургер не работает | 🔴 | 📋 53.4c |
+| **BUG-213** | Frontend RBAC не работает | 🔴 | ✅ 53.4b |
 | **BUG-117** | Manager не маскирует контексты сам | 🔴 | 📋 день 56 |
 | **BUG-118** | Auth middleware 2 соединения | 🔴 | 📋 v3.1.0 |
+| **BUG-172** | Нет permissions в RBAC | 🔴 | 📋 архитектура |
 | **BUG-135** | S3-агент: BOM | 🟡 | 📋 v3.1.0 |
 | **BUG-123** | Windows-агент: сбор прав = 0 | 🟡 | 📋 52.2 |
-| **BACKLOG-093** | Редизайн WebUI (Dovetail) | 🔴 | 🔄 53.4a-доп3/4 + 53.4b–e |
+| **BACKLOG-093** | Редизайн WebUI (Dovetail) | 🔴 | ✅ v3.14.1 |
+| **BACKLOG-307** | **Grafana RBAC + DCAP RBAC (Auth Proxy)** | 🔴 | 📋 53.4e |
+| **TEST-NOTE-8.1…8.6** | **Grafana: тестирование** | 🔴 | 📋 53.4e |
 | **Linux-агент дотест** | Метрики, сквозной поток, BUG-130 | 🔴 | 📋 52.1 |
-| **BUG-172** | Нет permissions в RBAC | 🔴 | 📋 архитектура |
 | **BACKLOG-028** | Публикация на GitHub | 🔴 | 📋 55 |
 | **BACKLOG-046** | Полный E2E-прогон на CI | 🔴 | 📋 55 |
 | **BACKLOG-044** | Защита `/metrics` | 🟡 | 📋 production |
 | **BACKLOG-094** | WebUI/Manager не пересобирается автоматически | 🟡 | 📋 |
-| **BUG-155…236** | (все остальные) | 🟡/🟢 | 📋 53.4b–e |
-| **BACKLOG-131…155** | (все UI-улучшения) | 🟡/🟢 | 📋 53.4b–e |
+| **BUG-155…234** | (все остальные) | 🟡/🟢 | ✅ 53.4c/d/e |
+| **BACKLOG-131…155** | (все UI-улучшения) | 🟡/🟢 | ✅ 53.4c/d/e |
 
 ### Бэклог v3.0.0 — ЗАКРЫТЫЕ (кратко)
 
@@ -105,20 +95,16 @@
 | TASK-064…066 (BUG-096/096b/097) | FP 500, E2E, зависшие задания | v3.13.25 |
 | TASK-067…071 (BUG-098…101, 101b) | PATCH/bulk/DELETE аудит, review, FP | v3.13.26 |
 | TASK-072/073 (BUG-102) | Retention + sweep (Celery mapper) | v3.13.27 |
-| TASK-074…084 (BUG-103, 105…108, 110, 111, 114…116) | **Блок 9 (Безопасность)** | **v3.13.28** |
-| TASK-085…103 (BUG-120, 122) | **Блок 6 (Агенты)** | **v3.13.28** |
-| TASK-104…109 (BACKLOG-097 ч.1) | **Manager: `source_type` + S3-ресурсы** | **v3.13.29** |
-| TASK-110…117 (BACKLOG-097 ч.2) | **Scanner: фабрика + `_text_scanner.py` + boto3** | **v3.13.30** |
-| TASK-118…123 (BACKLOG-097 ч.3, BUG-136) | **S3LineConnector + BUG-136 fix** | **v3.13.31** |
-| TASK-129…133 (BACKLOG-097 ч.4) | **E2E + WebUI-форма S3 + docs** | **v3.13.32** |
-| 53.3-test-stand-fix | **Автоматизация E2E-стенда** | **v3.13.34** |
-| TASK-134…136 (53.3-fix-s3-bucket) | **Bucket только из `scan_config`, BACKLOG-103** | **v3.13.35** |
-| BUG-137 (53.3-fs-regress-ocr-diag) | **Гонка temp-файлов `OCREngine`** | **v3.13.36** |
-| 53.3-fs-regress | **Ручной регресс FS (cp1251, PII, OCR)** | **07.10.2026** |
-| B (ручной FS-регресс после BUG-137) | **12/12 пунктов** | **09.10.2026** |
-| **53.4a (BACKLOG-093, этап 1/5)** | **WebUI-редизайн: токены + base + компоненты + grid-wireframe; локальные шрифты; `theme.js` удалён** | **v3.13.37** |
-| **53.4a-доп (BACKLOG-093)** | **WebUI-фиксы: BUG-138/139/140** | **v3.13.38** |
-| **Мастер-сессия v3.13.38** | **WebUI 1–17 + RBAC; ~100 BUG + ~40 BACKLOG** | **12.10.2026** |
+| TASK-074…084 | **Блок 9 (Безопасность)** | v3.13.28 |
+| TASK-085…103 | **Блок 6 (Агенты)** | v3.13.28 |
+| TASK-104…136 | **S3-коннектор (BACKLOG-097)** | v3.13.29–35 |
+| BUG-137 | **Гонка temp-файлов `OCREngine`** | v3.13.36 |
+| 53.4a | **WebUI-редизайн, этап 1** | v3.13.37 |
+| 53.4a-доп | **BUG-138/139/140** | v3.13.38 |
+| **BUG-201/202/214/223/181/168/142/148** | **Backend-critical hotfix** | **v3.13.39** |
+| **BUG-212** | **Шрифты кириллицы** | **v3.13.40** |
+| **BUG-150/149, BACKLOG-121/119** | **Hotfix + sync ARCHITECTURE.md** | **v3.13.41** |
+| **BUG-141/203/204/205/206/207/216/228/229/232/233** | **WebUI RBAC + Responsive** | **v3.14.0** |
 
 ---
 
@@ -162,6 +148,17 @@
 | TEST-NOTE-6.9 | Docker Desktop зависает после длительной работы |
 | TEST-NOTE-6.10 | Rate-limit 300/60s мешает тестированию |
 | TEST-NOTE-6.11 | `secure=false` = `verify=False` |
+
+### TEST-NOTE — Блок 8 (Мониторинг, Grafana)
+
+| ID | Название | Приоритет |
+|----|----------|-----------|
+| TEST-NOTE-8.1 | Grafana: smoke (запуск, health, datasource) | 🔴 53.4e |
+| TEST-NOTE-8.2 | Grafana: дашборды (все) | 🔴 53.4e |
+| TEST-NOTE-8.3 | Grafana: метрики (Manager / scanner / agents) | 🔴 53.4e |
+| TEST-NOTE-8.4 | Grafana: алерты (fire + resolve) | 🔴 53.4e |
+| TEST-NOTE-8.5 | Grafana: RBAC (viewer / editor / admin) | 🔴 53.4e |
+| TEST-NOTE-8.6 | Grafana: производительность | 🟡 53.4e |
 
 ### TEST-NOTE — Блок 9
 
@@ -208,103 +205,372 @@
 
 | ID | Название | Статус |
 |----|----------|--------|
-| **TEST-NOTE-NEW-1** | `/api/resources` — default limit=100 | 📋 53.4c |
-| **TEST-NOTE-NEW-2** | `/api/access/resources` — без limit | 📋 53.4c |
+| **TEST-NOTE-NEW-1** | `/api/resources` — default limit=100 | ✅ 53.4c (пагинация) |
+| **TEST-NOTE-NEW-2** | `/api/access/resources` — без limit | ✅ 53.4c (пагинация) |
 | **TEST-NOTE-NEW-3** | Маска `aws_secret` = `=wJalr***` — сохраняет `=` (design по BUG-086) | 📋 design |
-| **TEST-NOTE-NEW-4** | 8 проблем в Console — `[DOM]` password field | 📋 53.4e |
+| **TEST-NOTE-NEW-4** | 8 проблем в Console — `[DOM]` password field | ✅ 53.4e (BUG-193) |
 
 ---
 
-## 📋 v3.1.0 — RUST + DLP + SIEM + OPTIMIZATION
+## 📋 v3.1.0 — EXTENDED ENTERPRISE (📋 РАСШИРЕНИЕ)
 
-### План по дням
+> **Стратегия:** расширение функциональности от «поиска данных» к «платформе безопасности».
+> **13 направлений** (10 новых + 3 существующих).
 
-| День | Задача | ID | Приоритет |
-|------|--------|-----|-----------|
-| 58-59 | Rust Scanner (CIFS/NFS + параллелизм) | BACKLOG-036 | 🔴 |
-| 60 | Cython-оптимизация горячих точек | BACKLOG-089 | 🟡 |
-| 61 | Быстрые regex: `cre` / `re2` | BACKLOG-090 | 🟡 |
-| 62 | ICAP Connector (DLP) | BACKLOG-032 | 🟡 |
-| 63 | DLP Политики (WebUI) | BACKLOG-033 | 🟡 |
-| 64 | SMB-сканер (Rust) | BACKLOG-035 | 🟡 |
-| 65 | SIEM: генерация событий (Syslog + JSON) | BACKLOG-069 | 🔴 |
-| 66 | SIEM: экспорт findings/audit | BACKLOG-070 | 🔴 |
-| 67 | SIEM: WebUI настройки | BACKLOG-072 | 🟡 |
-| 68 | Per-scanner keys | BACKLOG-068 | 🟡 |
-| 69 | Multi-key режим (ротация без downtime) | — | 🟡 |
-| 70 | **BUG-135: BOM в JSON S3-агента** | — | 🟡 |
-| 71 | **BUG-123: сбор прав Windows** | — | 🟡 |
-| 72 | **BUG-118: Auth middleware 1 соединение** | — | 🔴 |
-| 73 | **BUG-125/126/129/130: агенты** | — | 🟡 |
-| 74 | **BUG-117: Manager-маскирование** (если не в v3.0.0) | — | 🔴 |
-| 75 | **Formal Grammars (CFG + AST)** — JSON/XML/CSV + tree-sitter | — | 🔴 |
-| 76 | **Post-Processor (NER + relations)** | — | 🟡 |
-| 77 | Red teaming, SAST, SCA | BACKLOG-022 | 🔴 |
-| 78 | Релиз v3.1.0 | — | 🔴 |
+### 🎯 Направления v3.1.0
 
-### Бэклог v3.1.0
+| # | Направление | Задачи | Ядро | Приоритет |
+|---|-------------|--------|------|-----------|
+| 1 | **IoC-поиск** | BACKLOG-156…160 | 156, 157 | 🟡 |
+| 2 | **Специализация сканеров** | BACKLOG-161…166 | 161, 164 | 🟡 |
+| 3 | **Диагностика ошибок сканирования** | BACKLOG-167…177 | 167…170, 173 | 🟡 |
+| 4 | **Экспорт каталога в CMDB** | BACKLOG-178…186 | 178, 179, 181, 182 | 🟡 |
+| 5 | **Лёгкий агент сканирования** | BACKLOG-187…202 | 187…191, 195, 196, 199, 200, 201 | 🟡 |
+| 6 | **Шина событий** | BACKLOG-203…214 | 203…206, 208, 210, 214 | 🟡 |
+| 7 | **Model Registry** | BACKLOG-215…226 | 215…221, 226 | 🟡 |
+| 8 | **Централизованное обновление** | BACKLOG-227…240 | 227…232, 234, 239 | 🟡 |
+| 9 | **Бэкап и восстановление** | BACKLOG-241…259 | 241…244, 246…248, 250…252, 254, 255 | 🟡 |
+| 10 | **Key Store** | BACKLOG-260…277 | 260…264, 267, 268, 270, 271, 272 | 🟡 |
+| 11 | **Кастомные регулярки** | BACKLOG-278…291 | 278…284, 287, 288 | 🟡 |
+| 12 | **Метрики в WebUI** | BACKLOG-292…309 | 292…302, 305 | 🟡 |
+| 13 | **OAuth для всех сервисов** | BACKLOG-310…314 | 310, 311, 314 | 🟡 |
+| 14 | Rust Scanner (CIFS/NFS + параллелизм) | BACKLOG-036 | 036 | 🔴 |
+| 15 | DLP (ICAP + политики) | BACKLOG-032/033 | 032, 033 | 🟡 |
+| 16 | SIEM (через шину событий) | BACKLOG-069/070/072 | 069, 070 | 🔴 |
+| 17 | Cython-оптимизация | BACKLOG-089/090 | 089, 090 | 🟡 |
+| 18 | Formal Grammars (CFG + AST) | — | — | 🔴 |
+| 19 | TruffleHog | BACKLOG-091 | 091 | 🟡 |
+| 20 | Прочие BUG-фиксы | BUG-117/118/123/125/126/129/130/135 | — | 🟡 |
+
+### 📅 План по дням v3.1.0
+
+| День | Задача | Направление | Приоритет |
+|------|--------|-------------|-----------|
+| 58–59 | Rust Scanner (CIFS/NFS + параллелизм) | 14 | 🔴 |
+| 60 | Cython-оптимизация горячих точек | 17 | 🟡 |
+| 61 | Быстрые regex: `cre` / `re2` | 17 | 🟡 |
+| 62 | ICAP Connector (DLP) | 15 | 🟡 |
+| 63 | DLP Политики (WebUI) | 15 | 🟡 |
+| 64 | SMB-сканер (Rust) | 14 | 🟡 |
+| 65 | Шина событий: Redis Streams | 6 | 🔴 |
+| 66 | SIEM: consumer из шины | 16 | 🔴 |
+| 67 | SIEM: WebUI настройки | 16 | 🟡 |
+| 68 | Key Store: модель + API | 10 | 🔴 |
+| 69 | Key Store: ротация (авто + multi-key) | 10 | 🔴 |
+| 70 | Key Store: интеграция (findings/JWT/S3) | 10 | 🔴 |
+| 71 | Бэкап: BackupManager + API | 9 | 🔴 |
+| 72 | Бэкап: Restore + WebUI | 9 | 🔴 |
+| 73 | Model Registry: модель + API | 7 | 🔴 |
+| 74 | Model Registry: сканер bootstrap | 7 | 🔴 |
+| 75 | Централизованное обновление: manifest + API | 8 | 🟡 |
+| 76 | Централизованное обновление: сканер self-update | 8 | 🟡 |
+| 77 | Диагностика ошибок: модель + API | 3 | 🟡 |
+| 78 | Диагностика ошибок: WebUI `/scanner-errors` | 3 | 🟡 |
+| 79 | IoC-поиск: хэши | 1 | 🟡 |
+| 80 | IoC-поиск: YARA | 1 | 🟡 |
+| 81 | IoC-поиск: WebUI | 1 | 🟡 |
+| 82 | Лёгкий агент: базовый (server + workstation) | 5 | 🟡 |
+| 83 | Лёгкий агент: службы (MSI/DEB) | 5 | 🟡 |
+| 84 | Лёгкий агент: WebUI `/agents` | 5 | 🟡 |
+| 85 | Специализация: capabilities + segment | 2 | 🟡 |
+| 86 | Экспорт каталога: API + WebUI | 4 | 🟡 |
+| 87 | Кастомные регулярки: модель + API + WebUI | 11 | 🟡 |
+| 88 | Formal Grammars (CFG + AST) | 18 | 🔴 |
+| 89 | Post-Processor (NER + relations) | 18 | 🟡 |
+| 90 | Метрики в WebUI: прокси + графики | 12 | 🟡 |
+| 91 | OAuth: провайдер + интеграция | 13 | 🟡 |
+| 92 | BUG-117/118/123/125/126/129/130/135 | 20 | 🟡 |
+| 93 | TruffleHog | 19 | 🟡 |
+| 94 | Red teaming, SAST, SCA | — | 🔴 |
+| 95 | Релиз v3.1.0 | — | 🔴 |
+
+### 📋 Бэклог v3.1.0 — детально
+
+#### 1. IoC-поиск (BACKLOG-156…160)
 
 | ID | Название | Приоритет |
 |----|----------|-----------|
-| BACKLOG-036 | Rust Scanner — CIFS/NFS + параллелизм | 🔴 |
-| **BUG-135** | S3-агент: BOM в JSON | 🟡 |
-| **BUG-123** | Windows-агент: сбор прав | 🟡 |
-| **BUG-118** | Auth middleware: 1 соединение | 🔴 |
-| **BUG-125** | Linux-агент: MANAGER_URL env | 🟡 |
-| **BUG-126** | S3-агент: verify_ssl строковый | 🟢 |
-| **BUG-129** | Windows-агент: шум | 🟡 |
-| **BUG-130** | Linux-агент: retry без backoff | 🟡 |
-| **BUG-132** | S3-агент: соединение | 🟢 |
-| **BUG-121** | README Windows-агента | 🟢 |
-| **BUG-124** | `docker-compose.s3.yml` конфликт | 🟢 |
-| **BUG-128** | Кириллица в логах | 🟢 |
-| **Formal Grammars** | CFG-парсеры (JSON/XML/CSV) + AST | 🔴 |
-| **Post-Processor** | NER + relations | 🟡 |
-| BACKLOG-089 | Cython-оптимизация | 🟡 |
-| BACKLOG-090 | Быстрые regex | 🟡 |
-| BACKLOG-091 | TruffleHog | 🟡 |
-| BACKLOG-092 | Гибрид Cython + Rust | 🟡 |
-| BACKLOG-096 | `run_scanner.py` — `start_metrics_server` | 🟢 |
-| BACKLOG-032 | ICAP Connector | 🟡 |
-| BACKLOG-033 | DLP Политики | 🟡 |
-| BACKLOG-035 | SMB-сканер | 🟡 |
-| BACKLOG-040 | Параллельный батч-сканер | 🟡 |
-| BACKLOG-048 | Rate-limit bypass для тестов | 🟡 |
-| BACKLOG-063 | Presidio: производительность | 🟡 |
-| BACKLOG-064 | Бенчмарк сканирования | 🟢 |
-| BACKLOG-068 | Per-scanner keys | 🟡 |
+| BACKLOG-156 | IoC-поиск: хэши SHA256/MD5 | 🟡 |
+| BACKLOG-157 | IoC-поиск: YARA-интеграция | 🟡 |
+| BACKLOG-158 | IoC-поиск: WebUI CRUD правил | 🟡 |
+| BACKLOG-159 | IoC-поиск: внешние фиды (MISP/OpenIOC) | 🟢 |
+| BACKLOG-160 | IoC-поиск: Windows-агент (реестр, tasks) | 🟡 |
+
+#### 2. Специализация сканеров (BACKLOG-161…166)
+
+| ID | Название | Приоритет |
+|----|----------|-----------|
+| BACKLOG-161 | Capabilities + фильтрация задач | 🟡 |
+| BACKLOG-162 | ScanTask: priority | 🟢 |
+| BACKLOG-163 | ScanTask: assigned_to | 🟢 |
+| BACKLOG-164 | Resource + Scanner: segment / network_zone | 🟡 |
+| BACKLOG-165 | WebUI `/scanners`: capabilities + segment | 🟡 |
+| BACKLOG-166 | WebUI `/resources`: segment | 🟢 |
+
+#### 3. Диагностика ошибок (BACKLOG-167…177)
+
+| ID | Название | Приоритет |
+|----|----------|-----------|
+| BACKLOG-167 | `FailedFile`: retryable, retry_count, occurred_at | 🟡 |
+| BACKLOG-168 | `ScanTask`: error_type, error_message, failed_at | 🟡 |
+| BACKLOG-169 | Классификация errno/ClientError → error_type | 🟡 |
+| BACKLOG-170 | `GET /api/scanner/tasks/{id}/errors` | 🟡 |
+| BACKLOG-171 | `POST /api/scanner/tasks/{id}/retry` | 🟡 |
+| BACKLOG-172 | Авто-retry | 🟢 |
+| BACKLOG-173 | WebUI `/scanner-errors` | 🟡 |
+| BACKLOG-174 | WebUI `/resources`: статус ошибки | 🟡 |
+| BACKLOG-175 | WebUI Dashboard: KPI «Ошибки» | 🟢 |
+| BACKLOG-176 | Уведомления email/webhook | 🟢 |
+| BACKLOG-177 | SIEM: `scan_failed` | 🟢 |
+
+#### 4. Экспорт каталога (BACKLOG-178…186)
+
+| ID | Название | Приоритет |
+|----|----------|-----------|
+| BACKLOG-178 | `GET /api/catalog/export` (JSON) | 🟡 |
+| BACKLOG-179 | `GET /api/catalog/export` (CSV) | 🟡 |
+| BACKLOG-180 | `GET /api/catalog/export` (JSON-LD) | 🟢 |
+| BACKLOG-181 | Фильтры экспорта | 🟡 |
+| BACKLOG-182 | WebUI `/catalog`: кнопка «Экспорт» | 🟡 |
+| BACKLOG-183 | Webhook push в CMDB | 🟢 |
+| BACKLOG-184 | WebUI `/settings`: настройки экспорта | 🟢 |
+| BACKLOG-185 | Адаптеры: ServiceNow, Jira SM, 1С | 🟢 |
+| BACKLOG-186 | `POST /api/catalog/export/schedule` (cron) | 🟢 |
+
+#### 5. Лёгкий агент (BACKLOG-187…202)
+
+| ID | Название | Приоритет |
+|----|----------|-----------|
+| BACKLOG-187 | Лёгкий агент: базовый | 🟡 |
+| BACKLOG-188 | Служба Windows (MSI) | 🟡 |
+| BACKLOG-189 | Демон Linux (DEB/RPM) | 🟡 |
+| BACKLOG-190 | Offline-буфер (SQLite) | 🟡 |
+| BACKLOG-191 | Managed-режим | 🟡 |
+| BACKLOG-192 | Standalone (cron) | 🟢 |
+| BACKLOG-193 | One-shot | 🟢 |
+| BACKLOG-194 | Auto-update | 🟢 |
+| BACKLOG-195 | WebUI `/agents` | 🟡 |
+| BACKLOG-196 | Skip-папки / skip-расширения | 🟡 |
+| BACKLOG-197 | Throttling (CPU/IO) | 🟢 |
+| BACKLOG-198 | macOS (PKG) | 🟢 |
+| BACKLOG-199 | Профиль «server» | 🟡 |
+| BACKLOG-200 | Профиль «workstation» | 🟡 |
+| BACKLOG-201 | Интеграция с capabilities + segment | 🟡 |
+| BACKLOG-202 | WebUI: различие workstation / server | 🟢 |
+
+#### 6. Шина событий (BACKLOG-203…214)
+
+| ID | Название | Приоритет |
+|----|----------|-----------|
+| BACKLOG-203 | Шина: Redis Streams | 🟡 |
+| BACKLOG-204 | EventPublisher в Manager | 🟡 |
+| BACKLOG-205 | UnifiedEvent: расширить | 🟡 |
+| BACKLOG-206 | SIEM: consumer из шины | 🟡 |
+| BACKLOG-207 | SOAR: consumer | 🟢 |
+| BACKLOG-208 | Dead-letter queue | 🟡 |
+| BACKLOG-209 | WebUI `/settings`: настройки шины | 🟡 |
+| BACKLOG-210 | Фильтрация событий | 🟡 |
+| BACKLOG-211 | Kafka (v3.2.0+) | 🟢 |
+| BACKLOG-212 | CMDB: consumer | 🟢 |
+| BACKLOG-213 | DLP: consumer | 🟢 |
+| BACKLOG-214 | Метрики шины | 🟡 |
+
+#### 7. Model Registry (BACKLOG-215…226)
+
+| ID | Название | Приоритет |
+|----|----------|-----------|
+| BACKLOG-215 | Model Registry: модуль + API | 🟡 |
+| BACKLOG-216 | LocalStorage + S3Storage | 🟡 |
+| BACKLOG-217 | Манифест + SHA256 | 🟡 |
+| BACKLOG-218 | Сканер: `bootstrap` | 🟡 |
+| BACKLOG-219 | Сканер: проверка при старте | 🟡 |
+| BACKLOG-220 | Offline-пакет | 🟡 |
+| BACKLOG-221 | WebUI `/settings/models` | 🟡 |
+| BACKLOG-222 | Внутренний PyPI | 🟢 |
+| BACKLOG-223 | Внутренний Docker Registry | 🟢 |
+| BACKLOG-224 | Обновление моделей | 🟢 |
+| BACKLOG-225 | Подписи моделей | 🟢 |
+| BACKLOG-226 | Метрики Model Registry | 🟡 |
+
+#### 8. Централизованное обновление (BACKLOG-227…240)
+
+| ID | Название | Приоритет |
+|----|----------|-----------|
+| BACKLOG-227 | Версия в heartbeat | 🟡 |
+| BACKLOG-228 | `GET /api/updates/manifest` | 🟡 |
+| BACKLOG-229 | `GET /api/updates/components` | 🟡 |
+| BACKLOG-230 | `POST /api/scanner/update` | 🟡 |
+| BACKLOG-231 | Сканер: self-update | 🟡 |
+| BACKLOG-232 | WebUI `/updates` | 🟡 |
+| BACKLOG-233 | Откат (rollback) | 🟢 |
+| BACKLOG-234 | Обновление моделей | 🟡 |
+| BACKLOG-235 | Обновление агентов | 🟡 |
+| BACKLOG-236 | Матрица совместимости | 🟡 |
+| BACKLOG-237 | Каналы (stable/beta/nightly) | 🟢 |
+| BACKLOG-238 | Подписи обновлений | 🟢 |
+| BACKLOG-239 | Offline-пакет обновления | 🟡 |
+| BACKLOG-240 | Метрики обновлений | 🟡 |
+
+#### 9. Бэкап и восстановление (BACKLOG-241…259)
+
+| ID | Название | Приоритет |
+|----|----------|-----------|
+| BACKLOG-241 | BackupManager: создание | 🟡 |
+| BACKLOG-242 | manifest.json + SHA256 | 🟡 |
+| BACKLOG-243 | Шифрование (AES-256-GCM) | 🟡 |
+| BACKLOG-244 | LocalStorage | 🟡 |
+| BACKLOG-245 | S3Storage (off-site) | 🟡 |
+| BACKLOG-246 | Расписание (Celery Beat) | 🟡 |
+| BACKLOG-247 | Retention бэкапов | 🟡 |
+| BACKLOG-248 | RestoreManager | 🟡 |
+| BACKLOG-249 | Dry-run | 🟡 |
+| BACKLOG-250 | API `/api/backup/*` | 🟡 |
+| BACKLOG-251 | WebUI `/backup` | 🟡 |
+| BACKLOG-252 | Аудит бэкапов | 🟡 |
+| BACKLOG-253 | События в шину | 🟡 |
+| BACKLOG-254 | Бэкап перед обновлением | 🟡 |
+| BACKLOG-255 | Verify целостности | 🟡 |
+| BACKLOG-256 | Инкрементальный бэкап | 🟢 |
+| BACKLOG-257 | PITR (WAL) | 🟢 |
+| BACKLOG-258 | Метрики бэкапов | 🟡 |
+| BACKLOG-259 | Vault integration | 🟢 |
+
+#### 10. Key Store (BACKLOG-260…277)
+
+| ID | Название | Приоритет |
+|----|----------|-----------|
+| BACKLOG-260 | Key Store: модель | 🟡 |
+| BACKLOG-261 | Master key (ENV bootstrap) | 🟡 |
+| BACKLOG-262 | API `/api/keys/*` | 🟡 |
+| BACKLOG-263 | KeyClient (cache) | 🟡 |
+| BACKLOG-264 | Findings: Key Store | 🟡 |
+| BACKLOG-265 | JWT: Key Store | 🟡 |
+| BACKLOG-266 | S3: Key Store | 🟡 |
+| BACKLOG-267 | Ротация: авто | 🟡 |
+| BACKLOG-268 | Ротация: multi-key | 🟡 |
+| BACKLOG-269 | Re-encryption findings | 🟢 |
+| BACKLOG-270 | Аудит ключей | 🟡 |
+| BACKLOG-271 | WebUI `/settings/keys` | 🟡 |
+| BACKLOG-272 | Backup: Key Store | 🟡 |
+| BACKLOG-273 | Master key: backup + Shamir | 🟢 |
+| BACKLOG-274 | Vault: адаптер | 🟢 |
+| BACKLOG-275 | HSM / TPM | 🟢 |
+| BACKLOG-276 | События ключей в шину | 🟡 |
+| BACKLOG-277 | Метрики Key Store | 🟡 |
+
+#### 11. Кастомные регулярки (BACKLOG-278…291)
+
+| ID | Название | Приоритет |
+|----|----------|-----------|
+| BACKLOG-278 | `CustomRegex`: модель | 🟡 |
+| BACKLOG-279 | API `/api/regexes/*` | 🟡 |
+| BACKLOG-280 | Валидация (ReDoS) | 🟡 |
+| BACKLOG-281 | `CustomRegexClassifier` | 🟡 |
+| BACKLOG-282 | Передача в `scan_config` | 🟡 |
+| BACKLOG-283 | WebUI `/settings/regexes` | 🟡 |
+| BACKLOG-284 | WebUI: тест | 🟡 |
+| BACKLOG-285 | Импорт/экспорт | 🟢 |
+| BACKLOG-286 | Версионирование | 🟢 |
+| BACKLOG-287 | Аудит | 🟡 |
+| BACKLOG-288 | Лёгкий агент: регулярки | 🟡 |
+| BACKLOG-289 | События в шину | 🟢 |
+| BACKLOG-290 | Метрики | 🟢 |
+| BACKLOG-291 | `MASK_RULES` в БД | 🟢 |
+
+#### 12. Метрики в WebUI (BACKLOG-292…309)
+
+| ID | Название | Приоритет |
+|----|----------|-----------|
+| BACKLOG-292 | Прокси к Prometheus | 🟡 |
+| BACKLOG-293 | Прокси к Alertmanager | 🟡 |
+| BACKLOG-294 | API query/query_range | 🟡 |
+| BACKLOG-295 | API health | 🟡 |
+| BACKLOG-296 | API alerts | 🟡 |
+| BACKLOG-297 | Кэш (Redis) | 🟡 |
+| BACKLOG-298 | PromQL → Chart.js | 🟡 |
+| BACKLOG-299 | WebUI `/monitoring` | 🟡 |
+| BACKLOG-300 | WebUI `/alerts` | 🟡 |
+| BACKLOG-301 | Dashboard: здоровье | 🟡 |
+| BACKLOG-302 | `/scanners`: метрики | 🟡 |
+| BACKLOG-303 | `/resources`: метрики | 🟢 |
+| BACKLOG-304 | Silence | 🟢 |
+| BACKLOG-305 | RBAC метрик | 🟡 |
+| BACKLOG-306 | События в шину | 🟢 |
+| BACKLOG-307 | Grafana RBAC + DCAP RBAC (Auth Proxy) | 🔴 v3.0.0 (53.4e) |
+| BACKLOG-308 | Метрики мониторинга | 🟢 |
+| BACKLOG-309 | Fallback без Prometheus | 🟢 |
+
+#### 13. OAuth для всех сервисов (BACKLOG-310…314)
+
+| ID | Название | Приоритет |
+|----|----------|-----------|
+| BACKLOG-310 | OAuth-провайдер в Manager | 🟡 |
+| BACKLOG-311 | Grafana: OAuth (вместо Auth Proxy) | 🟡 |
+| BACKLOG-312 | Prometheus / Alertmanager: OAuth | 🟢 |
+| BACKLOG-313 | Keycloak / Authentik: интеграция | 🟢 |
+| BACKLOG-314 | SSO: единая сессия | 🟡 |
+
+#### 14–20. Существующие направления v3.1.0
+
+| ID | Название | Приоритет |
+|----|----------|-----------|
+| BACKLOG-036 | Rust Scanner (CIFS/NFS + параллелизм) | 🔴 |
+| BACKLOG-032 | ICAP Connector (DLP) | 🟡 |
+| BACKLOG-033 | DLP Политики (WebUI) | 🟡 |
+| BACKLOG-035 | SMB-сканер (Rust) | 🟡 |
 | BACKLOG-069 | SIEM: генерация событий | 🔴 |
 | BACKLOG-070 | SIEM: экспорт | 🔴 |
 | BACKLOG-072 | SIEM: WebUI | 🟡 |
-| BACKLOG-076 | Manager: findings_updated | 🟡 |
-| BACKLOG-077 | Сканер: heartbeat до инициализации | 🟢 |
-| BACKLOG-080…082 | Тестирование агентов | 🟡 |
-| BUG-060 | BOM ломает маскирование email | 🟢 |
-| BUG-076 | Scanner: current_task | 🟢 |
-| BUG-083 | order_by=severity | 🟢 |
-| BUG-085 | /fragment text_line → 404 | 🟢 |
-| BACKLOG-011 | Webhook для MinIO | 🟢 |
-| BACKLOG-012 | Облачные хранилища | 🟢 |
-| BACKLOG-017 | Обработка архивов | 🟡 |
-| BACKLOG-018 | Распределённая архитектура | 🔴 |
-| BACKLOG-022 | Red teaming, SAST, SCA | 🔴 |
-| **BACKLOG-099…103** | S3-сканер (skip_prefixes, параллелизм, FA, light, fallback) | 🟢 |
-| **Cyrylic-subsets** | unicode-range — закрыть в 53.4a-доп4 | ✅ (перенесено) |
+| BACKLOG-089 | Cython-оптимизация | 🟡 |
+| BACKLOG-090 | Быстрые regex | 🟡 |
+| BACKLOG-091 | TruffleHog | 🟡 |
+| Formal Grammars | CFG + AST | 🔴 |
+| Post-Processor | NER + relations | 🟡 |
+| BUG-117 | Manager-маскирование | 🔴 |
+| BUG-118 | Auth middleware 1 соединение | 🔴 |
+| BUG-123 | Windows-агент: сбор прав | 🟡 |
+| BUG-125 | Linux-агент: MANAGER_URL env | 🟡 |
+| BUG-126 | S3-агент: verify_ssl | 🟢 |
+| BUG-129 | Windows-агент: шум | 🟡 |
+| BUG-130 | Linux-агент: retry без backoff | 🟡 |
+| BUG-135 | S3-агент: BOM | 🟡 |
 
 ---
 
-## 📋 v3.2.0 — ML + DISTRIBUTED
+## 📋 v3.2.0 — ML + DISTRIBUTED + ADVANCED OPS (📋)
 
-| День | Задача | Приоритет |
-|------|--------|-----------|
-| 79-80 | ML-классификаторы (embeddings) | 🔴 |
-| 81 | Near-duplicate detection (MinHash) | 🟡 |
-| 82 | Аномалии в аудите | 🟡 |
-| 83 | Zero-Trust архитектура | 🔴 |
-| 84 | Распределённый Manager | 🔴 |
-| 85 | SIEM: Kafka / Kinesis | 🟡 |
-| 86 | Версионирование данных | 🟢 |
-| 87 | Релиз v3.2.0 | 🔴 |
+| # | Направление | Задачи |
+|---|-------------|--------|
+| 1 | ML-классификаторы (embeddings) | — |
+| 2 | Near-duplicate detection (MinHash) | — |
+| 3 | Аномалии в аудите | — |
+| 4 | Kafka (шина) | BACKLOG-211 |
+| 5 | Vault / HSM | BACKLOG-273/274/275 |
+| 6 | PITR | BACKLOG-257 |
+| 7 | macOS-агент | BACKLOG-198 |
+| 8 | Лёгкий агент: расширенный | BACKLOG-192/193/194 |
+| 9 | IoC: внешние фиды | BACKLOG-159 |
+| 10 | CMDB/DLP consumer | BACKLOG-212/213 |
+| 11 | Каналы обновлений | BACKLOG-237 |
+| 12 | Подписи обновлений | BACKLOG-238 |
+| 13 | Zero-Trust | — |
+| 14 | Распределённый Manager | — |
+| 15 | Версионирование данных | — |
+
+---
+
+## 📋 v4.0.0 — ZERO-TRUST + DISTRIBUTED (📋)
+
+| # | Направление |
+|---|-------------|
+| 1 | Zero-Trust архитектура |
+| 2 | Распределённый Manager |
+| 3 | Kafka / Kinesis (streaming) |
+| 4 | CEF / LEEF |
+| 5 | Multi-tenancy |
+| 6 | Global policy engine |
+| 7 | Federated learning (ML) |
+| 8 | Blockchain audit trail |
 
 ---
 
@@ -313,13 +579,13 @@
 | Версия | Задач | Выполнено | Прогресс |
 |--------|-------|-----------|----------|
 | v1.0.0-v2.1.0 | 27 | 27 | 100% ✅ |
-| **v3.0.0** | **~235** | **~135** | **~57% 🔄** |
-| v3.1.0 | 45 | 0 | 0% 📋 |
-| v3.2.0 | 9 | 0 | 0% 📋 |
-| v4.0.0 | 9 | 0 | 0% 📋 |
-| **ИТОГО** | **~325** | **~162** | **~50%** |
+| **v3.0.0** | **~235** | **~185** | **~79% 🔄** |
+| **v3.1.0** | **~210** | **0** | **0% 📋** |
+| v3.2.0 | ~30 | 0 | 0% 📋 |
+| v4.0.0 | ~10 | 0 | 0% 📋 |
+| **ИТОГО** | **~512** | **~212** | **~41%** |
 
-> ⚠️ Резкий скачок задач в v3.0.0 — **мастер-сессия 12.10.2026** (WebUI 1–17 + RBAC): ~100 BUG + ~40 BACKLOG.
+> ⚠️ v3.1.0 вырос до ~210 задач после **13 направлений** (BACKLOG-156…314).
 
 ---
 
@@ -338,13 +604,13 @@
 - **`STATE.md`** — текущее состояние проекта.
 - **`STATE_TEST_SESSION.md`** — протокол тестирования.
 - **`ARCHITECTURE.md`** — архитектура, модели, API, SIEM.
-- **`docs/DESIGN.md`** — style reference WebUI (Dovetail). ⚠️ Пока `DESIGN.md` в корне (перенос в 53.4e).
-- **ТЗ (активные):** `prompts/tz/day_53_4b_webui_pages_1.md`, `day_53_4cde_webui_pages_2_5.md`.
-- **ТЗ (архив):** `TZ_FIX_SPRINT.md` … `TZ_BLOCK6_*.md`, `day_53_*_*.md`.
+- **`docs/DESIGN.md`** — style reference WebUI (Dovetail). ✅ Перенесён в `docs/` (53.4e, v3.14.1).
+- **ТЗ (активные):** — (53.4c/d/e архивируется).
+- **ТЗ (архив):** `prompts/archive/*`.
 - **`SECURITY.md`**, **`docs/security_checklist.md`**, **`docs/admin-guide/05-security.md`**.
 
 ---
 
-**Актуально на:** 13.10.2026
-**Версия:** v3.13.41
-**Следующая цель:** 53.4b → 53.4c/d/e → 55 (GitHub-пакет) → 57 (релиз v3.0.0)
+**Актуально на:** 14.10.2026
+**Версия:** v3.14.1
+**Следующая цель:** 53.4e-grafana → 55 (GitHub-пакет) → 57 (релиз v3.0.0) → v3.1.0 (13 направлений).

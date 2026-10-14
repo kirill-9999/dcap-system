@@ -3,8 +3,8 @@
 > **Обновляется архитектором при изменениях архитектуры.**
 > Текущее состояние — в `STATE.md`. План и бэклог — в `ROADMAP.md`.
 
-**Обновлено:** 13.10.2026
-**Версия архитектуры:** v3.13.41 (Блок 5, 7, 9 закрыты; S3-коннектор сканера — части 1–4 + fix-bucket + BUG-149 (bucket-фолбэк из path); WebUI-редизайн — этап 1/5 (53.4a) + фиксы (53.4a-доп, 53.4a-доп3 backend-critical, 53.4a-доп4 шрифты, 53.4a-доп5 hotfix-backend); BUG-150 (CASCADE миграция 007); BACKLOG-121 (white .btn-primary); BACKLOG-119 (badge режима на /login))
+**Обновлено:** 14.10.2026
+**Версия архитектуры:** v3.14.1 (WebUI-редизайн завершён — этапы 2–5: 53.4b, 53.4c, 53.4d (роли/пользователи/настройки, футер, палитра графиков), 53.4e (favicon, CSP, модалки, DESIGN.md → docs/, скриншоты, E2E-очистка); docs/DESIGN.md в docs/)
 
 ---
 
@@ -143,9 +143,8 @@ dcap-system/
 │ # test_retention, test_auth_ad, test_ad_permissions)
 │
 ├── docs/
-│ ├── DESIGN.md # ⚠️ пока НЕ существует — план 53.4e (BACKLOG-093);
-│ │ # сейчас DESIGN.md в корне репо (v3.13.37, перенесён из «не закоммичен»)
-│ ├── ui-screenshots/ # ⚠️ НЕ существует — план 53.4e (BACKLOG-093)
+│ ├── DESIGN.md # 🆕 v3.14.1 — референс стиля Dovetail (перенесён из корня, 53.4e)
+│ ├── ui-screenshots/ # 🆕 v3.14.1 — скриншоты страниц WebUI (1920/768/393)
 │ ├── admin-guide/ # 04-authentication, 05-security,
 │ │ # 06-scanner (+§8 S3/MinIO), 10-troubleshooting
 │ │ # (01,02,03,07,08,09,11 — ещё не написаны)
@@ -170,7 +169,6 @@ dcap-system/
 ├── STATE.md, ROADMAP.md
 ├── ARCHITECTURE.md # этот файл
 ├── AGENTS.md, README.md, CHANGELOG.md
-├── DESIGN.md # 🆕 v3.13.37 — референс стиля Dovetail (временно в корне)
 ├── pyproject.toml, requirements.txt, requirements-dev.txt
 ├── Diagram-ru.png, Diagram-ru-1.png, Diagram-ru-2.png, Diagram-en.png
 └── LICENSE # ⚠️ отсутствует (NO LICENSE в репозитории)
@@ -642,13 +640,13 @@ Per-task credentials (чтение из ENV-файла, привязанного
 
 53.4a (✅ v3.13.37) — токены + base + компоненты + grid-wireframe + локальные шрифты.
 
-53.4b — login, dashboard, resources, findings.
+53.4b — login, dashboard, resources, findings. (✅ v3.14.0)
 
-53.4c — finding_detail, catalog, audit, scanners, access.
+53.4c — finding_detail, catalog, audit, scanners, access. (✅ v3.14.1)
 
-53.4d — roles, users, settings, footer, графики (Chart.js palette).
+53.4d — roles, users, settings, footer, графики (Chart.js palette). (✅ v3.14.1)
 
-53.4e — полировка + docs/ui-screenshots/ + docs/DESIGN.md.
+53.4e — полировка (favicon, CSP, модалки), docs/ui-screenshots/, docs/DESIGN.md. (✅ v3.14.1)
 
 Файлы CSS (после 53.4a)
 Файл	Роль	Legacy-аналоги
@@ -1112,9 +1110,9 @@ Fallback на config-секреты	S3LineConnector.__init__ берёт config.a
 Fallback endpoint в коннекторе	host.docker.internal:9000 при пустом endpoint	BACKLOG-103 (v3.1.0)
 secure=false = verify=False	HTTP-endpoint — сертификат не проверяется	TEST-NOTE-6.11 → v3.1.0
 Разные credentials на разные S3	Нужны отдельные инстансы сканера	v3.1.0
-Chart.js палитра — не под Dovetail	Дефолтные цвета Chart.js на тёмной теме «выпадают»	53.4d
+Chart.js палитра — не под Dovetail	Дефолтные цвета Chart.js на тёмной теме «выпадали»	✅ решено 53.4d (монохром + #6798ff)
 Grid-wireframe тонкий (~3 %)	Если визуально не видно — усилить до #161616	53.4e
-docs/DESIGN.md нет	DESIGN.md временно в корне; перенос в docs/ — git mv	53.4e
+docs/DESIGN.md нет	DESIGN.md временно в корне репо	✅ решено 53.4e (git mv → docs/DESIGN.md)
 Font Awesome (не stroke-SVG)	Остаётся в 53.4a–53.4e	BACKLOG-101 (v3.1.0)
 WebUI light-тема	Не поддерживается (dark-only)	BACKLOG-102 (v3.1.0)
 Теги docker-образов	Все — ${VERSION:-3.13.41}	✅ v3.13.41

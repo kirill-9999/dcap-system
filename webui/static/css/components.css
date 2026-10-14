@@ -181,10 +181,23 @@
 .modal-header {
     border-bottom: 1px solid var(--color-steel-border);
     padding: 16px 24px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
 }
 .modal-header h3 { font-size: var(--text-subheading); margin: 0; }
 .modal-body   { padding: 24px; }
-.modal-footer { border-top: 1px solid var(--color-steel-border); padding: 16px 24px; }
+/* BACKLOG-138: единые отступы и порядок кнопок (Отмена → основное действие).
+   Кнопка-исключение (например, «Удалить») выносится влево через .me-auto. */
+.modal-footer {
+    border-top: 1px solid var(--color-steel-border);
+    padding: 16px 24px;
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 8px;
+}
 
 /* ============================================================
  * Badge

@@ -244,3 +244,10 @@ function updateRecentFindings(findings) {
     }
     tbody.innerHTML = html;
 }
+
+// 53.4e (BUG-126): инициализация вынесена из inline <script> в шаблоне.
+document.addEventListener('DOMContentLoaded', function () {
+    loadDashboard();
+    setInterval(loadDashboard, 30000);
+});
+

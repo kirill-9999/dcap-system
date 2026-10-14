@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 {% block title %}Находка #{{ finding_id }} — DCAP{% endblock %}
 {% block content %}
-<div class="container-fluid">
+<div class="container-fluid" id="findingRoot" data-finding-id="{{ finding_id }}">
   <a href="/findings" id="back-link" class="btn btn-sm btn-outline-secondary mb-3"><i class="fas fa-arrow-left me-1"></i>К списку</a>
 
   <div id="finding-detail">
@@ -15,8 +15,5 @@
 <link rel="stylesheet" href="/static/css/findings.css">
 {% endblock %}
 {% block scripts %}
-<script>
-  window.FINDING_ID = {{ finding_id }};
-</script>
 <script src="/static/js/finding_detail.js"></script>
 {% endblock %}
