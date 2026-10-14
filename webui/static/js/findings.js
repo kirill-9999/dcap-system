@@ -102,14 +102,22 @@ const FindingsPage = {
 
   render() {
     const list = document.getElementById('findings-list');
-    if (!this.findings || this.findings.length === 0) {
+    // BACKLOG-115 (v3.14.1): ложные срабатывания скрыты по умолчанию
+    // (показываются, если включён чекбокс или явно выбран статус «Ложные»).
+    const showFP = document.getElementById('filter-show-fp')?.checked;
+    const statusFilter = document.getElementById('filter-status')?.value;
+    const items = (!showFP && !statusFilter)
+      ? this.findings.filter(f => f.status !== 'false_positive')
+      : this.findings;
+
+    if (!items || items.length === 0) {
       list.innerHTML = '<div class="alert alert-info">Находок не найдено</div>';
       this.renderPagination(false, 0);
       this.updateBulkBar();
       return;
     }
 
-    list.innerHTML = this.findings.map(f => this.renderItem(f)).join('');
+    list.innerHTML = items.map(f => this.renderItem(f)).join('');
     this.renderPagination(this.findings.length >= this.limit, this.total);
     this.updateBulkBar();
 
@@ -176,14 +184,8 @@ const FindingsPage = {
   },
 
   renderItem(f) {
-    // BUG-207 (v3.14.0): статусы на русском.
-    const statusBadge = {
-      new: '<span class="badge bg-primary">🆕 Новое</span>',
-      confirmed: '<span class="badge bg-success">✅ Подтверждено</span>',
-      false_positive: '<span class="badge bg-danger">❌ Ложное</span>',
-      archived: '<span class="badge bg-secondary">📦 Архив</span>',
-      duplicate: '<span class="badge bg-warning text-dark">♻️ Дубликат</span>',
-    }[f.status] || escapeHtml(f.status);
+    // BUG-113/207 (v3.14.1): единый бейдж статуса (общая утилита statusBadge).
+    const statusBadgeHtml = statusBadge(f.status);
 
     const typeBadge = {
       pii: '<span class="badge bg-info text-dark">PII</span>',
@@ -226,7 +228,7 @@ const FindingsPage = {
                   <span class="badge bg-${severityClass}">${escapeHtml(f.severity)}</span>
                   <span class="badge bg-light text-dark">${escapeHtml(f.category)}</span>
                 </div>
-                <div>${statusBadge}</div>
+                <div>${statusBadgeHtml}</div>
               </div>
               <div class="mt-1">
                 <code class="finding-match">${escapeHtml(f.match_text || '(masked)')}</code>

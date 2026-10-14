@@ -29,7 +29,11 @@ const api = {
             const err = await r.json().catch(() => ({ detail: r.statusText || ('HTTP ' + r.status) }));
             throw new Error(errorToRussian(err.detail || ('HTTP ' + r.status)));
         }
-        return r.json();
+        // BUG-150/фронт (53.4c): 204 No Content / пустое тело — не JSON.
+        if (r.status === 204) return null;
+        const text = await r.text();
+        if (!text) return null;
+        try { return JSON.parse(text); } catch (e) { return null; }
     },
 
     async get(endpoint, params = {}) {

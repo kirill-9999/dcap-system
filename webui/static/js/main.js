@@ -75,6 +75,27 @@ function showToast(message, type) {
 }
 
 /* ============================================================
+ * Статусы находок на русском (общая утилита, 53.4c/d)
+ * ============================================================ */
+const FINDING_STATUS = {
+    new:            { label: 'новое',         cls: 'badge-primary' },
+    confirmed:      { label: 'подтверждено',  cls: 'badge-success' },
+    false_positive: { label: 'ложное',        cls: 'badge-danger' },
+    archived:       { label: 'архив',         cls: 'badge-secondary' },
+    duplicate:      { label: 'дубликат',      cls: 'badge-warning' },
+};
+
+function statusName(s) {
+    return (FINDING_STATUS[s] || {}).label || s || '—';
+}
+
+// Единый бейдж статуса находки (BUG-113/207): без дублирования NEW + new.
+function statusBadge(s) {
+    const m = FINDING_STATUS[s] || {};
+    return `<span class="badge ${m.cls || 'badge-secondary'}">${statusName(s)}</span>`;
+}
+
+/* ============================================================
  * Frontend RBAC (BUG-213, v3.14.0)
  * ============================================================ */
 // Какие страницы sidebar доступны ролям. admin — все.

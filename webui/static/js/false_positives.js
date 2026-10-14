@@ -9,7 +9,7 @@ const FalsePositivesPage = {
       this.render(Array.isArray(r) ? r : []);
     } catch (e) {
       document.getElementById('fp-list').innerHTML =
-        `<div class="alert alert-danger">Не удалось загрузить список: ${escapeHtml(e.message)}</div>`;
+        `<div class="alert alert-danger">Не удалось загрузить список: ${escapeHtml(errorToRussian(e.message))}</div>`;
     }
   },
 
@@ -43,7 +43,7 @@ const FalsePositivesPage = {
             </div>
             <div class="d-flex align-items-center gap-2">
               <span class="text-muted small">помечено: ${escapeHtml(reviewedBy)}, ${escapeHtml(reviewed)}</span>
-              <button class="btn btn-sm btn-outline-success restore-fp" data-id="${fp.id}"><i class="fas fa-undo me-1"></i>Восстановить</button>
+              <button class="btn btn-sm btn-outline-success restore-fp" data-id="${fp.id}" title="Вернуть находку в активный список (статус «новое»)"><i class="fas fa-undo me-1"></i>Вернуть в находки</button>
             </div>
           </div>
           <div class="mt-1">
@@ -60,10 +60,10 @@ const FalsePositivesPage = {
   async restore(id) {
     try {
       await api.patch(`/api/findings/${id}`, { status: 'new', comment: 'Возвращено из ложных срабатываний' });
-      showSuccess('Находка возвращена в /findings');
+      showSuccess('Находка возвращена в список «Находки» (статус «новое»)');
       await this.init();
     } catch (e) {
-      showError(e.message);
+      showError(errorToRussian(e.message));
     }
   },
 };

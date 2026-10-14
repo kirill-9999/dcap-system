@@ -2,34 +2,38 @@
 {% block title %}DCAP — Ресурсы{% endblock %}
 {% block content %}
 <h2 class="mb-4"><i class="fas fa-database text-primary"></i> Ресурсы</h2>
-<button class="btn btn-primary mb-3" id="add-resource-btn" onclick="showModal('create-resource-modal')"><i class="fas fa-plus"></i> Добавить ресурс</button>
+<button class="btn btn-primary mb-3" id="add-resource-btn" onclick="ResourcesPage.showCreate()"><i class="fas fa-plus"></i> Добавить ресурс</button>
+
 <div class="table-wrapper" id="resources-table"><div class="text-center p-4 text-muted">Загрузка...</div></div>
+<div class="d-flex align-items-center justify-content-between mt-2">
+    <span class="text-muted small" id="resources-count"></span>
+    <button class="btn btn-outline-primary btn-sm" id="resources-more" style="display:none" onclick="ResourcesPage.loadMore()">
+        <i class="fas fa-ellipsis-h"></i> Показать ещё
+    </button>
+</div>
+
 <div class="modal" id="create-resource-modal">
     <div class="modal-content">
         <div class="modal-header"><h3>Добавить ресурс</h3><button class="btn btn-sm" onclick="closeModal('create-resource-modal')">&times;</button></div>
         <div class="modal-body">
             <div class="mb-3">
                 <label class="form-label">Тип</label>
-                <select class="form-select" id="resource-type" onchange="onResourceTypeChange()">
-                    <option value="filesystem">FILESYSTEM</option>
-                    <option value="s3">S3</option>
-                    <option value="minio">MINIO</option>
+                <select class="form-select" id="resource-type" onchange="ResourcesPage.onTypeChange()">
+                    <option value="filesystem">Filesystem — локальный каталог / сетевой диск</option>
+                    <option value="minio">MinIO — S3-совместимое объектное хранилище</option>
                 </select>
             </div>
             <div class="mb-3">
                 <label class="form-label">Путь *</label>
-                <input type="text" class="form-control" id="resource-path" placeholder="D:\data или /home/user/data">
-                <div class="form-text" id="resource-path-hint"></div>
+                <input type="text" class="form-control" id="resource-path" list="resource-path-list" placeholder="D:\data или /home/user/data">
+                <datalist id="resource-path-list"></datalist>
+                <div class="form-text" id="resource-path-hint">Локальный путь или UNC (<code>\\server\share</code>). Выбор каталога на сервере — в v3.1.0.</div>
             </div>
             <div id="s3-fields" style="display:none;">
                 <div class="mb-3">
-                    <label class="form-label">Endpoint</label>
+                    <label class="form-label">Endpoint *</label>
                     <input type="text" class="form-control" id="resource-endpoint" placeholder="host.docker.internal:9000">
                     <div class="form-text">Оставьте пустым, если на Manager-хосте задан <code>S3_DEFAULT_ENDPOINT</code></div>
-                </div>
-                <div class="mb-3">
-                    <label class="form-label">Region</label>
-                    <input type="text" class="form-control" id="resource-region" value="us-east-1">
                 </div>
                 <div class="form-check mb-2">
                     <input class="form-check-input" type="checkbox" id="resource-secure">
@@ -39,17 +43,12 @@
                     <input class="form-check-input" type="checkbox" id="resource-path-style" checked>
                     <label class="form-check-label" for="resource-path-style">Path-style addressing</label>
                 </div>
-                <div class="alert alert-info small">
-                    Секреты S3 (<code>S3_ACCESS_KEY</code>, <code>S3_SECRET_KEY</code>) задаются на хосте сканера в ENV — в форму не вводятся.
+                <div class="alert alert-info small mb-0">
+                    Секреты (<code>S3_ACCESS_KEY</code>, <code>S3_SECRET_KEY</code>) задаются на хосте сканера в ENV — в форму не вводятся.
                 </div>
             </div>
-            <div class="mb-3">
-                <label class="form-label">Расширения</label>
-                <input type="text" class="form-control" id="resource-extensions" value="txt,pdf,docx,xlsx,png,jpg,jpeg" disabled>
-                <div class="form-text">Справочно: список берётся из конфигурации сканера, поле не отправляется (REST <code>POST /api/resources</code>).</div>
-            </div>
-            <div class="d-flex gap-2">
-                <button class="btn btn-primary" onclick="createResource()">Создать</button>
+            <div class="d-flex gap-2 mt-3">
+                <button class="btn btn-primary" id="resource-save-btn" onclick="ResourcesPage.create()">Создать</button>
                 <button class="btn btn-outline-secondary" onclick="closeModal('create-resource-modal')">Отмена</button>
             </div>
         </div>
@@ -57,96 +56,5 @@
 </div>
 {% endblock %}
 {% block scripts %}
-<script>
-function showModal(id) { document.getElementById(id).classList.add('show'); }
-function closeModal(id) { document.getElementById(id).classList.remove('show'); }
-
-// День 53.3 (BACKLOG-097): переключение типа ресурса — S3/MinIO показывают
-// endpoint/region/secure/use_path_style; секреты в форму не вводятся (ENV).
-function onResourceTypeChange() {
-    var t = document.getElementById('resource-type').value;
-    var s3 = document.getElementById('s3-fields');
-    var hint = document.getElementById('resource-path-hint');
-    var path = document.getElementById('resource-path');
-    if (t === 's3' || t === 'minio') {
-        s3.style.display = '';
-        hint.innerHTML = 'Формат: <code>s3://bucket[/prefix]</code>';
-        path.placeholder = 's3://bucket/prefix';
-    } else {
-        s3.style.display = 'none';
-        hint.innerHTML = '';
-        path.placeholder = 'D:\\data или /home/user/data';
-    }
-}
-
-// День 53.3: единый REST-эндпоинт POST /api/resources (параметры в query).
-// Раньше форма ходила в легаси POST /api/resources/create (только FILESYSTEM).
-async function createResource() {
-    var path = document.getElementById('resource-path')?.value?.trim();
-    if (!path) { alert('Укажите путь'); return; }
-    var type = document.getElementById('resource-type')?.value || 'filesystem';
-
-    var params = new URLSearchParams({ path: path, type: type });
-    if (type === 's3' || type === 'minio') {
-        var endpoint = document.getElementById('resource-endpoint')?.value?.trim();
-        if (endpoint) params.append('endpoint', endpoint);
-        params.append('secure', document.getElementById('resource-secure')?.checked ? 'true' : 'false');
-        params.append('use_path_style', document.getElementById('resource-path-style')?.checked ? 'true' : 'false');
-        var region = document.getElementById('resource-region')?.value?.trim();
-        if (region) params.append('region', region);
-    }
-
-    try {
-        const r = await fetch('/api/resources?' + params.toString(), {
-            method: 'POST',
-            headers: api._headers(),
-        });
-        if (r.status === 401) {
-            if (typeof Auth !== 'undefined') Auth.setToken(null);
-            window.location.href = '/login';
-            return;
-        }
-        if (!r.ok) {
-            const err = await r.json().catch(() => ({ detail: r.statusText }));
-            alert(errorToRussian(err.detail || ('HTTP ' + r.status)));
-            return;
-        }
-        closeModal('create-resource-modal');
-        loadResources();
-    } catch (e) {
-        alert('Ошибка: ' + e.message);
-    }
-}
-async function rescanResource(id) {
-    if (!confirm('Запустить сканирование #' + id + '?')) return;
-    var res = await api.post('/api/resources/'+id+'/scan');
-    if (res.success) alert('Задание #' + res.task_id + ' создано'); else alert(res.detail || 'Ошибка');
-}
-async function loadResources() {
-    var resources = await api.get('/api/resources');
-    var c = document.getElementById('resources-table');
-    if (!resources.length) { c.innerHTML = '<div class="text-center p-4 text-muted">Нет ресурсов</div>'; return; }
-    var html = '<div class="table-responsive"><table class="table table-sm"><thead><tr><th>ID</th><th>Тип</th><th>Путь</th><th>Статус</th><th>Создан</th><th></th></tr></thead><tbody>';
-    // BUG-213: сканирование — только scanner/admin (backend require_scanner).
-    var canScan = typeof RBAC !== 'undefined' && RBAC.isScanner();
-    for (var i = 0; i < resources.length; i++) {
-        var r = resources[i];
-        var st = r.enabled ? '✅' : '❌';
-        var btn = (r.enabled && canScan) ? '<button class="btn btn-sm btn-outline-primary" onclick="rescanResource('+r.id+')" title="Сканировать"><i class="fas fa-play"></i></button>' : '';
-        html += '<tr><td>#'+r.id+'</td><td>'+r.type+'</td><td><code>'+r.path+'</code></td><td>'+st+'</td><td>'+(r.created_at?formatDate(r.created_at):'-')+'</td><td>'+btn+'</td></tr>';
-    }
-    c.innerHTML = html + '</tbody></table></div>';
-}
-document.addEventListener('DOMContentLoaded', async function () {
-    if (typeof whenSessionReady === 'function') {
-        try { await whenSessionReady(); } catch (e) { /* */ }
-    }
-    // Добавление ресурса — только admin (backend POST /api/resources: require_admin).
-    if (typeof RBAC !== 'undefined' && !RBAC.isAdmin()) {
-        var addBtn = document.getElementById('add-resource-btn');
-        if (addBtn) addBtn.style.display = 'none';
-    }
-    loadResources();
-});
-</script>
+<script src="/static/js/resources.js"></script>
 {% endblock %}

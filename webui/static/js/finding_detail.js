@@ -5,6 +5,7 @@ const FindingDetail = {
   finding: null,
 
   async init() {
+    this.applyBackLink();
     try {
       this.finding = await api.get(`/api/findings/${window.FINDING_ID}`);
       if (typeof whenSessionReady === 'function') {
@@ -16,6 +17,18 @@ const FindingDetail = {
       document.getElementById('finding-detail').innerHTML =
         `<div class="alert alert-danger">Ошибка: ${escapeHtml(errorToRussian(e.message))}</div>`;
     }
+  },
+
+  // BACKLOG-112 (v3.14.1): «К списку» ведёт к источнику перехода —
+  // каталог (/catalog), список находок (/findings) или Ложные срабатывания.
+  applyBackLink() {
+    const el = document.getElementById('back-link');
+    if (!el) return;
+    const ref = document.referrer || '';
+    let href = '/findings';
+    if (ref.includes('/catalog')) href = '/catalog';
+    else if (ref.includes('/false-positives')) href = '/false-positives';
+    el.setAttribute('href', href);
   },
 
   render() {
@@ -81,7 +94,9 @@ const FindingDetail = {
           </div>
           ${canAudit
             ? `<button class="btn btn-success" id="confirm-btn"><i class="fas fa-check me-1"></i>Подтвердить</button>
-               <button class="btn btn-danger" id="fp-btn"><i class="fas fa-times me-1"></i>Ложное срабатывание</button>`
+               <button class="btn btn-danger" id="fp-btn"><i class="fas fa-times me-1"></i>Ложное срабатывание</button>
+               <button class="btn btn-warning" id="dup-btn"><i class="fas fa-clone me-1"></i>Дубликат</button>
+               <button class="btn btn-outline-secondary" id="archive-btn"><i class="fas fa-box-archive me-1"></i>В архив</button>`
             : '<span class="text-muted small">Изменение статуса доступно Auditor+</span>'}
         </div>
       </div>
@@ -200,30 +215,27 @@ const FindingDetail = {
           }
           const r = cachedReveal;
 
-          // Убираем дублирование line_text / match_text:
-          // если match входит в line — подсвечиваем match внутри line.
-          let blockHtml;
-          const line = r.line_text || '';
-          const match = r.match_text || '';
-          if (line && match && line.includes(match)) {
-            const escaped = escapeHtml(line);
-            const escapedMatch = escapeHtml(match);
-            const highlighted = escaped.replace(
-              escapedMatch,
-              `<mark>${escapedMatch}</mark>`
-            );
-            blockHtml = `<pre class="reveal-block p-2 small mb-1">${highlighted}</pre>`;
-          } else if (line) {
-            blockHtml = `<pre class="reveal-block p-2 small mb-1">${escapeHtml(line)}</pre>`;
-          } else if (match) {
-            blockHtml = `<div><code>${escapeHtml(match)}</code></div>`;
-          } else {
-            blockHtml = `<div class="text-muted">(недоступно)</div>`;
-          }
+          // BACKLOG-110 (v3.14.1): reveal больше не теряет контекст —
+          // строка с подсветкой показывается вместе с context_before/after
+          // (контекст отдаётся Manager'ом в masked-виде).
+          const esc = (s) => escapeHtml(s == null ? '' : s);
+          const markLine = (line, match) => {
+            if (!line) return '';
+            const escLine = esc(line);
+            if (match && line.includes(match)) {
+              return escLine.replace(esc(match), `<mark>${esc(match)}</mark>`);
+            }
+            return escLine;
+          };
+          const rows = [];
+          if (r.context_before) rows.push(`<span class="text-muted">${esc(r.context_before)}</span>`);
+          const lineHtml = markLine(r.line_text || '', r.match_text || '');
+          rows.push(lineHtml || (r.match_text ? `<mark>${esc(r.match_text)}</mark>` : '<span class="text-muted">(недоступно)</span>'));
+          if (r.context_after) rows.push(`<span class="text-muted">${esc(r.context_after)}</span>`);
 
           box.innerHTML =
-            `<div class="alert alert-warning py-2 small">Оригинал показан (операция записана в аудит)</div>` +
-            blockHtml;
+            `<div class="alert alert-warning py-2 small">Оригинал показан (операция записана в аудит${r.revealed_by ? ' · ' + esc(r.revealed_by) : ''})</div>` +
+            `<pre class="reveal-block p-2 small mb-1">${rows.join('\n')}</pre>`;
 
           revealed = true;
           revealBtn.innerHTML = '<i class="fas fa-eye-slash me-1"></i>Скрыть оригинал';
@@ -237,6 +249,8 @@ const FindingDetail = {
 
     document.getElementById('confirm-btn').addEventListener('click', () => this.update('confirmed'));
     document.getElementById('fp-btn').addEventListener('click', () => this.update('false_positive'));
+    document.getElementById('dup-btn')?.addEventListener('click', () => this.update('duplicate'));
+    document.getElementById('archive-btn')?.addEventListener('click', () => this.update('archived'));
   },
 
   async update(status) {
@@ -246,7 +260,7 @@ const FindingDetail = {
       showSuccess('Сохранено');
       await this.init();
     } catch (e) {
-      showError(e.message);
+      showError(errorToRussian(e.message));
     }
   },
 
