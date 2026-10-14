@@ -33,16 +33,20 @@ function initSidebar() {
 
 function updateFooterTime() {
     const el = document.getElementById('footerTime');
-    if (el) el.textContent = new Date().toLocaleString('ru-RU');
+    if (!el) return;
+    // BUG-185: явно указываем, что время — местное (timezone браузера),
+    // а не UTC. Серверные метки времени форматируются через formatDate().
+    el.textContent = new Date().toLocaleString('ru-RU') + ' (местное)';
 }
 
 function initFooterVersion() {
     const el = document.getElementById('footerVersion');
     if (!el) return;
+    el.textContent = '';
     fetch('/api/health', {headers: {'Accept': 'application/json'}, credentials: 'include'})
         .then(r => { if (!r.ok) throw new Error(); return r.json(); })
         .then(h => { if (h && h.version) el.textContent = 'v' + h.version; })
-        .catch(() => { /* Manager недоступен — оставляем v3.0.0 */ });
+        .catch(() => { el.textContent = ''; /* Manager недоступен — версия неизвестна */ });
 }
 
 function openModal(id) {
@@ -64,12 +68,36 @@ function showToast(message, type) {
         container.style.cssText = 'position:fixed;top:16px;right:16px;z-index:9999;display:flex;flex-direction:column;gap:8px;';
         document.body.appendChild(container);
     }
+    // BACKLOG-153: единый Dovetail-тост — тёмная surface-карточка с hairline
+    // рамкой и акцентом слева по типу (вместо ярких сплошных bootstrap-цветов).
+    const accent = {
+        success: 'var(--color-success)',
+        error: 'var(--color-danger)',
+        warning: 'var(--color-warning)',
+        info: 'var(--color-primary)',
+    }[type] || 'var(--color-primary)';
+    const icon = {
+        success: 'fa-check-circle',
+        error: 'fa-exclamation-circle',
+        warning: 'fa-exclamation-triangle',
+        info: 'fa-info-circle',
+    }[type] || 'fa-info-circle';
+
     const toast = document.createElement('div');
-    toast.style.cssText = 'padding:12px 18px;border-radius:6px;color:#fff;box-shadow:0 4px 12px rgba(0,0,0,0.2);font-size:13px;min-width:180px;' +
-        (type === 'success' ? 'background:#28a745;' :
-         type === 'error'   ? 'background:#dc3545;' :
-         type === 'warning' ? 'background:#ffc107;color:#333;' : 'background:#007bff;');
-    toast.textContent = message;
+    toast.className = 'dcap-toast';
+    toast.style.cssText =
+        'display:flex;align-items:flex-start;gap:10px;padding:12px 16px;border-radius:var(--radius-md,6px);' +
+        'background:var(--color-surface);color:var(--color-text);border:1px solid var(--color-border);' +
+        'border-left:3px solid ' + accent + ';box-shadow:0 6px 20px rgba(0,0,0,.45);' +
+        'font-size:13px;min-width:200px;max-width:360px;';
+    const ic = document.createElement('i');
+    ic.className = 'fas ' + icon;
+    ic.style.cssText = 'color:' + accent + ';margin-top:1px;';
+    const txt = document.createElement('span');
+    txt.textContent = message;
+    txt.style.cssText = 'flex:1;line-height:1.35;';
+    toast.appendChild(ic);
+    toast.appendChild(txt);
     container.appendChild(toast);
     setTimeout(() => { toast.remove(); }, 3500);
 }

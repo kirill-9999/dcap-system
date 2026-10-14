@@ -387,6 +387,7 @@ async def create_user(
         email=user_data.email,
         full_name=user_data.full_name,
         auth_source=user_data.auth_source,
+        domain_user=user_data.domain_user,
         is_active=user_data.is_active,
     )
     # Пароль только для локальных пользователей
@@ -458,6 +459,10 @@ async def update_user(
     if user_data.full_name is not None and user_data.full_name != user.full_name:
         user.full_name = user_data.full_name
         changes["full_name"] = "changed"  # PII: без значения
+    # BUG-156/BACKLOG-134 (v3.14.1): привязка AD-пользователя.
+    if user_data.domain_user is not None and user_data.domain_user != user.domain_user:
+        user.domain_user = user_data.domain_user or None
+        changes["domain_user"] = "changed"
     if user_data.auth_source is not None and user_data.auth_source != user.auth_source:
         user.auth_source = user_data.auth_source
         changes["auth_source"] = user_data.auth_source

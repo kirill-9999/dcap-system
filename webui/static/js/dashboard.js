@@ -1,5 +1,20 @@
 let charts = {};
 
+// 53.4d: монохромная палитра графиков — оттенки единственного акцента
+// #6798ff (--color-blue-cornflower). Семантические цвета (red/green/yellow)
+// в графиках не используются, чтобы не конкурировать с акцентом.
+const MONO_PALETTE = [
+    '#6798ff', '#4d7de6', '#98b8ff', '#3b63c4',
+    '#7c9de0', '#5a86ff', '#a8c4ff', '#2f4f9e',
+];
+
+function monoSlice(n) {
+    if (n <= MONO_PALETTE.length) return MONO_PALETTE.slice(0, n);
+    const out = [];
+    for (let i = 0; i < n; i++) out.push(MONO_PALETTE[i % MONO_PALETTE.length]);
+    return out;
+}
+
 function makeChart(id, config) {
     const ctx = document.getElementById(id);
     if (!ctx) return null;
@@ -130,7 +145,6 @@ function updateKPIs(s) {
 
 function renderFindingsCharts(findings) {
     const c = getColors();
-    const palette = [c.primary, c.danger, c.warning, c.info, c.success];
 
     const catMap = {};
     for (const f of findings) {
@@ -143,7 +157,7 @@ function renderFindingsCharts(findings) {
         type: 'doughnut',
         data: {
             labels: catLabels,
-            datasets: [{ data: catValues, backgroundColor: palette.slice(0, catLabels.length) }]
+            datasets: [{ data: catValues, backgroundColor: monoSlice(catLabels.length) }]
         },
         // BUG-229 (v3.14.0): адаптив + положение легенды на мобильных.
         options: { responsive: true, maintainAspectRatio: false, aspectRatio: 1, plugins: { legend: { position: legendPosition() } } }
@@ -160,7 +174,7 @@ function renderFindingsCharts(findings) {
         type: 'bar',
         data: {
             labels: sorted.map(s => s[0]),
-            datasets: [{ label: '\u041d\u0430\u0445\u043e\u0434\u043a\u0438', data: sorted.map(s => s[1]), backgroundColor: palette[0] }]
+            datasets: [{ label: '\u041d\u0430\u0445\u043e\u0434\u043a\u0438', data: sorted.map(s => s[1]), backgroundColor: MONO_PALETTE[0] }]
         },
         options: {
             indexAxis: 'y',
@@ -174,15 +188,12 @@ function renderFindingsCharts(findings) {
 }
 
 function renderAuditCharts(s) {
-    const c = getColors();
-    const palette = [c.primary, c.success, c.danger, c.warning, c.info];
-
     const byType = s.by_type || [];
     makeChart('auditChart', {
         type: 'bar',
         data: {
             labels: byType.map(t => t.type),
-            datasets: [{ label: 'События', data: byType.map(t => t.count), backgroundColor: palette.slice(0, byType.length) }]
+            datasets: [{ label: 'События', data: byType.map(t => t.count), backgroundColor: monoSlice(byType.length) }]
         },
         options: { responsive: true, maintainAspectRatio: false, aspectRatio: 1, plugins: { legend: { display: false } }, scales: { y: { beginAtZero: true } } }
     });
@@ -192,7 +203,7 @@ function renderAuditCharts(s) {
         type: 'doughnut',
         data: {
             labels: bySource.map(x => x.source),
-            datasets: [{ data: bySource.map(x => x.count), backgroundColor: palette.slice(0, bySource.length) }]
+            datasets: [{ data: bySource.map(x => x.count), backgroundColor: monoSlice(bySource.length) }]
         },
         options: { responsive: true, maintainAspectRatio: false, aspectRatio: 1, plugins: { legend: { position: legendPosition() } } }
     });

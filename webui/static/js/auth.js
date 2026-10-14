@@ -3,8 +3,23 @@
 // Прокси WebUI форвардит этот заголовок в Manager, который валидирует токен.
 
 // BUG-216 (v3.14.0): перевод ошибок бэкенда на русский.
+// BUG-160 (v3.14.1): FastAPI 422 отдаёт detail как массив объектов Pydantic —
+// раньше в тосте всплывало «[object Object]».
 function errorToRussian(detail) {
     if (detail === null || detail === undefined || detail === '') return detail;
+    if (Array.isArray(detail)) {
+        detail = detail
+            .map((e) => {
+                if (e && typeof e === 'object') {
+                    const loc = Array.isArray(e.loc) ? e.loc[e.loc.length - 1] : '';
+                    return (loc ? 'поле «' + loc + '»: ' : '') + (e.msg || JSON.stringify(e));
+                }
+                return String(e);
+            })
+            .join('; ');
+    } else if (typeof detail === 'object') {
+        detail = JSON.stringify(detail);
+    }
     const msg = String(detail);
     const map = {
         'Invalid credentials': 'Неверный логин или пароль',
@@ -12,9 +27,21 @@ function errorToRussian(detail) {
         'Passwords do not match': 'Пароли не совпадают',
         'Cannot delete yourself': 'Вы не можете удалить себя',
         'Cannot disable yourself': 'Вы не можете заблокировать себя',
+        'Username already exists': 'Такое имя пользователя уже занято',
+        'Role already exists': 'Такая роль уже существует',
+        'Role not found': 'Роль не найдена',
+        'User not found': 'Пользователь не найден',
+        'Password required for local user': 'Для локального пользователя нужен пароль',
+        'Invalid auth_source': 'Недопустимый тип учётной записи',
+        'field required': 'обязательное поле',
+        'Input should be a valid string': 'ожидается строка',
+        'String should have at most 50 characters': 'не более 50 символов',
     };
     if (map[msg]) return map[msg];
     if (/^Required roles:/i.test(msg)) return 'Недостаточно прав. Обратитесь к администратору';
+    if (/^Cannot delete system role/i.test(msg)) return 'Системную роль удалить нельзя';
+    if (/^Cannot rename system role/i.test(msg)) return 'Системную роль нельзя переименовать';
+    if (/^Cannot change AD group for system role/i.test(msg)) return 'Для системной роли нельзя менять AD-группу';
     return msg;
 }
 

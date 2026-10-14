@@ -51,6 +51,28 @@ def get_retention_status(_: User = Depends(require_admin)):
     }
 
 
+@router.get("/stats")
+def get_retention_stats(
+    db: Session = Depends(get_db),
+    _: User = Depends(require_admin),
+):
+    """Счётчики данных для страницы настроек (BUG-199, v3.14.1).
+
+    Раньше на /settings счётчики «Аудит-события / Архивные события / Находки /
+    Заверш. задачи» всегда показывали 0 — данные нигде не запрашивались.
+    """
+    from ..db import models
+
+    return {
+        "audit_events": db.query(models.AuditLog).count(),
+        "archived_events": db.query(models.AuditLogArchive).count(),
+        "findings": db.query(models.Finding).count(),
+        "completed_tasks": db.query(models.ScanTask)
+        .filter(models.ScanTask.status == "completed")
+        .count(),
+    }
+
+
 @router.post("/start")
 def start_retention_scheduler(_: User = Depends(require_admin)):
     """Постановка прогона архивации в очередь Celery (retention).

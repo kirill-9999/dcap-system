@@ -83,5 +83,8 @@ class Role(Base):
             "ad_group": self.ad_group,
         }
         if with_count:
-            data["user_count"] = len(self.users)
+            # BUG-170 (v3.14.1): счётчик роли не должен включать заблокированных
+            # пользователей — иначе админ видит «занятую» роль, которую не может
+            # удалить/изменить осмысленно.
+            data["user_count"] = len([u for u in self.users if u.is_active])
         return data

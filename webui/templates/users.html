@@ -2,26 +2,27 @@
 {% block title %}DCAP — Пользователи{% endblock %}
 {% block content %}
 <h2 class="mb-4"><i class="fas fa-users text-primary"></i> Пользователи</h2>
-<button class="btn btn-primary mb-3" onclick="showCreateUserModal()"><i class="fas fa-plus"></i> Создать</button>
+<p class="text-muted small mb-3">Управление учётными записями WebUI. Локальные пользователи входят по паролю, AD-пользователи — через домен.</p>
+<button class="btn btn-primary mb-3" onclick="showCreateUserModal()"><i class="fas fa-plus"></i> Создать пользователя</button>
 
 <div class="row mb-3 g-2">
     <div class="col-md-4">
-        <input type="text" id="searchUsers" class="form-control" placeholder="Поиск..." oninput="loadUsers(0)">
+        <input type="text" class="form-control" id="searchUsers" placeholder="Поиск по имени или ФИО..." oninput="debouncedSearch()">
     </div>
     <div class="col-md-3">
-        <select id="filterSource" class="form-select" onchange="loadUsers(0)">
-            <option value="">Все источники</option>
+        <select class="form-select" id="filterSource" onchange="loadUsers(0)">
+            <option value="">Все типы учёток</option>
             <option value="local">Локальные</option>
             <option value="ad">AD</option>
         </select>
     </div>
     <div class="col-md-3">
-        <select id="filterRole" class="form-select" onchange="loadUsers(0)">
+        <select class="form-select" id="filterRole" onchange="loadUsers(0)">
             <option value="">Все роли</option>
-            <option value="admin">Admin</option>
-            <option value="auditor">Auditor</option>
-            <option value="scanner">Scanner</option>
-            <option value="viewer">Viewer</option>
+            <option value="admin">admin</option>
+            <option value="auditor">auditor</option>
+            <option value="scanner">scanner</option>
+            <option value="viewer">viewer</option>
         </select>
     </div>
 </div>
@@ -29,8 +30,11 @@
 <div class="table-wrapper">
     <div class="table-responsive">
         <table class="table table-sm">
-            <thead><tr><th>Имя пользователя</th><th>Полное имя</th><th>Email</th><th>Источник</th><th>Роли</th><th>Статус</th><th></th></tr></thead>
-            <tbody id="usersTableBody"><tr><td colspan="7" class="text-center text-muted">Загрузка...</td></tr></tbody>
+            <thead><tr>
+                <th>Имя пользователя</th><th>ФИО</th><th>Email</th><th>Тип учётки</th>
+                <th>Роли</th><th>Статус</th><th>Создан</th><th>Последний вход</th><th></th>
+            </tr></thead>
+            <tbody id="usersTableBody"><tr><td colspan="9" class="text-center text-muted">Загрузка...</td></tr></tbody>
         </table>
     </div>
 </div>
@@ -45,26 +49,58 @@
 
 <div class="modal" id="userModal">
     <div class="modal-content">
-        <div class="modal-header"><h3 id="userModalTitle">Создание пользователя</h3><button class="btn btn-sm" onclick="closeModal('userModal')">&times;</button></div>
-        <div class="modal-body">
-            <input type="hidden" id="userId">
-            <div class="mb-3"><label class="form-label">Имя пользователя *</label><input type="text" id="username" class="form-control" required></div>
-            <div class="mb-3"><label class="form-label">Полное имя</label><input type="text" id="fullName" class="form-control"></div>
-            <div class="mb-3"><label class="form-label">Email</label><input type="email" id="email" class="form-control"></div>
-            <div class="mb-3" id="passwordGroup"><label class="form-label">Пароль</label><input type="password" id="password" class="form-control"><small class="text-muted">Оставьте пустым, если не нужно менять</small></div>
-            <div class="mb-3"><label class="form-label">Источник</label>
-                <select id="authSource" class="form-select" onchange="togglePasswordRequired()">
-                    <option value="local">Локальный</option>
-                    <option value="ad">AD</option>
-                </select>
+        <div class="modal-header"><h3 id="userModalTitle">Создание пользователя</h3><button type="button" class="btn btn-sm" onclick="closeModal('userModal')">&times;</button></div>
+        <form id="userForm" onsubmit="event.preventDefault(); saveUser();">
+            <div class="modal-body">
+                <input type="hidden" id="userId">
+                <div class="mb-3">
+                    <label class="form-label">Имя пользователя *</label>
+                    <input type="text" id="username" class="form-control" required
+                           pattern="[A-Za-z0-9_.\\-]{3,50}" placeholder="ivan.petrov" title="3–50 символов: латиница, цифры, _ . -">
+                    <div class="form-text" id="usernameHint">Латиница, цифры, <code>_ . -</code> (3–50 символов). Изменить после создания нельзя.</div>
+                </div>
+                <div class="mb-3"><label class="form-label">ФИО</label><input type="text" id="fullName" class="form-control" placeholder="Иван Петров"></div>
+                <div class="mb-3"><label class="form-label">Email</label><input type="email" id="email" class="form-control" placeholder="ivan@example.com"></div>
+                <div class="mb-3">
+                    <label class="form-label">Тип учётной записи</label>
+                    <select id="authSource" class="form-select" onchange="toggleAuthSource()">
+                        <option value="local">Локальная (пароль)</option>
+                        <option value="ad">Active Directory (домен)</option>
+                    </select>
+                    <div class="form-text" id="authSourceHint">Тип учётки нельзя изменить после создания.</div>
+                </div>
+                <div class="mb-3" id="domainUserGroup" style="display:none;">
+                    <label class="form-label">Привязка AD-пользователя</label>
+                    <input type="text" id="domainUser" class="form-control" placeholder="DOMAIN\\ivan.petrov">
+                    <div class="form-text">Доменное имя для сопоставления при входе (DOMAIN\username).</div>
+                </div>
+
+                <div id="passwordGroup">
+                    <div class="mb-3">
+                        <label class="form-label" id="passwordLabel">Пароль *</label>
+                        <input type="password" id="password" class="form-control" autocomplete="new-password">
+                        <div class="form-text" id="passwordHint"></div>
+                    </div>
+                    <div class="mb-3" id="passwordConfirmGroup">
+                        <label class="form-label">Подтверждение пароля *</label>
+                        <input type="password" id="passwordConfirm" class="form-control" autocomplete="new-password">
+                    </div>
+                </div>
+                <div class="mb-3" id="resetPasswordWrap" style="display:none;">
+                    <button type="button" class="btn btn-sm btn-outline-secondary" onclick="showResetPassword()"><i class="fas fa-key me-1"></i>Сбросить пароль</button>
+                </div>
+
+                <div class="mb-3"><label class="form-label">Роли</label><div id="rolesCheckboxes"></div></div>
+                <div class="mb-3 form-check">
+                    <input type="checkbox" class="form-check-input" id="isActive" checked>
+                    <label class="form-check-label" for="isActive" id="isActiveLabel">Активен</label>
+                </div>
             </div>
-            <div class="mb-3"><label class="form-label">Роли</label><div id="rolesCheckboxes"></div></div>
-            <div class="mb-3 form-check"><input type="checkbox" class="form-check-input" id="isActive" checked><label class="form-check-label" for="isActive">Активен</label></div>
-        </div>
-        <div class="modal-footer">
-            <button class="btn btn-outline-secondary" onclick="closeModal('userModal')">Отмена</button>
-            <button class="btn btn-primary" onclick="saveUser()">Сохранить</button>
-        </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-outline-secondary" onclick="closeModal('userModal')">Отмена</button>
+                <button type="submit" class="btn btn-primary">Сохранить</button>
+            </div>
+        </form>
     </div>
 </div>
 {% endblock %}

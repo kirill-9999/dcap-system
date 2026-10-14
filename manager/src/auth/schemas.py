@@ -18,9 +18,11 @@ class LoginResponse(BaseModel):
 class UserCreate(BaseModel):
     username: str
     email: Optional[str] = None
-    password: str
+    password: str = ""
     full_name: Optional[str] = None
     auth_source: str = "local"
+    # BUG-156 (v3.14.1): привязка AD-пользователя (DOMAIN\username) при создании.
+    domain_user: Optional[str] = None
     is_active: bool = True
     roles: List[str] = ["viewer"]
 
@@ -30,6 +32,8 @@ class UserUpdate(BaseModel):
     full_name: Optional[str] = None
     password: Optional[str] = None
     auth_source: Optional[str] = None
+    # BUG-156/BACKLOG-134 (v3.14.1): привязка/смена AD-пользователя.
+    domain_user: Optional[str] = None
     is_active: Optional[bool] = None
     roles: Optional[List[str]] = None
 
