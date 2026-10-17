@@ -40,7 +40,21 @@ scanner_heartbeat_age = Gauge(
 )
 task_total = Counter("dcap_tasks_total", "Total tasks", ["status"])
 task_duration = Histogram("dcap_task_duration_seconds", "Task duration")
-findings_total = Counter("dcap_findings_total", "Total findings", ["type"])
+
+# BUG-246 (v3.14.2): findings_created_total — Counter ЗА СЕССИЮ (растёт при
+# создании findings в track_findings). Семантика "сколько найдено с момента
+# старта процесса", а не "сколько всего в БД".
+findings_created_total = Counter(
+    "dcap_findings_created_total", "Findings created (session)", ["type"]
+)
+
+# BUG-246 (v3.14.2): findings_total — больше не Counter, а Gauge с РЕАЛЬНЫМ
+# количеством findings в БД по типам (pii/credentials/...). Обновляется при
+# каждом scrape в _refresh_findings_gauges(). Раньше это был Counter за
+# сессию — Grafana/операторов вводил в заблуждение (например, credentials
+# отсутствовал, пока не создан новый).
+findings_total = Gauge("dcap_findings_total", "Findings in DB", ["type"])
+
 celery_queue_size = Gauge("dcap_celery_queue_size", "Celery queue size", ["queue"])
 
 _scrape_lock = threading.Lock()
@@ -129,7 +143,7 @@ def track_task_completed(duration_seconds: float) -> None:
 def track_findings(category_stats: dict) -> None:
     for cat, count in (category_stats or {}).items():
         try:
-            findings_total.labels(type=str(cat)).inc(int(count))
+            findings_created_total.labels(type=str(cat)).inc(int(count))
         except Exception:
             pass
 
@@ -139,6 +153,12 @@ def track_findings(category_stats: dict) -> None:
 # ============================================================
 
 def _refresh_scanner_gauges() -> None:
+    """Обновить gauge'ы сканеров из БД (fail-open).
+
+    BUG-245 (v3.14.2): каждая строка обрабатывается изолированно, а ошибки
+    логируются на уровне warning (раньше — debug, баг был не виден в проде).
+    Строки без id пропускаются, чтобы не создавать серию scanner_id="".
+    """
     try:
         from manager.src.db import session
         from manager.src.db import models
@@ -150,17 +170,60 @@ def _refresh_scanner_gauges() -> None:
             scanner_active.clear()
             scanner_heartbeat_age.clear()
             for s in scanners:
-                active = 1 if str(s.status).lower() == "active" else 0
-                scanner_active.labels(scanner_id=str(s.id)).set(active)
-                if s.last_heartbeat:
-                    age = max(0.0, (now - s.last_heartbeat).total_seconds())
-                else:
-                    age = float("inf")
-                scanner_heartbeat_age.labels(scanner_id=str(s.id)).set(age)
+                try:
+                    if s.id is None or str(s.id) == "":
+                        # Дефенсивно: без id серия бессмысленна и даёт
+                        # dcap_scanner_heartbeat_age_seconds{scanner_id=""}.
+                        continue
+                    sid = str(s.id)
+                    active = 1 if str(s.status).lower() == "active" else 0
+                    scanner_active.labels(scanner_id=sid).set(active)
+                    if s.last_heartbeat:
+                        age = max(0.0, (now - s.last_heartbeat).total_seconds())
+                    else:
+                        age = float("inf")
+                    scanner_heartbeat_age.labels(scanner_id=sid).set(age)
+                except Exception as row_err:
+                    logger.warning(
+                        "Scanner gauge skip (scanner_id=%s): %s",
+                        getattr(s, "id", None), row_err,
+                    )
         finally:
             db.close()
     except Exception as e:
-        logger.debug("Scanner gauges refresh error: %s", e)
+        logger.warning("Scanner gauges refresh error: %s", e)
+
+
+def _refresh_findings_gauges() -> None:
+    """Обновить dcap_findings_total из БД по типам (BUG-246, v3.14.2).
+
+    Должно отражать реальное количество findings в БД, включая типы,
+    для которых в текущей сессии новые findings не создавались
+    (например, credentials).
+    """
+    try:
+        from sqlalchemy import func
+
+        from manager.src.db import session
+        from manager.src.db import models
+
+        db = session.SessionLocal()
+        try:
+            rows = (
+                db.query(
+                    models.Finding.finding_type,
+                    func.count(models.Finding.id),
+                )
+                .group_by(models.Finding.finding_type)
+                .all()
+            )
+            findings_total.clear()
+            for finding_type, count in rows:
+                findings_total.labels(type=str(finding_type)).set(int(count))
+        finally:
+            db.close()
+    except Exception as e:
+        logger.warning("Findings gauges refresh error: %s", e)
 
 
 def _refresh_celery_queues() -> None:
@@ -188,5 +251,6 @@ def _refresh_celery_queues() -> None:
 def metrics_endpoint():
     with _scrape_lock:
         _refresh_scanner_gauges()
+        _refresh_findings_gauges()
         _refresh_celery_queues()
     return Response(generate_latest(), media_type=CONTENT_TYPE_LATEST)

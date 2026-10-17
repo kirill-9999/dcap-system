@@ -53,7 +53,8 @@ docker compose --profile agents up -d
 | `dcap_scanner_heartbeat_age_seconds` | Gauge | scanner_id | Секунд с последнего heartbeat |
 | `dcap_tasks_total` | Counter | status | Задания по статусам |
 | `dcap_task_duration_seconds` | Histogram | — | Длительность заданий |
-| `dcap_findings_total` | Counter | type | Находки по типам (PII/Credentials/Code) |
+| `dcap_findings_total` | Gauge | type | Находки в БД по типам (PII/Credentials/Code), обновляется из БД при scrape |
+| `dcap_findings_created_total` | Counter | type | Находки, созданные за сессию процесса |
 | `dcap_celery_queue_size` | Gauge | queue | Размер очередей Celery |
 
 ### Scanner (`:9101`, на хосте через `host.docker.internal`)

@@ -2,10 +2,10 @@
 > Единственный источник правды о текущем состоянии проекта.
 > План и бэклог — в `ROADMAP.md`. Архитектура — в `ARCHITECTURE.md`.
 
-**Обновлено:** 14.10.2026
-**Текущая версия:** v3.14.1
+**Обновлено:** 17.10.2026
+**Текущая версия:** v3.14.2
 **Целевая версия:** v3.0.0 (релиз)
-**Статус:** 🟢 Блоки 1–9 закрыты. BACKLOG-097 (S3-коннектор) закрыт полностью. WebUI-редизайн этапы 1–5 (53.4a, 53.4a-доп, доп3, доп4, доп5, 53.4b/c/d/e) закрыты — **REDESIGN COMPLETE (v3.14.1)**. Unit **460 passed**, e2e **53/7** (эталон). **Следующий шаг — 53.4e-grafana (тестирование Grafana + RBAC, BACKLOG-307).**
+**Статус:** 🟢 Блоки 1–9 закрыты. BACKLOG-097 (S3-коннектор) закрыт полностью. WebUI-редизайн этапы 1–5 (53.4a, 53.4a-доп, доп3, доп4, доп5, 53.4b/c/d/e) закрыты — **REDESIGN COMPLETE (v3.14.1)**. **Hotfix 53.4e-grafana (v3.14.2):** 7 багов (BUG-245/236/241/243/246/247/239) закрыты — `dcap_findings_total` теперь Gauge из БД, `dcap_findings_created_total` — Counter за сессию, Alertmanager-webhook и S3-target убраны, 2 пустые панели удалены. **Unit 466 passed** (460 + 6). **Следующий шаг — 55 (GitHub-пакет) → 56 → 57.**
 
 ---
 
@@ -13,12 +13,12 @@
 
 | Параметр | Значение |
 |----------|----------|
-| Текущий день | 53.4e (WebUI-редизайн, этап 5) — **завершён** |
-| Статус дня | ✅ Выполнено (53.4c/d/e, v3.14.1) |
-| Последний принятый отчёт | `day_53_4cde_webui_pages_2_5_report.md` (v3.14.1) |
-| Следующий шаг | **53.4e-grafana** (тестирование Grafana + RBAC, BACKLOG-307) |
-| Затем | 53.4e-grafana → 55 → 57 |
-| Открытых BUG | ~11 (закрыто в 53.4c/d/e: ~50) |
+| Текущий день | 53.4e-grafana — hotfix (v3.14.2) — ✅ Выполнен |
+| Статус дня | ✅ Выполнено (hotfix 7 багов: BUG-245/236/241/243/246/247/239) |
+| Последний принятый отчёт | `day_53_4e_grafana_hotfix_report.md` (v3.14.2) |
+| Следующий шаг | **55** (GitHub-пакет) → **56** (BUG-117) → **57** (релиз) |
+| Затем | 55 → 56 → 57 |
+| Открытых BUG | ~4 (закрыто в 53.4e-grafana: 7) |
 | Открытых BACKLOG | ~50 (BACKLOG-131…314 — v3.1.0/бэклог) |
 | ТЗ собраны | 1 файл в `prompts/tz/` (53.4c/d/e — архивируется) |
 | Открытые вопросы к архитектору | 1) Формальные грамматики (v3.1.0); 2) `DESIGN.md` — перенесён в `docs/` (53.4e); 3) E2E-артефакты — очищены (53.4e); 4) Grafana RBAC — Auth Proxy (53.4e-grafana), OAuth (v3.1.0); 5) BACKLOG-101/102 — отложены |
@@ -74,6 +74,7 @@
 | **53.4c (BACKLOG-093, этап 3/5)** | **Страницы: `/catalog` (пагинация), `/resources` (форма Filesystem/MinIO, статусы, удаление), `/access` (замена заглушки), `/audit` (фильтр по роли, metadata), `/scanners` (массовое удаление inactive), `/findings`+`/false-positives` (FP по умолчанию скрыты)** | **v3.14.1** | `day_53_4cde_webui_pages_2_5_report.md` |
 | **53.4d (BACKLOG-093, этап 4/5)** | **Роли/пользователи/настройки (RU, `domain_user`, self-защита, пароль+подтверждение, BUG-170 активные роли, `GET /api/retention/stats`), футер (BUG-185), монохромная палитра Chart.js, Dovetail-тост** | **v3.14.1** | `day_53_4cde_webui_pages_2_5_report.md` |
 | **53.4e (BACKLOG-093, этап 5/5)** | **Полировка: favicon (BUG-104), CSP + security-заголовки + вынос inline `<script>` (BUG-126), унификация модалок (BACKLOG-138), `DESIGN.md → docs/DESIGN.md`, 39 скриншотов, sync docs, E2E-очистка (BUG-166/183) — REDESIGN COMPLETE** | **v3.14.1** | `day_53_4cde_webui_pages_2_5_report.md` |
+| **53.4e-grafana (hotfix, v3.14.2)** | **Диагностика Grafana/метрик: BUG-245 (`scanner_id=""` — hardening + тесты), BUG-246 (`dcap_findings_total` → Gauge из БД, `dcap_findings_created_total` — Counter), BUG-247 (снята вводящая авто-`_created`), BUG-236 (webhook убран), BUG-241 (`or vector(0)`), BUG-243 (S3-target закомментирован), BUG-239 (2 пустые панели удалены)** | **v3.14.2** | `day_53_4e_grafana_hotfix_report.md` |
 | **Мастер-сессия v3.13.38** | **WebUI 1–17 + RBAC-прогон — найдено ~100 BUG + ~40 BACKLOG; пакет из 4 ТЗ собран** | — | `STATE_TEST_SESSION.md` (12.10.2026) |
 
 ---
@@ -85,6 +86,13 @@
 | ID | Проблема | Статус | ТЗ |
 |----|----------|--------|-----|
 | **BUG-147** | Frontend `/resources` — limit=100 | ✅ **v3.14.1** | 53.4c |
+| **BUG-245** | `dcap_scanner_heartbeat_age_seconds{scanner_id=""}` | ✅ **v3.14.2** | 53.4e-grafana |
+| **BUG-236** | Alertmanager → `/api/alerts/webhook` 401 | ✅ **v3.14.2** | 53.4e-grafana |
+| **BUG-246** | `dcap_findings_total` — Counter за сессию (нет credentials) | ✅ **v3.14.2** | 53.4e-grafana |
+| **BUG-247** | `dcap_findings_created` — timestamp, не счётчик | ✅ **v3.14.2** | 53.4e-grafana |
+| **BUG-241** | HTTP 5xx error rate → No data | ✅ **v3.14.2** | 53.4e-grafana |
+| **BUG-243** | S3-агент DOWN в Prometheus targets | ✅ **v3.14.2** | 53.4e-grafana |
+| **BUG-239** | 2 пустые панели dcap-scanner | ✅ **v3.14.2** | 53.4e-grafana |
 | **BUG-151** | `/resources` (viewer): кнопки видны | ✅ **v3.14.0** | 53.4b |
 | **BUG-152** | `/access` — заглушка | ✅ **v3.14.1** | 53.4c |
 | **BUG-153** | Ресурс 133: `type=FILESYSTEM` uppercase | ✅ **v3.14.1** | 53.4c |
@@ -159,6 +167,16 @@
 - 53.4e — favicon (BUG-104), CSP + security-заголовки + вынос inline `<script>` (BUG-126), унификация модалок (BACKLOG-138), `DESIGN.md → docs/DESIGN.md`, 39 скриншотов, E2E-очистка (BUG-166/183).
 - **REDESIGN COMPLETE.** Образы пересобраны (manager/webui 3.14.1), `/api/health`=3.14.1.
 
+**Закрыто в 53.4e-grafana hotfix (v3.14.2):**
+- **BUG-245** — `dcap_scanner_heartbeat_age_seconds{scanner_id=""}`: `_refresh_scanner_gauges()` изолирует строки, пропускает пустой id, логирует warning; тесты (id="1", пустая БД, `+Inf`).
+- **BUG-246** — `dcap_findings_total` теперь **Gauge из БД** по типам (pii=1458, credentials=51); сессионный счётчик переименован в `dcap_findings_created_total`.
+- **BUG-247** — вводящая авто-метрика `dcap_findings_created` (timestamp) снята (имя больше не Counter).
+- **BUG-236** — webhook Alertmanager → Manager закомментирован (нет эндпоинта; 401 в логах).
+- **BUG-241** — панель HTTP 5xx error rate: `... or vector(0)` (0 вместо No data).
+- **BUG-243** — job `s3-agent` закомментирован в `prometheus.yml` (DOWN без profile agents).
+- **BUG-239** — удалены 2 пустые панели из `dcap-scanner.json` (per-file duration, OCR latency).
+- **Тесты:** `manager/tests/test_metrics_v3142.py` — 6 passed (итого 466).
+
 **Grafana (решения 14.10.2026):**
 - **RBAC:** Auth Proxy (`X-WEBAUTH-USER`) — 53.4e.
 - **Маппинг:** admin→Admin, auditor→Editor, scanner/viewer→Viewer.
@@ -177,9 +195,9 @@
 
 ## 📌 Рекомендации архитектору
 
-1. **Следующий день — 53.4e-grafana** (тестирование Grafana TEST-NOTE-8.1…8.6 + RBAC Auth Proxy BACKLOG-307).
+1. **Следующий день — 55** (GitHub-пакет) → **56** (BUG-117 hotfix) → **57** (релиз). Hotfix **53.4e-grafana (v3.14.2)** закрыт (BUG-245/236/241/243/246/247/239).
 2. **Затем — 55** (GitHub-пакет) → **56** (BUG-117 hotfix) → **57** (релиз).
-3. **ARCHITECTURE.md** — синхронизирован (v3.14.1: 53.4b–e, `docs/DESIGN.md`, `docs/ui-screenshots/`).
+3. **ARCHITECTURE.md** — синхронизирован (v3.14.2: метрики findings/сканер, Alertmanager, dashboards).
 4. **Формальные грамматики** — зафиксировать в бэклоге v3.1.0.
 5. **BUG-123/125/130/135** — v3.1.0 (агенты).
 6. **E2E-артефакты** — ✅ очищены в 53.4e (BUG-166, BUG-183, TEST-NOTE-10.2).
@@ -188,6 +206,6 @@
 
 ---
 
-**Актуально на:** 14.10.2026
-**Версия:** v3.14.1
-**Следующий шаг:** 53.4e-grafana → 55 → 56 → 57
+**Актуально на:** 17.10.2026
+**Версия:** v3.14.2
+**Следующий шаг:** 55 (GitHub-пакет) → 56 → 57

@@ -7,6 +7,40 @@
 
 ---
 
+---
+
+## [v3.14.2] — 2026-10-17
+
+### Fixed (53.4e-grafana hotfix, диагностика Grafana/метрик)
+
+- **BUG-245** — `dcap_scanner_heartbeat_age_seconds`/`dcap_scanner_active`
+  больше не могут отдавать серию `scanner_id=""`. `_refresh_scanner_gauges()`
+  изолирует обработку каждой строки, пропускает сканеры без id, логирует на
+  уровне `warning` (был `debug` — ошибки не были видны в проде).
+- **BUG-246** — `dcap_findings_total` переведён из Counter в **Gauge** и
+  отражает реальное количество findings в БД по типам (pii, credentials, …),
+  обновляется при каждом scrape (`_refresh_findings_gauges`). Сессионный
+  счётчик переименован в `dcap_findings_created_total`.
+- **BUG-247** — вводящая в заблуждение авто-метрика `dcap_findings_created`
+  (timestamp `_created`) больше не генерируется, т.к. `dcap_findings_total`
+  перестал быть Counter.
+- **BUG-236** — в `monitoring/alertmanager/alertmanager.yml` закомментирован
+  webhook на несуществующий `/api/alerts/webhook` (401 из-за AuthMiddleware).
+- **BUG-241** — панель «HTTP error rate (5xx)» в `dcap-overview.json`:
+  добавлен `or vector(0)` (показывает 0 вместо «No data»).
+- **BUG-243** — job `s3-agent` закомментирован в `prometheus.yml` (target DOWN,
+  т.к. S3-агент запускается только с `--profile agents`).
+- **BUG-239** — удалены 2 пустые панели из `dcap-scanner.json`
+  (per-file duration p50/p95, OCR latency — метрики не отдаются сканером).
+
+### Added
+
+- `manager/tests/test_metrics_v3142.py` — 6 тестов: `scanner_id="1"`,
+  `+Inf` при отсутствии heartbeat, отсутствие `scanner_id=""`, findings
+  из БД (pii/credentials), типы метрик, счётчик за сессию.
+
+---
+
 ## [v3.14.1] — 2026-10-14
 
 ### Changed (53.4b–53.4e, WebUI-редизайн, этапы 2–5)

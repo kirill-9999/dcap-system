@@ -66,7 +66,7 @@
       "gridPos": { "h": 8, "w": 12, "x": 0, "y": 12 },
       "datasource": { "type": "prometheus", "uid": "prometheus" },
       "targets": [
-        { "exemplar": true, "expr": "sum by (type) (rate(dcap_findings_total[5m]))", "legendFormat": "{{ type }}", "refId": "A" }
+        { "exemplar": true, "expr": "sum by (type) (rate(dcap_findings_created_total[5m]))", "legendFormat": "{{ type }}", "refId": "A" }
       ],
       "fieldConfig": { "defaults": { "unit": "ops" } }
     },
@@ -88,7 +88,7 @@
       "gridPos": { "h": 8, "w": 12, "x": 0, "y": 20 },
       "datasource": { "type": "prometheus", "uid": "prometheus" },
       "targets": [
-        { "exemplar": true, "expr": "sum(rate(dcap_http_requests_total{status=~\"5..\"}[5m]))", "legendFormat": "5xx", "refId": "A" }
+        { "exemplar": true, "expr": "sum(rate(dcap_http_requests_total{status=~\"5..\"}[5m])) or vector(0)", "legendFormat": "5xx", "refId": "A" }
       ],
       "fieldConfig": { "defaults": { "unit": "ops" } }
     },

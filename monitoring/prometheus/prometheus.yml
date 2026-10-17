@@ -37,9 +37,12 @@ scrape_configs:
   #  static_configs:
   #    - targets: ['audit_agent_linux:9102']
 
-  - job_name: 's3-agent'
-    static_configs:
-      - targets: ['s3_agent:9103']
+  # BUG-243 (v3.14.2): s3-agent запускается только с --profile agents.
+  # Без профиля target всегда DOWN (lookup s3_agent: no such host).
+  # Раскомментировать при запуске стека с профилем agents.
+  #- job_name: 's3-agent'
+  #  static_configs:
+  #    - targets: ['s3_agent:9103']
 
   - job_name: 'celery'
     static_configs:

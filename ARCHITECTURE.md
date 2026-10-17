@@ -3,8 +3,8 @@
 > **Обновляется архитектором при изменениях архитектуры.**
 > Текущее состояние — в `STATE.md`. План и бэклог — в `ROADMAP.md`.
 
-**Обновлено:** 14.10.2026
-**Версия архитектуры:** v3.14.1 (WebUI-редизайн завершён — этапы 2–5: 53.4b, 53.4c, 53.4d (роли/пользователи/настройки, футер, палитра графиков), 53.4e (favicon, CSP, модалки, DESIGN.md → docs/, скриншоты, E2E-очистка); docs/DESIGN.md в docs/)
+**Обновлено:** 17.10.2026
+**Версия архитектуры:** v3.14.2 (hotfix 53.4e-grafana; WebUI-редизайн завершён — этапы 2–5: 53.4b, 53.4c, 53.4d (роли/пользователи/настройки, футер, палитра графиков), 53.4e (favicon, CSP, модалки, DESIGN.md → docs/, скриншоты, E2E-очистка); docs/DESIGN.md в docs/)
 
 ---
 
@@ -839,7 +839,7 @@ MetricsMiddleware регистрируется последним, поэтом�
 📈 МОНИТОРИНГ
 Метрики
 Компонент	Порт	Ключевые метрики
-Manager	:8000/metrics	dcap_http_*, dcap_tasks_total, dcap_findings_total, dcap_scanner_*, dcap_celery_queue_size
+Manager	:8000/metrics	dcap_http_*, dcap_tasks_total, dcap_findings_total (Gauge из БД), dcap_findings_created_total (Counter сессии), dcap_scanner_*, dcap_celery_queue_size
 Scanner	:9101	dcap_scanner_files_scanned_total, dcap_scanner_findings_total, dcap_scanner_errors_total, dcap_scanner_current_task
 Linux-агент	:9102	dcap_linux_*
 S3-агент	:9103	dcap_s3_*
@@ -855,13 +855,13 @@ POST /api/scanner/heartbeat с {scanner_id, status, current_task_id, progress}
 
 Backoff (BUG-080, v3.13.20): BACKOFF_STEPS = [5, 10, 30, 60, 120]; фейлы — DEBUG, WARNING на 1-м и каждые 5; _stop.wait() вместо time.sleep().
 
-Prometheus targets (6/6 up)
+Prometheus targets (5/5 up)
 text
 http://celery_exporter:9808/metrics       up
 http://manager:8000/metrics               up
 http://postgres_exporter:9187/metrics     up
 http://redis_exporter:9121/metrics        up
-http://s3_agent:9103/metrics              up
+# http://s3_agent:9103/metrics             up  (только --profile agents; job закомментирован, BUG-243)
 http://host.docker.internal:9101/metrics  up  (scanner, на хосте)
 Алерты
 Алерт	Условие	Severity
