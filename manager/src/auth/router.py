@@ -374,7 +374,15 @@ async def create_user(
     admin: User = Depends(require_admin),
     db: Session = Depends(get_db),
 ):
-    """Создание пользователя (локального или AD-ссылки) (только Admin)."""
+    """Создание пользователя (локального или AD-ссылки) (только Admin).
+
+    BUG-254 (v3.14.3): пользователь без ролей бесполезен — требуется хотя бы
+    одна роль.
+    """
+    # BUG-254 (v3.14.3): хотя бы одна роль.
+    if not user_data.roles:
+        raise HTTPException(status_code=400, detail="Выберите хотя бы одну роль")
+
     existing = db.query(User).filter(User.username == user_data.username).first()
     if existing:
         raise HTTPException(status_code=400, detail="Username already exists")
@@ -449,6 +457,14 @@ async def update_user(
     user = db.query(User).filter(User.id == user_id).first()
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
+
+    # BUG-253 (v3.14.3): нельзя снять роль admin с себя — иначе лок-аут.
+    # BUG-254 (v3.14.3): хотя бы одна роль (пустой список ролей запрещён).
+    if user_data.roles is not None:
+        if user_id == admin.id and "admin" not in user_data.roles:
+            raise HTTPException(status_code=400, detail="Нельзя снять роль admin с себя")
+        if len(user_data.roles) == 0:
+            raise HTTPException(status_code=400, detail="Выберите хотя бы одну роль")
 
     roles_before = [r.name for r in user.roles]
     changes: dict = {}
@@ -681,7 +697,14 @@ async def create_role(
 
     BUG-181 (v3.13.39): раньше CRUD ролей не логировался — создать/удалить
     роль можно было без следов в audit_logs.
+    BUG-258 (v3.14.3): кастомные роли без permissions не дают прав (ложное
+    чувство безопасности) — создание отключено до v3.1.0.
     """
+    raise HTTPException(
+        status_code=403,
+        detail="Кастомные роли отключены до v3.1.0 (BACKLOG-258). Используйте системные роли.",
+    )
+
     existing = db.query(Role).filter(Role.name == role_data.name).first()
     if existing:
         raise HTTPException(status_code=400, detail="Role already exists")

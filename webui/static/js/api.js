@@ -13,9 +13,17 @@ const api = {
             if (typeof Auth !== 'undefined') Auth.setToken(null);
             if (window.location.pathname !== '/login') window.location.href = '/login';
         }
-        // BUG-213 (v3.14.0): не хватает прав — роутер уводит на главную.
-        if (r.status === 403 && window.location.pathname !== '/') {
-            window.location.href = '/';
+        // BUG-213/BUG-256 (v3.14.3): не хватает прав — сообщаем причину и
+        // уводим на главную (раньше редирект был молчаливым).
+        if (r.status === 403) {
+            if (typeof showToast === 'function') {
+                showToast('Недостаточно прав', 'error');
+            }
+            setTimeout(() => {
+                if (window.location.pathname !== '/') {
+                    window.location.href = '/';
+                }
+            }, 1000);
         }
         return r;
     },

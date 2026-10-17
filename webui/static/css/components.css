@@ -44,6 +44,12 @@
     background-color: var(--color-snow);   /* #ffffff */
     color: var(--color-page-ink);         /* #0a0a0a */
     border: none;
+    /* BUG-255 (v3.14.3): явный Dovetail-профиль кнопки (login и модалки). */
+    border-radius: 8px;
+    padding: 10px 16px;
+    font-weight: 500;
+    font-size: 14px;
+    transition: background-color 0.15s ease;
 }
 .btn-primary:hover {
     background-color: var(--color-ash);   /* #a7a7a7 */
@@ -56,12 +62,14 @@
     color: var(--color-page-ink);
     border: none;
     box-shadow: none;
+    outline: none;
 }
 .btn-primary:disabled,
 .btn-primary.disabled {
     background-color: var(--color-fog);   /* #7c7c7c */
     color: var(--color-page-ink);
     border: none;
+    cursor: not-allowed;
 }
 
 /* Secondary / outline */

@@ -166,20 +166,32 @@ async function editUser(id) {
         // BUG-162/BACKLOG-145: корректно грузим роли и активность; себя нельзя заблокировать.
         document.getElementById('isActive').checked = u.is_active !== false;
         document.getElementById('isActive').disabled = isSelf;
-        renderRolesCheckboxes((u.roles || []).map(r => typeof r === 'string' ? r : r.name));
+        renderRolesCheckboxes(
+            (u.roles || []).map(r => typeof r === 'string' ? r : r.name),
+            { isSelf }
+        );
         openModal('userModal');
     } catch (e) {
         showToast('Ошибка загрузки: ' + errorToRussian(e.message), 'error');
     }
 }
 
-function renderRolesCheckboxes(selectedRoles) {
+function renderRolesCheckboxes(selectedRoles, opts = {}) {
     const cont = document.getElementById('rolesCheckboxes');
     if (!rolesCache.length) { cont.innerHTML = '<span class="text-muted">Нет ролей</span>'; return; }
-    cont.innerHTML = rolesCache.map(r => {
+
+    const isSelf = opts.isSelf || false;
+    // BACKLOG-316 (v3.14.3): роль scanner — машинная (POST /api/scanner/register),
+    // человеку не назначается — не показываем её в /users.
+    const humanRoles = rolesCache.filter(r => r.name !== 'scanner');
+
+    cont.innerHTML = humanRoles.map(r => {
         const id = 'rolechk_' + r.name.replace(/[^A-Za-z0-9_]/g, '_');
         const checked = selectedRoles.includes(r.name) ? 'checked' : '';
-        return `<div class="form-check"><input class="form-check-input" type="checkbox" id="${id}" data-role="${escapeHtml(r.name)}" ${checked}><label class="form-check-label" for="${id}">${escapeHtml(r.name)}</label></div>`;
+        // BUG-253 (v3.14.3): admin нельзя снять с себя.
+        const disabled = (isSelf && r.name === 'admin') ? 'disabled' : '';
+        const title = (isSelf && r.name === 'admin') ? 'Нельзя снять роль admin с себя' : '';
+        return `<div class="form-check"><input class="form-check-input" type="checkbox" id="${id}" data-role="${escapeHtml(r.name)}" ${checked} ${disabled} title="${title}"><label class="form-check-label" for="${id}">${escapeHtml(r.name)}</label></div>`;
     }).join('');
 }
 
@@ -194,6 +206,13 @@ async function saveUser() {
     const authSource = document.getElementById('authSource').value;
     const pw = document.getElementById('password').value;
     const pw2 = document.getElementById('passwordConfirm').value;
+
+    // BUG-254 (v3.14.3): пользователь без ролей бесполезен.
+    const roles = getSelectedRoles();
+    if (roles.length === 0) {
+        showToast('Выберите хотя бы одну роль', 'warning');
+        return;
+    }
 
     // BACKLOG-137: валидация username на клиенте (для создания).
     if (!isEdit) {
@@ -217,7 +236,7 @@ async function saveUser() {
     const payload = {
         full_name: document.getElementById('fullName').value.trim() || null,
         email: document.getElementById('email').value.trim() || null,
-        roles: getSelectedRoles(),
+        roles,
         is_active: document.getElementById('isActive').checked,
     };
 

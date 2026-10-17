@@ -93,16 +93,11 @@ def _system_role_id(db, name="admin"):
 
 
 def test_role_created_writes_audit(client, db):
+    # BUG-258 (v3.14.3): создание кастомных ролей отключено (403) — событие
+    # role_created через API больше не достижимо и не пишется.
     r = client.post("/api/auth/roles", json={"name": "report_reader", "description": "RO"})
-    assert r.status_code == 200, r.text
-    assert r.json()["name"] == "report_reader"
-    assert _role_count(db, "role_created") == 1
-    row = (
-        db.query(models.AuditLog)
-        .filter(models.AuditLog.event_type == "role_created")
-        .first()
-    )
-    assert row.metadata_json.get("role_name") == "report_reader"
+    assert r.status_code == 403, r.text
+    assert _role_count(db, "role_created") == 0
 
 
 def test_role_updated_writes_audit(client, db):
@@ -122,9 +117,12 @@ def test_role_updated_writes_audit(client, db):
 
 
 def test_role_deleted_writes_audit(client, db):
-    created = client.post("/api/auth/roles", json={"name": "temp_role"})
-    assert created.status_code == 200, created.text
-    rid = created.json()["id"]
+    # BUG-258 (v3.14.3): создание ролей отключено — наполняем БД напрямую.
+    role = Role(name="temp_role")
+    db.add(role)
+    db.commit()
+    db.refresh(role)
+    rid = role.id
 
     r = client.delete(f"/api/auth/roles/{rid}")
     assert r.status_code == 200, r.text
@@ -163,9 +161,12 @@ def test_system_role_description_editable(client, db):
 
 
 def test_custom_role_can_be_renamed(client, db):
-    created = client.post("/api/auth/roles", json={"name": "archive_admin"})
-    assert created.status_code == 200, created.text
-    rid = created.json()["id"]
+    # BUG-258 (v3.14.3): создание ролей отключено — наполняем БД напрямую.
+    role = Role(name="archive_admin")
+    db.add(role)
+    db.commit()
+    db.refresh(role)
+    rid = role.id
 
     r = client.put(f"/api/auth/roles/{rid}", json={"name": "archive_manager"})
     assert r.status_code == 200, r.text

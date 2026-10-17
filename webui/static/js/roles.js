@@ -62,7 +62,9 @@ function showCreateRoleModal() {
     document.getElementById('roleId').value = '';
     ['roleName', 'roleDescription', 'roleAdGroup'].forEach(id => { document.getElementById(id).value = ''; });
     document.getElementById('roleName').disabled = false;
+    document.getElementById('roleName').title = '';
     document.getElementById('roleAdGroup').disabled = false;
+    document.getElementById('roleAdGroup').title = '';
     document.getElementById('roleDeleteBtn').style.display = 'none';
     openModal('roleModal');
 }
@@ -76,9 +78,12 @@ async function editRole(id) {
         document.getElementById('roleName').value = r.name;
         document.getElementById('roleDescription').value = r.description || SYSTEM_ROLE_DESC[r.name] || '';
         document.getElementById('roleAdGroup').value = r.ad_group || '';
-        // BUG-168 (backend): системные роли нельзя переименовать/сменить AD-группу.
+        // BUG-168/BUG-257 (v3.14.3): системные роли нельзя переименовать/сменить
+        // AD-группу — поля блокируются с пояснением.
         document.getElementById('roleName').disabled = sys;
+        document.getElementById('roleName').title = sys ? 'Системные роли нельзя переименовать' : '';
         document.getElementById('roleAdGroup').disabled = sys;
+        document.getElementById('roleAdGroup').title = sys ? 'Системные роли: AD-группа неизменна' : '';
         // BACKLOG-149: удаление прямо из модалки (только для кастомных ролей).
         document.getElementById('roleDeleteBtn').style.display = sys ? 'none' : '';
         openModal('roleModal');
