@@ -5,7 +5,7 @@
 **Обновлено:** 17.10.2026
 **Текущая версия:** v3.14.3
 **Целевая версия:** v3.0.0 (релиз)
-**Статус:** 🟢 Блоки 1–9 закрыты. BACKLOG-097 (S3-коннектор) закрыт. WebUI-редизайн этапы 1–5 закрыты — **REDESIGN COMPLETE (v3.14.1)**. Grafana протестирована (TEST-NOTE-8.1…8.6), 6 багов закрыто в hotfix v3.14.2, RBAC подтверждён (BACKLOG-307 → v3.1.0). RBAC hotfix (блоки 12–13: Users, Roles) — 7 задач (BUG-253/254/255/256/257/258, BACKLOG-316) закрыто в v3.14.3. Unit **472 passed** (466 + 6 metrics), e2e **+4 (v3.14.3, таргетно PASSED)**. Тест-инфра v3.14.3: закрыты BUG-259/260/261/263, BACKLOG-317 (`name: dcap-test`), BUG-262 этап A (docs, реальные **48/12/5**, эталон **53/7** при предусловиях). **Следующий шаг — верификация WebUI-блока 14 (Settings) → 55 (GitHub).**
+**Статус:** 🟢 Блоки 1–9 закрыты. BACKLOG-097 (S3-коннектор) закрыт. WebUI-редизайн этапы 1–5 закрыты — **REDESIGN COMPLETE (v3.14.1)**. Grafana протестирована (TEST-NOTE-8.1…8.6), 6 багов закрыто в hotfix v3.14.2, RBAC подтверждён (BACKLOG-307 → v3.1.0). RBAC hotfix (блоки 12–13: Users, Roles) — 7 задач (BUG-253/254/255/256/257/258, BACKLOG-316) закрыто в v3.14.3. Unit **517 passed** (`pytest tests/unit manager/tests -q`), e2e **48/12/5** (эталон **53/7** при предусловиях). Тест-инфра v3.14.3: закрыты BUG-259/260/261/263, BACKLOG-317 (`name: dcap-test`), BUG-262 этап A (docs, реальные **48/12/5**, эталон **53/7** при предусловиях). **Следующий шаг — верификация WebUI-блока 14 (Settings) → 55 (GitHub).**
 
 ---
 
@@ -13,13 +13,13 @@
 
 | Параметр | Значение |
 |----------|----------|
-| Текущий день | 53.4e-rbac-hotfix (Users, Roles — блоки 12–13) — **завершён** |
-| Статус дня | ✅ Выполнено (hotfix v3.14.3) |
-| Последний принятый отчёт | `day_53_4e_rbac_hotfix_report.md` (v3.14.3) |
+| Текущий день | 53.4f (тест-инфра) — **завершён** |
+| Статус дня | ✅ Выполнено (тест-инфра v3.14.3) |
+| Последний принятый отчёт | `day_53_4f_test_infra_report.md`, `day_53_4f_bug263_report.md` (v3.14.3) |
 | Следующий шаг | **Верификация WebUI-блока 14 (Settings)** (ручной прогон) → **55 (GitHub) → 56 (BUG-117) → 57 (релиз)** |
 | Открытых BUG | ~12 (в основном 🟢 low / v3.1.0) |
 | Открытых BACKLOG | ~50 (BACKLOG-156…315 — v3.1.0/бэклог) |
-| ТЗ собраны | 2 файла в `prompts/tz/` (53.4c/d/e — архив, Grafana — архив) |
+| ТЗ собраны | 0 активных в `prompts/tz/` (53.4c/d/e, Grafana, RBAC, 53.4f — архив) |
 | Открытые вопросы к архитектору | 1) BUG-248/249 (Grafana, 🟢 low) — в бэклог; 2) BACKLOG-307 (RBAC Grafana) — v3.1.0; 3) BUG-236 вариант B (webhook) — v3.1.0 (BACKLOG-315) |
 
 ---
@@ -35,6 +35,7 @@
 | **53.4e (BACKLOG-093, этап 5/5)** | **Полировка: favicon, CSP, DESIGN.md, скриншоты, E2E-очистка** | **v3.14.1** | `day_53_4cde_webui_pages_2_5_report.md` |
 | **53.4e-grafana + hotfix** | **Grafana: тестирование (TEST-NOTE-8.1…8.6) + hotfix (BUG-245/246/247/236/241/243/239)** | **v3.14.2** | `day_53_4e_grafana_hotfix_report.md` |
 | **53.4e-rbac-hotfix** | **RBAC блоки 12–13 (Users, Roles): BUG-253/254/255/256/257/258 + BACKLOG-316** | **v3.14.3** | `day_53_4e_rbac_hotfix_report.md` |
+| **53.4f (тест-инфра)** | **BUG-259/260/261/263, BACKLOG-317, BUG-262 этап A** | **v3.14.3** | `day_53_4f_test_infra_report.md`, `day_53_4f_bug263_report.md` |
 
 ---
 
@@ -94,8 +95,6 @@
 - BUG-257 — системные роли иммутабельны по `name`/`ad_group` (backend 400 + disabled).
 - BUG-258 — кастомные роли отключены до v3.1.0 (`POST /roles` → 403, кнопка disabled).
 - BACKLOG-316 — роль `scanner` скрыта в `/users` (в `/roles` остаётся).
-- BUG-252 (follow-up) — `base.css`: `input:not([type=checkbox]):not([type=radio])` — чекбоксы/радио выведены из глобального `input`-фона (`:checked`-галочка — `components.css`, `ae40933`; follow-up `eb7ee30`).
-
 - BUG-252 (follow-up) — `base.css`: `input:not([type=checkbox]):not([type=radio])` — чекбоксы/радио выведены из глобального `input`-фона (`:checked`-галочка — `components.css`, `ae40933`; follow-up `eb7ee30`).
 
 **Закрыто в тест-инфре (v3.14.3, 17.10.2026):**

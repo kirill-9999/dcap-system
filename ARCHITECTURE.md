@@ -133,8 +133,8 @@ dcap-system/
 │ └── grafana/provisioning/
 │
 ├── tests/
-│ ├── unit/ # unit-тесты (472 passed на v3.14.3; NEW v3.14.3: test_auth_rbac_v3143.py (6 тестов — POST /roles→403, системные роли immutable, admin-from-self→400, «хотя бы одна роль»→400); NEW v3.14.2: manager/tests/test_metrics_v3142.py (6 тестов); v3.13.41: test_delete_resource_v31341.py (BUG-150), 3 теста S3 bucket-фолбэк (BUG-149); v3.13.39: *_v31339.py — audit rollback, change-password, RBAC /api/audit, roles CRUD)
-│ ├── e2e/ # E2E-тесты (53 passed / 7 skipped, эталон :18000/:18001; v3.13.41: test_s3_scan_v31341.py — S3-скан MinIO >0 files, ≥9 находок)
+│ ├── unit/ # unit-тесты (517 passed на v3.14.3: tests/unit + manager/tests; 53.4f: BUG-259/260/261 — conftest basetemp, connectors regular-package; NEW v3.14.3: test_auth_rbac_v3143.py (6 тестов — POST /roles→403, системные роли immutable, admin-from-self→400, «хотя бы одна роль»→400); NEW v3.14.2: manager/tests/test_metrics_v3142.py (6 тестов); v3.13.41: test_delete_resource_v31341.py (BUG-150), 3 теста S3 bucket-фолбэк (BUG-149); v3.13.39: *_v31339.py — audit rollback, change-password, RBAC /api/audit, roles CRUD)
+│ ├── e2e/ # E2E-тесты (эталон 53 passed / 7 skipped при предусловиях; факт 48 passed/12 skipped/5 failed без предусловий на :18000/:18001 — BUG-262; v3.13.41: test_s3_scan_v31341.py — S3-скан MinIO >0 files, ≥9 находок)
 │ ├── chaos/ # Chaos-тесты
 │ ├── load/ # Нагрузочные
 │ └── fixtures/ # Общие фикстуры (auth, db, manager, scanner, test_files)

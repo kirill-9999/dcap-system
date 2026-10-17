@@ -29,13 +29,13 @@
 |----------|----------|
 | **Версия** | v3.14.3 |
 | **Целевая версия** | v3.0.0 (релиз) |
-| **Пройдено** | Блоки 1–9; 53.1a–53.3; 53.4a; 53.4a-доп; 53.4a-доп3/4/5; 53.4b; 53.4c/d/e; 53.4e-grafana + hotfix; 53.4e-rbac-hotfix; **WebUI 1–13** |
+| **Пройдено** | Блоки 1–9; 53.1a–53.3; 53.4a; 53.4a-доп; 53.4a-доп3/4/5; 53.4b; 53.4c/d/e; 53.4e-grafana + hotfix; 53.4e-rbac-hotfix; 53.4f (тест-инфра); **WebUI 1–13** |
 | **Следующий блок** | **Верификация WebUI 14–17** (Settings, Console, Network, Responsive) |
 | **Auth mode** | hybrid (SPNEGO → JWT fallback) |
 | **Контейнеров** | 15 |
 | **Сканер** | На хосте, `3.14.3`, `S3_*` ENV — ✅ (BUG-148 закрыт в v3.13.39) |
-| **Unit** | **472 passed** |
-| **E2E** | **+4 v3.14.3 (таргетно PASSED)**; полный прогон: **48 passed, 12 skipped, 5 failed** (стенд `:18000/:18001`, без внешних предусловий); эталон **53 passed, 7 skipped** — при выполненных предусловиях (сканер `:9101`, MinIO `:9000`, seed-findings, `auditor`). BUG-262 этап A ✅, BUG-263 ✅; TEST-NOTE-10.8/10.10; CI — BACKLOG-046 (день 55) |
+| **Unit** | **517 passed** (`pytest tests/unit manager/tests -q`, корневой `conftest.py`, без `--basetemp`) |
+| **E2E** | **48 passed, 12 skipped, 5 failed** (стенд `:18000/:18001`, без предусловий); эталон **53 passed, 7 skipped** — при предусловиях (сканер `:9101`, MinIO `:9000`, seed-findings, `auditor`). BUG-259/260/261/263 ✅, BACKLOG-317 ✅, BUG-262 этап A ✅; TEST-NOTE-10.8/10.10; CI — BACKLOG-046 (день 55) |
 | **Docker Compose** | v5.5.1 |
 
 ---
@@ -293,7 +293,10 @@
 Следующий: верификация WebUI-блоков 14–17.
 Затем — 55 (GitHub) → 56 (BUG-117) → 57 (релиз v3.0.0).
 
-Unit: 472 passed. E2E: +4 v3.14.3 (таргетно PASSED; полный прогон — TEST-NOTE-10.8/10.10).
+Unit: 517 passed (`pytest tests/unit manager/tests -q`).
+E2E: 48 passed, 12 skipped, 5 failed (стенд `:18000/:18001`, без предусловий);
+53/7 — при предусловиях (сканер :9101, MinIO :9000, seed, auditor).
+BUG-259/260/261/263, BACKLOG-317, BUG-262 этап A — ✅ (53.4f).
 Стек: v3.14.3 (Docker Compose v5.5.1). Scanner (host): 3.14.3.
 
 Начни с проверки: git log --oneline -10.

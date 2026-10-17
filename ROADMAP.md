@@ -58,6 +58,9 @@
 | **BACKLOG-307** | Grafana RBAC + DCAP RBAC (Auth Proxy) | 🔴 | 📋 v3.1.0 |
 | **BACKLOG-028** | Публикация на GitHub | 🔴 | 📋 55 |
 | **BACKLOG-046** | Полный E2E-прогон на CI | 🔴 | 📋 55 |
+| **BUG-259** | `test_ad_permissions` — `ModuleNotFoundError` в combined-прогоне | 🟡 | ✅ v3.14.3 (тест-инфра) |
+| **BUG-260** | Windows: `PermissionError` на `pytest-current` | 🟡 | ✅ v3.14.3 (тест-инфра) |
+| **BUG-261** | `test_archiver_findings` — `TypeError` (устаревшая схема `Finding`) | 🟡 | ✅ v3.14.3 (тест-инфра) |
 | **BUG-262** | E2E: эталон не воспроизводим без предусловий (48/12/5 vs 53/7) | 🟡 | 🟡 этап A ✅ v3.14.3; этап B (seed+маркеры) — до 55; этап C — 55 |
 | **BUG-263** | `test_webui_block5_v31322`: `X-Total-Count=0`, `loadFilterOptions` только в `audit.js` | 🟡 | ✅ v3.14.3 (`loadFilterOptions` — тест-инфра; `X-Total-Count` — BUG-262 этап B) |
 | **BACKLOG-317** | `docker-compose.test.yml` — общее имя проекта сносит основной стек | 🔴 | ✅ v3.14.3 (`name: dcap-test`) |
