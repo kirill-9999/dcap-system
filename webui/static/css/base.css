@@ -62,7 +62,7 @@ code, pre, kbd, samp {
 ::-webkit-scrollbar-thumb:hover { background: var(--color-graphite); }
 
 /* Form controls (override Bootstrap) */
-select, input, textarea {
+select, input:not([type="checkbox"]):not([type="radio"]), textarea {
     background: var(--color-deep-coal) !important;
     color: var(--color-snow) !important;
     border-color: var(--color-steel-border) !important;
