@@ -10,8 +10,18 @@ import time
 from unittest import mock
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
+_MANAGER_SRC = str(Path(__file__).resolve().parents[1] / "src")
+
+# BUG-259: scanner/connectors/filesystem.py импортирует top-level `connectors`,
+# из-за чего в combined-прогоне (tests/unit + manager/tests) sys.modules
+# ['connectors'] может указывать на scanner/connectors без subpackage
+# `permissions`. Чистим коллизию и ставим manager/src первым.
+for _name in [m for m in sys.modules if m == "connectors" or m.startswith("connectors.")]:
+    del sys.modules[_name]
+if _MANAGER_SRC in sys.path:
+    sys.path.remove(_MANAGER_SRC)
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+sys.path.insert(0, _MANAGER_SRC)
 
 from connectors.permissions import (
     ADPermissionCollector,

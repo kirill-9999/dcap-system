@@ -5,7 +5,7 @@
 **Обновлено:** 17.10.2026
 **Текущая версия:** v3.14.3
 **Целевая версия:** v3.0.0 (релиз)
-**Статус:** 🟢 Блоки 1–9 закрыты. BACKLOG-097 (S3-коннектор) закрыт. WebUI-редизайн этапы 1–5 закрыты — **REDESIGN COMPLETE (v3.14.1)**. Grafana протестирована (TEST-NOTE-8.1…8.6), 6 багов закрыто в hotfix v3.14.2, RBAC подтверждён (BACKLOG-307 → v3.1.0). RBAC hotfix (блоки 12–13: Users, Roles) — 7 задач (BUG-253/254/255/256/257/258, BACKLOG-316) закрыто в v3.14.3. Unit **472 passed** (466 + 6 metrics), e2e **+4 (v3.14.3, таргетно PASSED)**. **Следующий шаг — верификация WebUI-блока 14 (Settings) → 55 (GitHub).**
+**Статус:** 🟢 Блоки 1–9 закрыты. BACKLOG-097 (S3-коннектор) закрыт. WebUI-редизайн этапы 1–5 закрыты — **REDESIGN COMPLETE (v3.14.1)**. Grafana протестирована (TEST-NOTE-8.1…8.6), 6 багов закрыто в hotfix v3.14.2, RBAC подтверждён (BACKLOG-307 → v3.1.0). RBAC hotfix (блоки 12–13: Users, Roles) — 7 задач (BUG-253/254/255/256/257/258, BACKLOG-316) закрыто в v3.14.3. Unit **472 passed** (466 + 6 metrics), e2e **+4 (v3.14.3, таргетно PASSED)**. Тест-инфра v3.14.3: закрыты BUG-259/260/261/263, BACKLOG-317 (`name: dcap-test`), BUG-262 этап A (docs, реальные **48/12/5**, эталон **53/7** при предусловиях). **Следующий шаг — верификация WebUI-блока 14 (Settings) → 55 (GitHub).**
 
 ---
 
@@ -65,6 +65,13 @@
 | BUG-125/130 | Linux-агент: env / retry | v3.1.0 |
 | BUG-221 | Reveal — странные email | v3.1.0 |
 | BUG-235 | SIEM-страницы 404 | v3.1.0 |
+| BUG-259 | `test_ad_permissions` — `ModuleNotFoundError` в combined-прогоне | ✅ v3.14.3 |
+| BUG-260 | Windows: `PermissionError` на `pytest-current` | ✅ v3.14.3 |
+| BUG-261 | `test_archiver_findings` — `TypeError` (устаревшая схема `Finding`) | ✅ v3.14.3 |
+| BUG-262 | E2E-эталон не воспроизводим без предусловий (47/12/6 vs 53/7) | 🟡 этап A ✅ (v3.14.3); этап B — до 55 |
+| BUG-263 | `test_webui_block5_v31322` — `X-Total-Count=0`, `loadFilterOptions` только в `audit.js` | ✅ v3.14.3 (`loadFilterOptions` — тест-инфра, не UI; `X-Total-Count` — BUG-262 этап B) |
+| BACKLOG-317 | `docker-compose.test.yml` — общее имя проекта сносит основной стек | ✅ v3.14.3 (`name: dcap-test`) |
+| BACKLOG-046 | Полный E2E-прогон на CI | день 55 |
 
 ---
 
@@ -89,6 +96,17 @@
 - BACKLOG-316 — роль `scanner` скрыта в `/users` (в `/roles` остаётся).
 - BUG-252 (follow-up) — `base.css`: `input:not([type=checkbox]):not([type=radio])` — чекбоксы/радио выведены из глобального `input`-фона (`:checked`-галочка — `components.css`, `ae40933`; follow-up `eb7ee30`).
 
+- BUG-252 (follow-up) — `base.css`: `input:not([type=checkbox]):not([type=radio])` — чекбоксы/радио выведены из глобального `input`-фона (`:checked`-галочка — `components.css`, `ae40933`; follow-up `eb7ee30`).
+
+**Закрыто в тест-инфре (v3.14.3, 17.10.2026):**
+- BUG-259 — `manager/src/connectors/` стал regular-пакетом (`__init__.py`) + зачистка `sys.modules['connectors*']` в `test_ad_permissions`; combined `tests/unit + manager/tests` → 517 collected, 0 errors.
+- BUG-260 — корневой `conftest.py` переносит `basetemp` в `.pytest-tmp/` (Windows), добавлено в `.gitignore`.
+- BUG-261 — `test_archiver_findings` приведён к схеме `Finding` v3.9.0 (`finding_type`/`fragment_type`/`fingerprint`/`encryption_key_id`/`first_seen_at`).
+- BACKLOG-317 — `docker-compose.test.yml`: `name: dcap-test` (отдельный project name, больше не сносит основной стек).
+- BUG-262 этап A — документация стенда (`docs/testing.md`, реальные 48/12/5); этап B (seed + маркеры) — до 55.
+- BUG-263 — ✅ `test_webui_pages_with_filters` проверяет подключение `/static/js/audit.js` + наличие `loadFilterOptions` в JS (было — в серверном HTML, ложно-отрицательный). UI корректен, тест-инфра.
+- Unit-команда зафиксирована: `pytest tests/unit manager/tests -q` → **517 passed** (корневой `conftest.py`, без `--basetemp`).
+
 **Grafana (решения 17.10.2026):**
 - **RBAC:** подтверждён BACKLOG-307, реализация — **v3.1.0** (Auth Proxy, `X-WEBAUTH-USER`). Маппинг: admin→Admin, auditor→Editor, scanner/viewer→Viewer.
 - **Тестирование:** TEST-NOTE-8.1…8.6 — **✅**.
@@ -107,6 +125,9 @@
 6. **BACKLOG-307** — v3.1.0.
 7. **E2E-артефакты** — ✅ очищены (53.4e).
 8. **13 направлений v3.1.0** — зафиксированы (BACKLOG-156…314 + 315).
+9. **BUG-263** — ✅ закрыт (v3.14.3, 53.4f): тест проверяет `/static/js/audit.js` + `loadFilterOptions` в JS; UI корректен.
+10. **BUG-262** — этап A ✅; этап B (seed + маркеры `requires_minio`/`requires_seed`) — до 55; этап C (CI) — BACKLOG-046 (день 55).
+11. **BACKLOG-317** — ✅ `name: dcap-test`; перед `down` стенда убеждаться, что project name отличается от основного.
 
 ---
 

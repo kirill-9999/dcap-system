@@ -73,7 +73,56 @@ Healthcheck в `docker-compose.test.yml`: `manager_test` ждёт `GET /api/heal
   `docker compose -f docker-compose.test.yml up -d --force-recreate manager_test webui_test`.
 - 2 legacy-теста WebUI (`test_webui_block5_v31322.py`) требуют **непустую** таблицу
   findings (`X-Total-Count != "0"`). На полностью чистом стенде без находок они
-  падают — это TEST-NOTE-10.8, отдельная задача, не регрессия стенда.
+  падают — это BUG-262/TEST-NOTE-10.8 (seed-шаг, Этап B), не регрессия стенда.
+  Третья проверка того же модуля (`loadFilterOptions`) исправлена в BUG-263 — ✅.
+
+## E2E: предусловия и счётчики (BUG-262, BACKLOG-317)
+
+Тестовый стенд имеет **своё имя проекта** (`name: dcap-test`), чтобы не пересекаться
+с основным docker-стеком (`dcap-system`):
+
+```powershell
+docker compose -p dcap-test -f docker-compose.test.yml up -d --wait
+# или: scripts/test-up.sh / scripts/run-tests.sh stand
+```
+
+> ⚠️ **BACKLOG-317.** До фикса `docker-compose.test.yml` использовал общее имя
+> проекта (`dcap-system`), и `down -v --remove-orphans` тестового стенда сносил
+> контейнеры `dcap-*` **основного** стека. Тома при этом целы, но стек надо было
+> поднимать заново (`docker compose up -d`). Если стенд был поднят до фикса —
+> останавливайте его с `-p dcap-test` / `-p dcap-system` явно.
+
+### Внешние предусловия (стенд их НЕ поднимает)
+
+| Предусловие | Нужно для тестов |
+|-------------|------------------|
+| Сканер на хосте `:9101` (запущен + зарегистрирован в Manager) | `test_full_scan_cycle`, `test_scanner_findings::test_real_scanner_end_to_end`, `test_scanner_heartbeat::test_scanner_heartbeat_keeps_active` |
+| MinIO на `host.docker.internal:9000` | `test_s3_e2e.py`, `test_s3_scan_v31341.py` |
+| seed-findings (непустая таблица findings) | `test_finding_fragments`, `test_mask_context_e2e`, `test_webui_block5_v31322` |
+| пользователь `auditor/auditor123` | `test_audit_reveal_user_e2e` |
+
+### Счётчики
+
+- **Факт (2026-10-17, стенд `:18000/:18001`, предусловия НЕ выполнены):**
+  `48 passed, 12 skipped, 5 failed` (65 собранных).
+- **Целевой эталон:** `53 passed, 7 skipped` — достигается при выполнении всех
+  предусловий (сканер + MinIO + seed-findings + auditor). Сохраняется как цель.
+- Сделать эталон воспроизводимым без ручных предусловий: **BUG-262 Этап B**
+  (seed-скрипт + маркеры `requires_minio`/`requires_seed`, CI-селектор
+  `-m "not requires_scanner and not requires_minio"`), полный CI — **BACKLOG-046** (день 55).
+
+Оставшиеся 5 падений (без внешних предусловий) — не регрессии, а зависимости:
+3× сканер `:9101` (`test_full_scan_cycle`, `test_scanner_findings::test_real_scanner_end_to_end`,
+`test_scanner_heartbeat::test_scanner_heartbeat_keeps_active`), 2× seed-findings
+(`test_webui_block5_v31322::test_proxy_forwards_total_count`,
+`test_webui_block5_v31322::test_findings_filters_csv_and_empty`). Закрываются seed-шагом
+(Этап B).
+
+**BUG-263 — ✅ закрыт (тест-инфра, не UI).** `loadFilterOptions` определена в
+`webui/static/js/audit.js` (и вызывается в `DOMContentLoaded`), `audit.html` подключает
+скрипт. Тест `test_webui_pages_with_filters` ожидал функцию в серверном HTML
+(ложно-отрицательный на корректном UI) и приведён к проверке двух уровней:
+HTML подключает `/static/js/audit.js` + в JS есть `loadFilterOptions`.
 
 ## Структура
 

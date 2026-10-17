@@ -103,14 +103,22 @@ def test_archiver_audit_dry_run(db):
 
 
 def test_archiver_findings(db):
+    # BUG-261 (v3.14.3): тест устарел после Findings Refactor (v3.9.0) —
+    # у Finding нет file_path/value/created_at; нужен fragment-набор +
+    # first_seen_at (по нему archiver считает cutoff).
     db.add(
         Finding(
             task_id=1,
             resource_id=1,
-            file_path="C:/f.txt",
-            category="secret",
-            value="tok",
-            created_at=datetime.utcnow() - timedelta(days=200),
+            finding_type="credentials",
+            category="api_key",
+            fragment_type="text_line",
+            fingerprint="fp_test_archiver_findings",
+            encryption_key_id="test-key",
+            line_number=1,
+            line_text_masked="tok***",
+            match_text_masked="tok***",
+            first_seen_at=datetime.utcnow() - timedelta(days=200),
         )
     )
     db.commit()

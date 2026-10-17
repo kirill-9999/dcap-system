@@ -1,5 +1,11 @@
-﻿version: '3.8'
+﻿name: dcap-test
 
+version: '3.8'
+
+# BACKLOG-317: явное имя проекта. Без него Compose использует имя каталога
+# (dcap-system) — то же, что у основного docker-compose.yml, и
+# `down --remove-orphans` тестового стенда сносит контейнеры dcap-* основного стека.
+#
 # Изолированный стек для тестов (не трогает prod-данные).
 # Использует dcap_test БД, tmpfs (без persistence), отдельные порты и сеть.
 # Запуск: scripts/run-tests.sh stand   (down -v + up -d --wait, ждёт healthcheck)

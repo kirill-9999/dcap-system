@@ -9,6 +9,7 @@ dist/
 build/
 .eggs/
 .pytest_cache/
+.pytest-tmp/
 .mypy_cache/
 .coverage
 htmlcov/

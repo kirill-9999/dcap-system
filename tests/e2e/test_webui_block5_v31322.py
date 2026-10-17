@@ -176,7 +176,12 @@ def test_webui_pages_with_filters(webui_url):
 
     tpl = requests.get(f"{webui_url}/audit", timeout=10).text
     assert "a-source" in tpl and "a-type" in tpl
-    assert "loadFilterOptions" in tpl, "фильтры audit должны быть data-driven"
+    # BUG-263: loadFilterOptions определена в audit.js (правильно — JS не inline
+    # в HTML). Проверяем data-driven фильтры на двух уровнях: HTML подключает
+    # скрипт, а скрипт определяет функцию (регресс-защита обоих).
+    assert "/static/js/audit.js" in tpl, "audit.html должен подключать audit.js"
+    audit_js = requests.get(f"{webui_url}/static/js/audit.js", timeout=10).text
+    assert "loadFilterOptions" in audit_js, "audit.js должен определять loadFilterOptions"
 
     fnd = requests.get(f"{webui_url}/findings", timeout=10).text
     assert "filter-search" in fnd and "reset-filters" in fnd

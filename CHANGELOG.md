@@ -44,6 +44,38 @@
   BUG-258 (создание ролей отключено): кастомные роли наполняются в БД
   напрямую, `role_created` через API недостижим.
 
+### Fixed (53.4f test-infra)
+
+- **BUG-259** — `test_ad_permissions.py` падал в combined-прогоне
+  (`ModuleNotFoundError: connectors.permissions`): `manager/src/connectors/`
+  был namespace-portion, а `scanner/connectors/` — regular-пакет, из-за чего
+  `import connectors` перехватывал scanner. Добавлен `manager/src/connectors/__init__.py`;
+  тест чистит `sys.modules['connectors*']` и ставит `manager/src` первым.
+- **BUG-260** — на Windows `PermissionError: [WinError 5]` на
+  `pytest-current`: корневой `conftest.py` переносит `basetemp` в
+  `.pytest-tmp/` (git-ignored).
+- **BUG-261** — `test_archiver_findings` падал (`TypeError`) на устаревшей
+  схеме `Finding` (после v3.9.0): фикстура приведена к актуальным полям
+  (`finding_type`, `fragment_type`, `fingerprint`, `encryption_key_id`,
+  `first_seen_at`).
+- **BUG-263** — `test_webui_pages_with_filters` ожидал `loadFilterOptions` в
+  серверном HTML; функция определена в `webui/static/js/audit.js` (UI корректен).
+  Тест проверяет подключение `/static/js/audit.js` в HTML + наличие функции в JS.
+- **BACKLOG-317** — `docker-compose.test.yml` использовал общее имя проекта с
+  основным стеком (`down -v --remove-orphans` сносил контейнеры `dcap-*`).
+  Добавлен `name: dcap-test`.
+- **BUG-262 (этап A)** — документация E2E-стенда (`docs/testing.md`):
+  внешние предусловия (сканер `:9101`, MinIO `:9000`, seed-findings, `auditor`)
+  и счётчики `48 passed, 12 skipped, 5 failed` (эталон `53/7` — при предусловиях).
+  Этап B (seed + маркеры) — до 55; CI — BACKLOG-046.
+
+### Changed (53.4f test-infra)
+
+- Unit-команда: `pytest tests/unit manager/tests -q` → **517 passed**
+  (корневой `conftest.py`, без `--basetemp`).
+- `docker-compose.test.yml` — `name: dcap-test` (отдельный project name,
+  не пересекается с основным `dcap-system`).
+
 ---
 
 ## [v3.14.2] — 2026-10-17
