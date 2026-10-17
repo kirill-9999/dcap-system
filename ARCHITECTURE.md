@@ -133,7 +133,7 @@ dcap-system/
 │ └── grafana/provisioning/
 │
 ├── tests/
-│ ├── unit/ # unit-тесты (517 passed на v3.14.3: tests/unit + manager/tests; 53.4f: BUG-259/260/261 — conftest basetemp, connectors regular-package; NEW v3.14.3: test_auth_rbac_v3143.py (6 тестов — POST /roles→403, системные роли immutable, admin-from-self→400, «хотя бы одна роль»→400); NEW v3.14.2: manager/tests/test_metrics_v3142.py (6 тестов); v3.13.41: test_delete_resource_v31341.py (BUG-150), 3 теста S3 bucket-фолбэк (BUG-149); v3.13.39: *_v31339.py — audit rollback, change-password, RBAC /api/audit, roles CRUD)
+│ ├── unit/ # unit-тесты (517 passed (combined) на v3.14.3: tests/unit + manager/tests; 53.4f: BUG-259/260/261 — conftest basetemp, connectors regular-package; NEW v3.14.3: test_auth_rbac_v3143.py (6 тестов — POST /roles→403, системные роли immutable, admin-from-self→400, «хотя бы одна роль»→400); NEW v3.14.2: manager/tests/test_metrics_v3142.py (6 тестов); v3.13.41: test_delete_resource_v31341.py (BUG-150), 3 теста S3 bucket-фолбэк (BUG-149); v3.13.39: *_v31339.py — audit rollback, change-password, RBAC /api/audit, roles CRUD)
 │ ├── e2e/ # E2E-тесты (эталон 53 passed / 7 skipped при предусловиях; факт 48 passed/12 skipped/5 failed без предусловий на :18000/:18001 — BUG-262; v3.13.41: test_s3_scan_v31341.py — S3-скан MinIO >0 files, ≥9 находок)
 │ ├── chaos/ # Chaos-тесты
 │ ├── load/ # Нагрузочные
@@ -1119,6 +1119,12 @@ BUG-256 (v3.14.3)	Viewer → /users: молчаливый редирект	✅ T
 BUG-257 (v3.14.3)	Системные роли: name/ad_group можно менять	✅ Backend 400 + поля disabled в /roles
 BUG-258 (v3.14.3)	Кастомные роли без permissions бесполезны	📋 Отключено (POST /roles → 403, кнопка disabled); v3.1.0 — вернуть с permissions
 BACKLOG-316 (v3.14.3)	Машинная роль scanner в /users	✅ Скрыта в /users (в /roles остаётся)
+BUG-259 (v3.14.3)	test_ad_permissions: ModuleNotFoundError connectors.permissions в combined-прогоне	✅ manager/src/connectors/__init__.py (regular-пакет) + зачистка sys.modules[connectors*]
+BUG-260 (v3.14.3)	Windows: PermissionError [WinError 5] на pytest-current	✅ Корневой conftest.py — basetemp в .pytest-tmp/ (.gitignore)
+BUG-261 (v3.14.3)	test_archiver_findings: TypeError (устаревшая схема Finding после v3.9.0)	✅ Фикстура под finding_type/fragment_type/fingerprint/encryption_key_id/first_seen_at
+BUG-262 (v3.14.3)	E2E-эталон не воспроизводим без предусловий (факт 48/12/5 vs эталон 53/7)	🟡 Этап A (docs) ✅; этап B (seed + маркеры) — до 55; этап C (CI) — BACKLOG-046
+BUG-263 (v3.14.3)	test_webui_pages_with_filters: loadFilterOptions ожидался в серверном HTML	✅ Проверка /static/js/audit.js в HTML + функция в JS (UI корректен)
+BACKLOG-317 (v3.14.3)	docker-compose.test.yml — общее имя проекта сносило основной стек	✅ name: dcap-test
 BUG-248 (v3.14.2)	Celery tasks (total) → No data	🟢 v3.1.0
 BUG-249 (v3.14.2)	PostgreSQL connections — легенда	🟢 v3.1.0
 /metrics публичный	Нет JWT/basic_auth	BACKLOG-044
@@ -1173,4 +1179,4 @@ README.md	Оглавление + быстрый старт	❌ нет
 10-troubleshooting.md	Решение проблем	✅ есть
 11-faq.md	Частые вопросы	❌ нет
 Актуально на: 17.10.2026
-Версия архитектуры: v3.14.3 (RBAC hotfix — блоки 12–13 закрыты (v3.14.3); WebUI-редизайн — этапы 1–5 закрыты (v3.14.1); Grafana протестирована + hotfix (v3.14.2); Блоки 1–9, 53.1a–53.3, 53.4a–e, 53.4e-grafana закрыты)
+Версия архитектуры: v3.14.3 (RBAC hotfix — блоки 12–13 закрыты (v3.14.3); тест-инфра 53.4f (v3.14.3); WebUI-редизайн — этапы 1–5 закрыты (v3.14.1); Grafana протестирована + hotfix (v3.14.2); Блоки 1–9, 53.1a–53.3, 53.4a–f, 53.4e-grafana закрыты)

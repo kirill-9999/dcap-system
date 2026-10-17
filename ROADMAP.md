@@ -37,6 +37,7 @@
 | **53.4e-grafana** | Grafana: тестирование (TEST-NOTE-8.1…8.6) + RBAC (BACKLOG-307) | TEST-NOTE-8.1…8.6, BACKLOG-307 | ✅ v3.14.2 |
 | **53.4e-grafana-hotfix** | Grafana: hotfix (BUG-245/246/247/236/241/243/239) | BUG-245… | ✅ v3.14.2 |
 | **53.4e-rbac-hotfix** | RBAC блоки 12–13 (Users, Roles): BUG-253/254/255/256/257/258, BACKLOG-316 | BUG-253…258, BACKLOG-316 | ✅ v3.14.3 |
+| **53.4f (тест-инфра)** | BUG-259/260/261/263, BACKLOG-317, BUG-262 этап A | BUG-259…263, BACKLOG-317 | ✅ v3.14.3 |
 | **Верификация WebUI 14–17** | Settings, Console, Network, Responsive | — | 📋 **следующий** |
 | 55 | GitHub-пакет | BACKLOG-028/046 | 📋 |
 | 56 | BUG-117 (Manager-маскирование, hotfix) | — | 📋 |
