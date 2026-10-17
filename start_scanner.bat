@@ -46,12 +46,12 @@ echo      FINDINGS_KEY_ID:         !FINDINGS_KEY_ID!
 
 REM --- 2.5 Загрузка .env (BUG-148, v3.13.39) ---
 REM Секреты S3 (S3_ACCESS_KEY / S3_SECRET_KEY) и прочие переменные из .env
-REM раньше не загружались — сканер работал без них. Проверка строки .env:
+REM раньше не загружались - сканер работал без них. Проверка строки .env:
 REM   - пропуск пустых строк;
 REM   - пропуск комментариев (#);
 REM   - переменные с пустым значением до "=" игнорируются.
 if exist "%~dp0.env" (
-    echo [OK] .env found — loading S3_* variables
+    echo [OK] .env found - loading S3_* variables
     for /f "usebackq tokens=1,* delims==" %%a in ("%~dp0.env") do (
         set "_line=%%a"
         if not "!_line!"=="" (
@@ -62,7 +62,7 @@ if exist "%~dp0.env" (
     )
     if defined S3_ACCESS_KEY echo [OK] S3_ACCESS_KEY loaded (len !S3_ACCESS_KEY:~0,4!...)
 ) else (
-    echo [WARN] .env not found — S3_* variables will not be loaded
+    echo [WARN] .env not found - S3_* variables will not be loaded
 )
 
 REM --- 3. Проверка конфига сканера ---
