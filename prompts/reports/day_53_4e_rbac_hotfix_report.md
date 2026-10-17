@@ -325,8 +325,17 @@ git add ARCHITECTURE.md ROADMAP.md STATE.md STATE_TEST_SESSION.md CHANGELOG.md \
 git commit -m "docs: 53.4e-rbac-hotfix (v3.14.3) — ARCHITECTURE/ROADMAP/STATE/CHANGELOG + ТЗ/отчёт"
 ```
 
-Примечание: `webui/static/css/base.css` (BUG-252, чекбокс) — отдельная правка,
-в коммиты этого ТЗ не входит.
+# 4) BUG-252 follow-up (чекбоксы)
+git add webui/static/css/base.css
+git commit -m "fix: BUG-252 follow-up — исключить checkbox/radio из глобального input-фона (v3.14.3)"
+```
+
+Примечание: **BUG-252** добит follow-up-коммитом `eb7ee30`
+(`webui/static/css/base.css`: `input:not([type="checkbox"]):not([type="radio"])`).
+Первая часть (`:checked`-галочка + `:focus`) — в `ae40933` (`components.css`,
++8 строк). Проверено headless Chrome: checkbox bg `rgb(103,152,255)` +
+svg-галочка; text input / select — `--color-deep-coal` (регресса нет).
+BUG-252 в ТЗ 53.4e не входил — зафиксирован как follow-up в той же версии.
 
 ---
 

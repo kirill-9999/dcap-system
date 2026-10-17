@@ -77,6 +77,7 @@
 - ✅ **BUG-257** — системные роли иммутабельны по `name`/`ad_group` (400 + поля disabled).
 - ✅ **BUG-258** — создание кастомных ролей отключено (`POST /roles` → 403, кнопка disabled); возврат с `permissions` — v3.1.0.
 - ✅ **BACKLOG-316** — роль `scanner` скрыта в `/users` (в `/roles` остаётся).
+- ✅ **BUG-252 (follow-up)** — `base.css`: `input:not([type=checkbox]):not([type=radio])`; checkbox bg `rgb(103,152,255)` + галочка (headless), text/select — `--color-deep-coal`.
 
 ### 53.4e (v3.14.1) — полировка
 *(без изменений)*

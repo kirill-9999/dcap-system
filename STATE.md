@@ -87,6 +87,7 @@
 - BUG-257 — системные роли иммутабельны по `name`/`ad_group` (backend 400 + disabled).
 - BUG-258 — кастомные роли отключены до v3.1.0 (`POST /roles` → 403, кнопка disabled).
 - BACKLOG-316 — роль `scanner` скрыта в `/users` (в `/roles` остаётся).
+- BUG-252 (follow-up) — `base.css`: `input:not([type=checkbox]):not([type=radio])` — чекбоксы/радио выведены из глобального `input`-фона (`:checked`-галочка — `components.css`, `ae40933`; follow-up `eb7ee30`).
 
 **Grafana (решения 17.10.2026):**
 - **RBAC:** подтверждён BACKLOG-307, реализация — **v3.1.0** (Auth Proxy, `X-WEBAUTH-USER`). Маппинг: admin→Admin, auditor→Editor, scanner/viewer→Viewer.
