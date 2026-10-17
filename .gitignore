@@ -96,7 +96,7 @@ manager/data/
 webui/data/
 
 # Session/testing docs (не коммитить)
-STATE_TEST_SESSION*.md
+#STATE_TEST_SESSION*.md
 
 # Retention: экспорт архивов (День 35)
 data/archive/

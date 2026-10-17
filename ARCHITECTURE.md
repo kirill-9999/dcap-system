@@ -4,7 +4,7 @@
 > Текущее состояние — в `STATE.md`. План и бэклог — в `ROADMAP.md`.
 
 **Обновлено:** 17.10.2026
-**Версия архитектуры:** v3.14.2 (hotfix 53.4e-grafana; WebUI-редизайн завершён — этапы 2–5: 53.4b, 53.4c, 53.4d (роли/пользователи/настройки, футер, палитра графиков), 53.4e (favicon, CSP, модалки, DESIGN.md → docs/, скриншоты, E2E-очистка); docs/DESIGN.md в docs/)
+**Версия архитектуры:** v3.14.3 (RBAC hotfix: защита admin-from-self, иммутабельность системных ролей, кастомные роли отключены; WebUI-редизайн завершён; Grafana протестирована + hotfix: BUG-245/246/247/236/241/243/239)
 
 ---
 
@@ -94,10 +94,10 @@ dcap-system/
 │ ├── api/ # routes.py (прокси, forwarded_headers), schemas.py
 │ ├── static/
 │ │ ├── css/
-│ │ │ ├── tokens.css # 🆕 v3.13.37 — Dovetail tokens (dark-only)
-│ │ │ ├── base.css # 🆕 v3.13.37 — глобальные стили + шрифты
-│ │ │ ├── components.css # 🆕 v3.13.37 — override Bootstrap
-│ │ │ ├── grid-wireframe.css # 🆕 v3.13.37 — blueprint-сетка
+│ │ │ ├── tokens.css # v3.13.37 — Dovetail tokens (dark-only)
+│ │ │ ├── base.css # v3.13.37 — глобальные стили + шрифты
+│ │ │ ├── components.css # v3.13.37 — override Bootstrap
+│ │ │ ├── grid-wireframe.css # v3.13.37 — blueprint-сетка
 │ │ │ ├── main.css # .app/.main-content/.page-content + медиа
 │ │ │ ├── findings.css # страничная специфика (подхват. токены)
 │ │ │ └── components/ # sidebar, header, cards, tables, forms, modals, badges
@@ -105,7 +105,7 @@ dcap-system/
 │ │ └── vendor/
 │ │ ├── css/ # Bootstrap, Font Awesome (локально)
 │ │ ├── js/ # Chart.js (локально)
-│ │ └── fonts/ # 🆕 v3.13.37 — inter.woff2 + inter.css,
+│ │ └── fonts/ # v3.13.37 — inter.woff2 + inter.css,
 │ │ # jetbrains-mono.woff2 + jetbrains-mono.css
 │ ├── templates/ # Jinja2: base, login, dashboard, resources,
 │ │ # findings, finding_detail, catalog, false_positives,
@@ -133,18 +133,19 @@ dcap-system/
 │ └── grafana/provisioning/
 │
 ├── tests/
-│ ├── unit/ # unit-тесты (460 passed на v3.13.41; NEW v3.13.41: test_delete_resource_v31341.py (BUG-150), 3 теста S3 bucket-фолбэк (BUG-149); v3.13.39: *_v31339.py — audit rollback, change-password, RBAC /api/audit, roles CRUD)
-│ ├── e2e/ # E2E-тесты (53 passed / 7 skipped, эталон :18000/:18001; NEW v3.13.41: test_s3_scan_v31341.py — S3-скан MinIO >0 files, ≥9 находок)
+│ ├── unit/ # unit-тесты (472 passed на v3.14.3; NEW v3.14.3: test_auth_rbac_v3143.py (6 тестов — POST /roles→403, системные роли immutable, admin-from-self→400, «хотя бы одна роль»→400); NEW v3.14.2: manager/tests/test_metrics_v3142.py (6 тестов); v3.13.41: test_delete_resource_v31341.py (BUG-150), 3 теста S3 bucket-фолбэк (BUG-149); v3.13.39: *_v31339.py — audit rollback, change-password, RBAC /api/audit, roles CRUD)
+│ ├── e2e/ # E2E-тесты (53 passed / 7 skipped, эталон :18000/:18001; v3.13.41: test_s3_scan_v31341.py — S3-скан MinIO >0 files, ≥9 находок)
 │ ├── chaos/ # Chaos-тесты
 │ ├── load/ # Нагрузочные
 │ └── fixtures/ # Общие фикстуры (auth, db, manager, scanner, test_files)
 │
 ├── manager/tests/ # pytest-модули Manager (test_security,
-│ # test_retention, test_auth_ad, test_ad_permissions)
+│ # test_retention, test_auth_ad, test_ad_permissions,
+│ # test_metrics_v3142 — новый в v3.14.2)
 │
 ├── docs/
-│ ├── DESIGN.md # 🆕 v3.14.1 — референс стиля Dovetail (перенесён из корня, 53.4e)
-│ ├── ui-screenshots/ # 🆕 v3.14.1 — скриншоты страниц WebUI (1920/768/393)
+│ ├── DESIGN.md # v3.14.1 — референс стиля Dovetail (перенесён из корня, 53.4e)
+│ ├── ui-screenshots/ # v3.14.1 — скриншоты страниц WebUI (1920/768/393)
 │ ├── admin-guide/ # 04-authentication, 05-security,
 │ │ # 06-scanner (+§8 S3/MinIO), 10-troubleshooting
 │ │ # (01,02,03,07,08,09,11 — ещё не написаны)
@@ -208,6 +209,7 @@ viewer	require_viewer	Только чтение (маскированное)	(в
 ⚠️ Роль admin создаётся с паролем admin/admin123 — сменить при первом запуске.
 ⚠️ Системные роли (admin / auditor / scanner / viewer) иммутабельны (BUG-168, v3.13.39): rename и смена AD-группы → 400; редактируется только `description`. Кастомные роли — редактируются полностью.
 ⚠️ Все операции с ролями аудитируются (BUG-181, v3.13.39): `role_created` / `role_updated` / `role_deleted` (event_type в audit_logs).
+⚠️ RBAC hotfix (v3.14.3): кастомные роли отключены до v3.1.0 — `POST /api/auth/roles` → 403, кнопка «Создать роль» disabled (BUG-258). Системные роли (`admin`/`auditor`/`viewer`; `scanner` — машинная) иммутабельны по `name` и `ad_group`, правится только `description` (BUG-257). Роль `scanner` не отображается в `/users` (BACKLOG-316), в `/roles` остаётся. Нельзя снять роль `admin` с себя: чекбокс `admin` disabled + `PUT /api/auth/users/{self}` без `admin` → 400 (BUG-253). Создание пользователя без ролей → 400 (BUG-254).
 
 mTLS
 relaxed (по умолчанию) — если сертификаты не найдены, работает на plain HTTP; run_manager.py передаёт в uvicorn контекст из CertificateManager.get_server_ssl_context() (ssl_cert_reqs=ssl.CERT_OPTIONAL).
@@ -405,7 +407,7 @@ class Finding(Base):
     byte_length = Column(Integer, nullable=True)
     hex_preview = Column(Text, nullable=True)
 
-    # 🆕 BACKLOG-086: встроенные фрагменты
+    # BACKLOG-086: встроенные фрагменты
     fragment_data = Column(LargeBinary, nullable=True)      # base64-decoded bytes
     fragment_mime = Column(String(50), nullable=True)       # image/png, image/jpeg
     fragment_hash = Column(String(64), nullable=True)       # SHA-256
@@ -439,7 +441,7 @@ class Finding(Base):
 
     resource = relationship("Resource", back_populates="findings")
     task = relationship("ScanTask", back_populates="findings")
-    # ⚠️ BUG-102: строка "User" требует, чтобы manager.src.auth.models был
+    # BUG-102: строка "User" требует, чтобы manager.src.auth.models был
     # импортирован в любом процессе, трогающем Finding (Celery worker, retention)
     reviewer = relationship("User", foreign_keys=[reviewed_by])
 ⚠️ 5 колонок fragment_* добавлены миграцией 005_add_fragment_columns.py, а не 003_findings_refactor.py.
@@ -489,7 +491,7 @@ byte_range	Бинарные	Hex-дамп вокруг offset
 ⚠️ Валидации значений нет: FragmentType Literal объявлен в api/schemas_findings.py, но нигде не применяется.
 
 Встроенные фрагменты (BACKLOG-086, v3.13.19)
-Проблема: Manager в Docker не видит хостовые пути сканера → /fragment для OCR возвращал 404. + Файл может быть удалён после сканирования.
+Проблема: Manager в Docker не видит хостовых путей сканера → /fragment для OCR возвращал 404. + Файл может быть удалён после сканирования.
 
 Решение: сканер встраивает весь PNG (OCR-фрагмент) в payload (base64 + SHA-256) → Manager хранит fragment_data в БД → «файл удалили — доказательство осталось».
 
@@ -605,6 +607,7 @@ Fallback на config-секреты	S3LineConnector.__init__ берёт config.a
 Fallback endpoint в коннекторе	host.docker.internal:9000 при пустом endpoint	BACKLOG-103 (v3.1.0)
 secure=false = verify=False	При HTTP-эндпоинте сертификат не проверяется	TEST-NOTE-6.11 → v3.1.0
 Разные credentials на разные S3	Нужны отдельные инстансы сканера (ENV per host)	v3.1.0
+
 📐 СКАНЕР: ИНСТАНСЫ И ПАРАЛЛЕЛИЗМ
 Модель выполнения
 1 инстанс сканера (ManagedScanner.run_loop) = 1 процесс = 1 задача за раз.
@@ -632,7 +635,7 @@ Per-task credentials (чтение из ENV-файла, привязанного
 
 📌 Раздел «Масштабирование: сколько инстансов» в docs/admin-guide/06-scanner.md — отдельный день (после 53.4e).
 
-🌐 WEBUI-РЕДИЗАЙН (BACKLOG-093, v3.13.37, этап 1/5)
+🌐 WEBUI-РЕДИЗАЙН (BACKLOG-093, v3.13.37, этапы 1–5 завершены в v3.14.1)
 Общая картина
 Цель: перевести WebUI на тёмную тему Dovetail (DESIGN.md) — command-center, single accent #6798ff, 8px радиусы, zero-shadow, grid-wireframe. Dark-only (переключатель темы удалён).
 
@@ -640,13 +643,13 @@ Per-task credentials (чтение из ENV-файла, привязанного
 
 53.4a (✅ v3.13.37) — токены + base + компоненты + grid-wireframe + локальные шрифты.
 
-53.4b — login, dashboard, resources, findings. (✅ v3.14.0)
+53.4b (✅ v3.14.0) — login, dashboard, resources, findings.
 
-53.4c — finding_detail, catalog, audit, scanners, access. (✅ v3.14.1)
+53.4c (✅ v3.14.1) — finding_detail, catalog, audit, scanners, access, resources.
 
-53.4d — roles, users, settings, footer, графики (Chart.js palette). (✅ v3.14.1)
+53.4d (✅ v3.14.1) — roles, users, settings, footer, графики (Chart.js palette).
 
-53.4e — полировка (favicon, CSP, модалки), docs/ui-screenshots/, docs/DESIGN.md. (✅ v3.14.1)
+53.4e (✅ v3.14.1) — полировка (favicon, CSP, модалки), docs/ui-screenshots/, docs/DESIGN.md.
 
 Файлы CSS (после 53.4a)
 Файл	Роль	Legacy-аналоги
@@ -690,13 +693,14 @@ Grid-wireframe
 
 Открытые задачи в рамках BACKLOG-093
 Задача	День
-Разметка страниц (login, dashboard, resources, findings)	53.4b
-finding_detail, catalog, audit, scanners, access	53.4c
-roles, users, settings, footer, Chart.js палитра	53.4d
-Полировка, скриншоты в docs/ui-screenshots/, git mv DESIGN.md docs/DESIGN.md	53.4e
+Разметка страниц (login, dashboard, resources, findings)	✅ 53.4b
+finding_detail, catalog, audit, scanners, access	✅ 53.4c
+roles, users, settings, footer, Chart.js палитра	✅ 53.4d
+Полировка, скриншоты в docs/ui-screenshots/, git mv DESIGN.md docs/DESIGN.md	✅ 53.4e
 unicode-range кириллицы в обоих @font-face	✅ 53.4a-доп4 (v3.13.40)
 Stroke-SVG иконки (замена Font Awesome)	BACKLOG-101 (v3.1.0)
 Light-тема	BACKLOG-102 (v3.1.0)
+
 🔌 API ЭНДПОИНТЫ
 Ресурсы (v3.13.32)
 Метод	Эндпоинт	Роль	Назначение
@@ -730,9 +734,9 @@ status	str	new / confirmed / false_positive / archived
 finding_type	str	pii / credentials / code
 category	str	CSV: phone, email; legacy: pii, credentials, code → finding_type
 severity	str	—
-detector	str	🆕 BUG-090 (v3.13.22)
-fragment_type	str	🆕 BUG-090 (v3.13.22)
-search	str	🆕 ILIKE по fragment_path / match_text_masked / line_text_masked
+detector	str	BUG-090 (v3.13.22)
+fragment_type	str	BUG-090 (v3.13.22)
+search	str	ILIKE по fragment_path / match_text_masked / line_text_masked
 limit	int	_clamp_int (1..1000), default 100
 offset	int	_clamp_int (0..10M), default 0
 order_by	str	^(first_seen_at|last_seen_at|severity|line_number|id)$
@@ -802,8 +806,8 @@ GET	/api/auth/check	Проверка прав роли (WebUI-совместим
 GET/POST/PUT/DELETE	/api/auth/users	CRUD пользователей (Admin, user_created/user_updated/user_deleted)
 PUT	/api/auth/users/{id}/roles	role_assigned / role_revoked
 POST	/api/auth/change-password	user_password_changed (self); BUG-201 — пароль реально меняется (пере-запрос user в сессии хендлера)
-GET/POST	/api/auth/roles	Список/создание ролей (Admin) — role_created
-PUT/DELETE	/api/auth/roles/{id}	Изменить/удалить роль (Admin) — role_updated / role_deleted (BUG-181, v3.13.39)
+GET/POST	/api/auth/roles	Список ролей (Admin); создание отключено → 403 (BUG-258, v3.14.3) — role_created недостижим
+PUT/DELETE	/api/auth/roles/{id}	Изменить/удалить роль (Admin) — role_updated / role_deleted (BUG-181, v3.13.39); системные роли immutable по name/ad_group (BUG-257, v3.14.3)
 
 Каталог
 Метод	Эндпоинт	Назначение
@@ -837,15 +841,20 @@ MetricsMiddleware регистрируется последним, поэтом�
 путь. Если шаблон недоступен — regex-fallback _ID_RE подставляет {id} / {uuid} / {hash}.
 
 📈 МОНИТОРИНГ
-Метрики
+Метрики (v3.14.2)
 Компонент	Порт	Ключевые метрики
-Manager	:8000/metrics	dcap_http_*, dcap_tasks_total, dcap_findings_total (Gauge из БД), dcap_findings_created_total (Counter сессии), dcap_scanner_*, dcap_celery_queue_size
-Scanner	:9101	dcap_scanner_files_scanned_total, dcap_scanner_findings_total, dcap_scanner_errors_total, dcap_scanner_current_task
+Manager	:8000/metrics	dcap_http_*, dcap_tasks_total, dcap_findings_total (Gauge, из БД), dcap_findings_created_total (Counter), dcap_scanner_*, dcap_celery_queue_size
+Scanner	:9101	dcap_scanner_files_scanned_total, dcap_scanner_findings_total, dcap_scanner_errors_total, dcap_scanner_current_task, dcap_scanner_file_duration_seconds (определена, не observes)
 Linux-агент	:9102	dcap_linux_*
 S3-агент	:9103	dcap_s3_*
 Celery	:9808	(celery-exporter)
 PostgreSQL	:9187	(postgres-exporter)
 Redis	:9121	(redis-exporter)
+v3.14.2 (hotfix Grafana):
+- dcap_findings_total — Gauge из БД (pii/credentials из SQL).
+- dcap_findings_created_total — Counter сессии (инкремент при создании finding).
+- dcap_scanner_heartbeat_age_seconds{scanner_id="1"} — исправлен пустой label (hardening, warning-лог, +Inf при last_heartbeat=None).
+
 Heartbeat-thread (v3.7.0, backoff v3.13.20)
 scanner/src/heartbeat.py — daemon, interval 30 с, fail-open.
 
@@ -855,20 +864,28 @@ POST /api/scanner/heartbeat с {scanner_id, status, current_task_id, progress}
 
 Backoff (BUG-080, v3.13.20): BACKOFF_STEPS = [5, 10, 30, 60, 120]; фейлы — DEBUG, WARNING на 1-м и каждые 5; _stop.wait() вместо time.sleep().
 
-Prometheus targets (5/5 up)
+Prometheus targets (v3.14.2 — 5/5 up)
 text
 http://celery_exporter:9808/metrics       up
 http://manager:8000/metrics               up
 http://postgres_exporter:9187/metrics     up
 http://redis_exporter:9121/metrics        up
-# http://s3_agent:9103/metrics             up  (только --profile agents; job закомментирован, BUG-243)
 http://host.docker.internal:9101/metrics  up  (scanner, на хосте)
+`# s3-agent` — закомментирован в prometheus.yml (требуется --profile agents)
+`# linux-agent` — закомментирован (Windows-хост)
 Алерты
 Алерт	Условие	Severity
 ScannerInactive	dcap_scanner_heartbeat_age_seconds > 120	warning
 TaskFailed	increase(dcap_tasks_total{status="failed"}[5m]) > 0	critical
 HighErrorRate	rate(dcap_http_requests_total{status=~"5.."}[5m]) > 0.05	critical
 CeleryQueueBacklog	dcap_celery_queue_size > 100	warning
+Grafana (v3.14.2 — протестирована)
+- Datasource Prometheus provisioned (uid=prometheus, isDefault).
+- Дашборды: dcap-overview (11 панелей), dcap-scanner (5 панелей).
+- Alert rules: 4 правила (ScannerInactive, TaskFailed, HighErrorRate, CeleryQueueBacklog) — fire + resolve ✅.
+- RBAC: отсутствует (BACKLOG-307 → v3.1.0).
+- BUG-248 (Celery tasks (total) → No data), BUG-249 (PostgreSQL connections — легенда) — 🟢 low, v3.1.0.
+
 🗄️ RETENTION (v3.13.27)
 API
 Метод	Эндпоинт	Роль	Назначение
@@ -1039,13 +1056,18 @@ endpoint — вариант B (v3.13.32)	На стороне Manager нет ха
 Рекурсия S3 — всегда	Защита от пропуска вложенных объектов при ошибке конфигурации
 Bucket S3 — только из scan_config (v3.13.35)	s3://bucket/prefix — суффикс префикса; bucket фиксируется при создании ресурса
 BUG-136: strict-декод utf-8 → cp1251 → ignore	Ветка cp1251 была недостижимой из-за errors="ignore" в первой итерации
-WebUI — редизайн Dovetail-style (v3.13.37, этап 1/5)	Dark-only, Inter + JetBrains Mono, #6798ff, 8px радиусы, zero-shadow, grid-wireframe. 53.4a ✅; 53.4a-доп3/4 ✅ (v3.13.39/40); 53.4b–53.4e 📋
+WebUI — редизайн Dovetail-style (v3.13.37, этап 1/5)	Dark-only, Inter + JetBrains Mono, #6798ff, 8px радиусы, zero-shadow, grid-wireframe. 53.4a–53.4e ✅ (v3.14.1); 53.4e-grafana ✅ (v3.14.2)
 .btn-primary = #1e1e1e (dark-carbon)	Отступление от DESIGN.md (white-filled) — dark-carbon ближе к «инструменту», не перегружает консоль
 Семантические цвета (danger/success/warning) — приглушённые, только для бейджей	Иначе confirmed/false_positive не различить; DESIGN.md single-accent сохраняется в кнопках/фонах
 Legacy-имена в tokens.css	--color-bg / --color-text / --color-surface / --color-primary и т.д. — чтобы components/*.css и findings.css подхватили без правок
 Шрифты — локально (CDN запрещён), кириллица ✅ 	Inter Variable (352 KB, кириллица) + JetBrains Mono Variable (113 KB, v2.304, wght 100–800, кириллица) + unicode-range с Cyrillic (BUG-212, v3.13.40) + OFL.txt
-Chart.js — монохром + акцент (план)	Single-chromatic accent — системное решение из DESIGN.md, этап 53.4d
+Chart.js — монохром + акцент (план)	Single-chromatic accent — системное решение из DESIGN.md, этап 53.4d ✅
 Grid-wireframe — везде (план)	Blueprint-мотив на тёмной поверхности, body::before, этап 53.4a ✅
+Grafana — протестирована (v3.14.2)	Datasource, 2 дашборда, 4 алерта (fire + resolve), RBAC отсутствует (BACKLOG-307 → v3.1.0)
+dcap_findings_total — Gauge из БД (v3.14.2)	Не Counter за сессию; credentials/pii видны из SQL
+dcap_findings_created_total — Counter сессии (v3.14.2)	Инкремент при создании finding
+dcap_scanner_heartbeat_age_seconds — hardening (v3.14.2)	Пер-строчная изоляция, warning-лог, +Inf при None
+Alertmanager webhook убран (v3.14.2)	BUG-236 вариант A; вариант B — BACKLOG-315 (v3.1.0)
 Технические
 Решение	Обоснование
 PostgreSQL + Redis в Docker	Production-готовность
@@ -1063,7 +1085,7 @@ SubmitStatus (OK/RETRY/LOST)	Оффлайн-буфер: 404/410 → LOST (BUG-09
 _CONTEXT_PATTERNS	mask_context: 22 паттерна, специфичные раньше generic (BUG-086)
 _log_finding_status_change	Единая точка аудита PATCH/bulk; без commit — batch (BUG-101)
 _apply_status	Единая функция PATCH/bulk; сброс review при new (BUG-100)
-with_audit (v3.13.39)	Единая транзакция «бизнес-изменение + аудит»; исключение → rollback + raise (BUG-202); `api/resources.py`, PATCH findings, roles, change_password
+with_audit (v3.13.39)	Единая транзакция «бизнес-изменение + аудит»; исключение → rollback + raise (BUG-202); api/resources.py, PATCH findings, roles, change_password
 change_password в сессии хендлера (v3.13.39)	НЕ мутировать request.state.user из middleware — commit пустой (BUG-201); пере-запрос user + commit/refresh + аудит после commit
 Системные роли иммутабельны (v3.13.39)	admin/auditor/scanner/viewer: rename и cмена AD-группы → 400, description редактируется (BUG-168)
 Аудит-API — Auditor+ (v3.13.39)	GET /api/audit, /api/audit/stats, GET /api/audit/{log_id} → 403 для viewer/scanner (BUG-214); деталь с metadata_json, 404 (BUG-223)
@@ -1082,8 +1104,23 @@ Legacy WebUI → connector.s3 (BUG-149)	/api/tasks/create и /api/resources/crea
 Badge режима /login (BACKLOG-119, v3.13.41)	Показывается только для windows_integrated; для local/hybrid скрыт (login.html)
 ⚠️ ИЗВЕСТНЫЕ ОГРАНИЧЕНИЯ
 Ограничение	Описание	План
-⚠️ BUG-150 (v3.13.41)	DELETE /api/resources/{id} → 500 (FK с NO ACTION)	✅ Исправлено миграцией 007_add_cascade_deletes (ON DELETE CASCADE) + 204. Тесты unit (3) + PG-верификация
-⚠️ BUG-149 (v3.13.41)	S3-скан возвращал 0 files (WebUI-ресурсы без connector.s3)	✅ Исправлено: bucket-фолбэк из path, legacy-эндпоинты WebUI строят connector.s3, DEBUG-логи list_objects_v2. E2E test_s3_scan_v31341
+BUG-150 (v3.13.41)	DELETE /api/resources/{id} → 500 (FK с NO ACTION)	✅ Исправлено миграцией 007_add_cascade_deletes
+BUG-149 (v3.13.41)	S3-скан возвращал 0 files (WebUI-ресурсы без connector.s3)	✅ Исправлено: bucket-фолбэк из path, legacy-эндпоинты WebUI строят connector.s3, DEBUG-логи list_objects_v2
+BUG-245 (v3.14.2)	scanner_id="" в dcap_scanner_heartbeat_age_seconds	✅ Hardening (пер-строчная изоляция, warning-лог, +Inf)
+BUG-246 (v3.14.2)	dcap_findings_total — Counter за сессию, credentials не видны	✅ Gauge из БД + dcap_findings_created_total (Counter)
+BUG-236 (v3.14.2)	/api/alerts/webhook → 401 (эндпоинта нет)	✅ Webhook убран из alertmanager.yml (вариант A); вариант B — BACKLOG-315 (v3.1.0)
+BUG-241 (v3.14.2)	HTTP error rate (5xx) → No data вместо 0	✅ or vector(0)
+BUG-243 (v3.14.2)	S3-агент DOWN в Prometheus targets	✅ target закомментирован (требуется --profile agents)
+BUG-239 (v3.14.2)	2 пустые панели dcap-scanner (per-file duration, OCR latency)	✅ Удалены (вариант A); вариант B — v3.1.0
+BUG-253 (v3.14.3)	Можно снять роль admin с себя → лок-аут	✅ Чекбокс admin disabled + PUT /users/{self} без admin → 400
+BUG-254 (v3.14.3)	Создание пользователя без ролей	✅ POST /users без ролей → 400 + frontend-валидация
+BUG-255 (v3.14.3)	Кнопка «Войти» не в стиле Dovetail	✅ 8px радиус, padding 10×16, weight 500
+BUG-256 (v3.14.3)	Viewer → /users: молчаливый редирект	✅ Toast «Недостаточно прав» + редирект (api.js)
+BUG-257 (v3.14.3)	Системные роли: name/ad_group можно менять	✅ Backend 400 + поля disabled в /roles
+BUG-258 (v3.14.3)	Кастомные роли без permissions бесполезны	📋 Отключено (POST /roles → 403, кнопка disabled); v3.1.0 — вернуть с permissions
+BACKLOG-316 (v3.14.3)	Машинная роль scanner в /users	✅ Скрыта в /users (в /roles остаётся)
+BUG-248 (v3.14.2)	Celery tasks (total) → No data	🟢 v3.1.0
+BUG-249 (v3.14.2)	PostgreSQL connections — легенда	🟢 v3.1.0
 /metrics публичный	Нет JWT/basic_auth	BACKLOG-044
 Прогресс сканера	Не виден в WebUI	BACKLOG-043 (🔄)
 NOT NULL поля	Возможны скрытые баги	BACKLOG-039
@@ -1115,7 +1152,7 @@ Grid-wireframe тонкий (~3 %)	Если визуально не видно �
 docs/DESIGN.md нет	DESIGN.md временно в корне репо	✅ решено 53.4e (git mv → docs/DESIGN.md)
 Font Awesome (не stroke-SVG)	Остаётся в 53.4a–53.4e	BACKLOG-101 (v3.1.0)
 WebUI light-тема	Не поддерживается (dark-only)	BACKLOG-102 (v3.1.0)
-Теги docker-образов	Все — ${VERSION:-3.13.41}	✅ v3.13.41
+Теги docker-образов	Все — ${VERSION:-3.14.3}	✅ v3.14.3
 📘 АДМИН-РУКОВОДСТВО (Дни 42.1–42.4)
 Принцип: документация = проверенный факт.
 
@@ -1135,5 +1172,5 @@ README.md	Оглавление + быстрый старт	❌ нет
 09-retention.md	Архивация	❌ нет
 10-troubleshooting.md	Решение проблем	✅ есть
 11-faq.md	Частые вопросы	❌ нет
-Актуально на: 13.10.2026
-Версия архитектуры: v3.13.41 (WebUI-редизайн — этап 1/5 (53.4a) закрыт; 53.4a-доп (v3.13.38), 53.4a-доп3 backend-critical (v3.13.39), 53.4a-доп4 шрифты кириллицы (v3.13.40), 53.4a-доп5 hotfix-backend (v3.13.41: BUG-150, BUG-149, BACKLOG-121, BACKLOG-119) закрыты; S3-коннектор — части 1–4 + fix-bucket + BUG-149; Блок 5, 7, 9 закрыты)
+Актуально на: 17.10.2026
+Версия архитектуры: v3.14.3 (RBAC hotfix — блоки 12–13 закрыты (v3.14.3); WebUI-редизайн — этапы 1–5 закрыты (v3.14.1); Grafana протестирована + hotfix (v3.14.2); Блоки 1–9, 53.1a–53.3, 53.4a–e, 53.4e-grafana закрыты)

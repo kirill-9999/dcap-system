@@ -9,6 +9,43 @@
 
 ---
 
+## [v3.14.3] — 2026-10-17
+
+### Fixed (53.4e RBAC hotfix — блоки 12–13: Users, Roles)
+
+- **BUG-253** — нельзя снять роль `admin` с себя (лок-аут): чекбокс `admin`
+  disabled при редактировании собственной учётки, backend
+  `PUT /api/auth/users/{self}` без `admin` → 400.
+- **BUG-257** — системные роли (`admin`/`auditor`/`scanner`/`viewer`)
+  иммутабельны по `name` и `ad_group` (backend 400 + поля disabled в `/roles`);
+  правится только `description`.
+- **BUG-258** — кастомные роли без `permissions` отключены до v3.1.0:
+  `POST /api/auth/roles` → 403, кнопка «Создать роль» disabled.
+- **BUG-254** — валидация «хотя бы одна роль»: `POST /api/auth/users` без
+  ролей → 400; frontend-проверка в модалке.
+- **BACKLOG-316** — машинная роль `scanner` скрыта из `/users` (в `/roles`
+  остаётся — нужна сканеру).
+- **BUG-255** — кнопка «Войти» приведена к Dovetail (8px радиус, padding
+  10×16, font-weight 500).
+- **BUG-256** — при 403 WebUI показывает toast «Недостаточно прав» и
+  редиректит на главную (раньше редирект был молчаливым).
+
+### Added
+
+- `tests/unit/test_auth_rbac_v3143.py` — 6 тестов: `POST /roles` → 403;
+  `PUT /roles/{system}` (name) → 400, (description) → 200; `POST /users` без
+  ролей → 400; `PUT /users/{self}` без `admin` → 400, с `admin` → 200.
+- `tests/e2e/test_rbac_v3143.py` — 4 E2E-проверки WebUI (scanner скрыт,
+  admin disabled, валидация роли, кнопка «Создать роль» disabled).
+
+### Changed
+
+- `tests/unit/test_roles_crud_audit_v31339.py` — 3 теста адаптированы под
+  BUG-258 (создание ролей отключено): кастомные роли наполняются в БД
+  напрямую, `role_created` через API недостижим.
+
+---
+
 ## [v3.14.2] — 2026-10-17
 
 ### Fixed (53.4e-grafana hotfix, диагностика Grafana/метрик)
