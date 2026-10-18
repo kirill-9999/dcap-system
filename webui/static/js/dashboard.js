@@ -35,39 +35,88 @@ function getColors() {
     };
 }
 
-async function loadDashboard() {
+// BUG-265/267 (v3.14.4): доступ к /api/audit/* есть только у admin/auditor.
+// Роль берём из RBAC (main.js), дождавшись готовности сессии; fallback — Auth.me().
+async function checkAuditAccess() {
     try {
-        const stats = await api.get('/api/audit/stats', {days: 7});
-        updateKPIs(stats);
-        renderAuditCharts(stats);
-    } catch(e) { console.error('Dashboard stats error:', e); }
+        if (window.whenSessionReady) await window.whenSessionReady();
+    } catch (e) { /* ignore */ }
+    if (typeof RBAC !== 'undefined' && RBAC.isAuditor) return RBAC.isAuditor();
+    if (typeof Auth !== 'undefined' && Auth.me) {
+        const me = await Auth.me().catch(() => null);
+        const roles = (me && me.roles) || [];
+        return roles.includes('admin') || roles.includes('auditor');
+    }
+    return false;
+}
+
+// BUG-267 (v3.14.4): без прав на аудит — KPI «—» и явная плашка вместо пустых графиков.
+function renderAuditDenied() {
+    const resources = document.getElementById('kpiResources');
+    if (resources) resources.textContent = '—';
+    const agents = document.getElementById('kpiAgents');
+    if (agents) agents.textContent = '—';
+    const chartsEl = document.getElementById('auditCharts');
+    if (chartsEl) {
+        chartsEl.innerHTML =
+            '<div class="text-muted text-center p-4" style="grid-column:1/-1;">Нет прав на аудит</div>';
+    }
+}
+
+function renderEventsDenied() {
+    const tbody = document.getElementById('recentEvents');
+    if (tbody) {
+        tbody.innerHTML =
+            '<tr><td colspan="5" class="text-center text-muted">Нет прав на аудит</td></tr>';
+    }
+}
+
+async function loadDashboard() {
+    // BUG-265/267 (v3.14.4): viewer/scanner не имеют прав на /api/audit/* — не вызываем.
+    const canAudit = await checkAuditAccess();
+
+    if (canAudit) {
+        try {
+            const stats = await api.get('/api/audit/stats', {days: 7});
+            updateKPIs(stats);
+            renderAuditCharts(stats);
+        } catch (e) { /* fail-safe: api.js уже предупредил в консоли */ }
+    } else {
+        renderAuditDenied();
+    }
+
     try {
         // W-42: kpiFindings считает НАХОДКИ через /api/findings/count,
         // а не события аудита (s.total из /api/audit/stats).
         const cnt = await api.get('/api/findings/count');
         const el = document.getElementById('kpiFindings');
         if (el) el.textContent = cnt && cnt.count != null ? cnt.count : 0;
-    } catch(e) { console.error('Dashboard findings count error:', e); }
+    } catch (e) { /* fail-safe */ }
     try {
         const findings = await api.get('/api/findings', {limit: 500});
         renderFindingsCharts(Array.isArray(findings) ? findings : []);
         updateRecentFindings(Array.isArray(findings) ? findings.slice(0, 10) : []);
-    } catch(e) { console.error('Dashboard findings error:', e); }
+    } catch (e) { /* fail-safe */ }
     try {
         const scannerData = await api.get('/api/scanners');
         updateScannerPanel(Array.isArray(scannerData) ? scannerData : []);
-    } catch(e) { console.error('Dashboard scanners error:', e); }
+    } catch (e) { /* fail-safe */ }
     try {
         // BUG-203 (v3.14.0): KPI «Алерты» реализован через /api/access/alerts/stats
         // (total алертов по доступам). Недоступно — остаётся 0.
         const alerts = await api.get('/api/access/alerts/stats');
         const ael = document.getElementById('kpiAlerts');
         if (ael) ael.textContent = (alerts && alerts.total != null) ? alerts.total : 0;
-    } catch(e) { console.error('Dashboard alerts error:', e); }
-    try {
-        const data = await api.get('/api/audit', {limit: 10});
-        updateRecentEvents(data.events || []);
-    } catch(e) { console.error('Dashboard events error:', e); }
+    } catch (e) { /* fail-safe */ }
+
+    if (canAudit) {
+        try {
+            const data = await api.get('/api/audit', {limit: 10});
+            updateRecentEvents(data.events || []);
+        } catch (e) { /* fail-safe */ }
+    } else {
+        renderEventsDenied();
+    }
 }
 
 function legendPosition() {
@@ -245,7 +294,7 @@ function updateRecentFindings(findings) {
     tbody.innerHTML = html;
 }
 
-// 53.4e (BUG-126): ������������� �������� �� inline <script> � �������.
+// 53.4e (BUG-126): ������������� �������� �� inline <script> � �������.
 document.addEventListener('DOMContentLoaded', function () {
     loadDashboard();
     setInterval(loadDashboard, 30000);

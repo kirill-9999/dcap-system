@@ -11,16 +11,21 @@
     </div>
   </div>
 
-  <div class="filter-card mb-3">
+  <button class="btn btn-outline-secondary btn-sm mb-2" id="filters-toggle" type="button"
+          aria-expanded="false" aria-controls="filtersCollapse" onclick="toggleFindingsFilters(this)">
+    <i class="fas fa-filter me-1"></i>Фильтры
+  </button>
+
+  <div class="filter-card mb-3" id="filtersCollapse">
     <div class="row g-2 mb-2">
       <div class="col-md-4">
         <label class="form-label small">Поиск</label>
         <input type="text" class="form-control form-control-sm" id="filter-search"
-               placeholder="путь или значение">
+               placeholder="путь или значение" autocomplete="off">
       </div>
       <div class="col-md-2">
         <label class="form-label small">Категория (через запятую)</label>
-        <input type="text" class="form-control form-control-sm" id="filter-category" placeholder="phone, email...">
+        <input type="text" class="form-control form-control-sm" id="filter-category" placeholder="phone, email..." autocomplete="off">
       </div>
       <div class="col-md-2">
         <label class="form-label small">Детектор</label>

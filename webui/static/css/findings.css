@@ -89,3 +89,12 @@
 @media (max-width: 480px) {
     .finding-act .act-label { display: none; }
 }
+
+/* BACKLOG-324 (v3.14.4): на мобильном панель фильтров свёрнута под кнопкой
+   «Фильтры» и не закрывает список находок. На ≥769px фильтры всегда видны. */
+#filters-toggle { display: none; }
+@media (max-width: 768px) {
+    #filters-toggle { display: inline-flex; align-items: center; }
+    #filtersCollapse { display: none; }
+    #filtersCollapse.open { display: block; }
+}

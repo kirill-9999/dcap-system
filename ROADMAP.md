@@ -38,7 +38,9 @@
 | **53.4e-grafana-hotfix** | Grafana: hotfix (BUG-245/246/247/236/241/243/239) | BUG-245… | ✅ v3.14.2 |
 | **53.4e-rbac-hotfix** | RBAC блоки 12–13 (Users, Roles): BUG-253/254/255/256/257/258, BACKLOG-316 | BUG-253…258, BACKLOG-316 | ✅ v3.14.3 |
 | **53.4f (тест-инфра)** | BUG-259/260/261/263, BACKLOG-317, BUG-262 этап A | BUG-259…263, BACKLOG-317 | ✅ v3.14.3 |
-| **Верификация WebUI 14–17** | Settings, Console, Network, Responsive | — | 📋 **следующий** |
+| **53.4f (UI hotfix)** | Dashboard RBAC/403 + responsive `/users`//`/findings` (блоки 15/17) | BUG-265…271, BACKLOG-320/321/324 | ✅ v3.14.4 |
+| **Верификация WebUI 14–17** | Settings, Console, Network, Responsive | — | 🟡 15/17 частично (v3.14.4); 14/16 — ⏳ |
+| **Блок 18 (Retention)** | Политики хранения (доработка) | — | 📋 **следующий** |
 | 55 | GitHub-пакет | BACKLOG-028/046 | 📋 |
 | 56 | BUG-117 (Manager-маскирование, hotfix) | — | 📋 |
 | 57 | Релиз v3.0.0 | — | 📋 |
@@ -62,7 +64,7 @@
 | **BUG-259** | `test_ad_permissions` — `ModuleNotFoundError` в combined-прогоне | 🟡 | ✅ v3.14.3 (тест-инфра) |
 | **BUG-260** | Windows: `PermissionError` на `pytest-current` | 🟡 | ✅ v3.14.3 (тест-инфра) |
 | **BUG-261** | `test_archiver_findings` — `TypeError` (устаревшая схема `Finding`) | 🟡 | ✅ v3.14.3 (тест-инфра) |
-| **BUG-262** | E2E: эталон не воспроизводим без предусловий (48/12/5 vs 53/7) | 🟡 | 🟡 этап A ✅ v3.14.3; этап B (seed+маркеры) — до 55; этап C — 55 |
+| **BUG-262** | E2E: эталон не воспроизводим без предусловий (51/13/4+1 error vs 53/7) | 🟡 | 🟡 этап A ✅ v3.14.3; этап B (seed+маркеры) — до 55; этап C — 55 |
 | **BUG-263** | `test_webui_block5_v31322`: `X-Total-Count=0`, `loadFilterOptions` только в `audit.js` | 🟡 | ✅ v3.14.3 (`loadFilterOptions` — тест-инфра; `X-Total-Count` — BUG-262 этап B) |
 | **BACKLOG-317** | `docker-compose.test.yml` — общее имя проекта сносит основной стек | 🔴 | ✅ v3.14.3 (`name: dcap-test`) |
 | **BACKLOG-044** | Защита `/metrics` | 🟡 | 📋 production |
@@ -79,6 +81,7 @@
 | **BUG-104/126/193/230/234** | 53.4e (полировка) | v3.14.1 |
 | **BUG-245/246/247/236/241/243/239** | 53.4e-grafana hotfix | **v3.14.2** |
 | **BUG-253/254/255/256/257/258, BACKLOG-316** | 53.4e-rbac-hotfix | **v3.14.3** |
+| **BUG-265/266/267/270/271, BACKLOG-320/321/324** | 53.4f UI hotfix | **v3.14.4** |
 
 ---
 
@@ -196,6 +199,6 @@
 
 ---
 
-**Актуально на:** 17.10.2026
-**Версия:** v3.14.3
-**Следующая цель:** верификация WebUI 14–17 → 55 (GitHub) → 56 (BUG-117) → 57 (релиз v3.0.0) → v3.1.0 (13 направлений).
+**Актуально на:** 18.10.2026
+**Версия:** v3.14.4
+**Следующая цель:** Retention (Блок 18) → 55 (GitHub) → 56 (BUG-117) → 57 (релиз v3.0.0) → v3.1.0 (13 направлений).

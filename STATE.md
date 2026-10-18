@@ -2,10 +2,10 @@
 > Единственный источник правды о текущем состоянии проекта.
 > План и бэклог — в `ROADMAP.md`. Архитектура — в `ARCHITECTURE.md`.
 
-**Обновлено:** 17.10.2026
-**Текущая версия:** v3.14.3
+**Обновлено:** 18.10.2026
+**Текущая версия:** v3.14.4
 **Целевая версия:** v3.0.0 (релиз)
-**Статус:** 🟢 Блоки 1–9 закрыты. BACKLOG-097 (S3-коннектор) закрыт. WebUI-редизайн этапы 1–5 закрыты — **REDESIGN COMPLETE (v3.14.1)**. Grafana протестирована (TEST-NOTE-8.1…8.6), 6 багов закрыто в hotfix v3.14.2, RBAC подтверждён (BACKLOG-307 → v3.1.0). RBAC hotfix (блоки 12–13: Users, Roles) — 7 задач (BUG-253/254/255/256/257/258, BACKLOG-316) закрыто в v3.14.3. Unit **517 passed** (`pytest tests/unit manager/tests -q`), e2e **48/12/5** (эталон **53/7** при предусловиях). Тест-инфра v3.14.3: закрыты BUG-259/260/261/263, BACKLOG-317 (`name: dcap-test`), BUG-262 этап A (docs, реальные **48/12/5**, эталон **53/7** при предусловиях). **Следующий шаг — верификация WebUI-блока 14 (Settings) → 55 (GitHub).**
+**Статус:** 🟢 Блоки 1–9 закрыты. BACKLOG-097 (S3-коннектор) закрыт. WebUI-редизайн этапы 1–5 закрыты — **REDESIGN COMPLETE (v3.14.1)**. Grafana протестирована (TEST-NOTE-8.1…8.6), 6 багов закрыто в hotfix v3.14.2, RBAC подтверждён (BACKLOG-307 → v3.1.0). RBAC hotfix (блоки 12–13: Users, Roles) — 7 задач (BUG-253/254/255/256/257/258, BACKLOG-316) закрыто в v3.14.3. UI hotfix v3.14.4 (блоки 15/17): закрыты BUG-265/266/267 (dashboard RBAC + 403-спам), BUG-270/271 (users responsive), BACKLOG-320/321/324 (BACKLOG-325 закрыт ранее). Unit **521 passed** (`pytest tests/unit manager/tests -q`), e2e **51/13/4+1 error** без предусловий (эталон **53/7**). **Следующий шаг — Retention (Блок 18) → 55 (GitHub) → 56 (BUG-117) → 57 (релиз v3.0.0).**
 
 ---
 
@@ -13,13 +13,13 @@
 
 | Параметр | Значение |
 |----------|----------|
-| Текущий день | 53.4f (тест-инфра) — **завершён** |
-| Статус дня | ✅ Выполнено (тест-инфра v3.14.3) |
-| Последний принятый отчёт | `day_53_4f_test_infra_report.md`, `day_53_4f_bug263_report.md` (v3.14.3) |
-| Следующий шаг | **Верификация WebUI-блока 14 (Settings)** (ручной прогон) → **55 (GitHub) → 56 (BUG-117) → 57 (релиз)** |
+| Текущий день | 53.4f (UI hotfix) — **завершён** |
+| Статус дня | ✅ Выполнено (UI hotfix v3.14.4) |
+| Последний принятый отчёт | `day_53_4f_ui_hotfix_report.md` (v3.14.4); ранее `day_53_4f_test_infra_report.md`, `day_53_4f_bug263_report.md` (v3.14.3) |
+| Следующий шаг | **Retention (Блок 18)** → **55 (GitHub) → 56 (BUG-117) → 57 (релиз v3.0.0)** |
 | Открытых BUG | ~12 (в основном 🟢 low / v3.1.0) |
 | Открытых BACKLOG | ~50 (BACKLOG-156…315 — v3.1.0/бэклог) |
-| ТЗ собраны | 0 активных в `prompts/tz/` (53.4c/d/e, Grafana, RBAC, 53.4f — архив) |
+| ТЗ собраны | 0 активных в `prompts/tz/` (53.4c/d/e, Grafana, RBAC, 53.4f тест-инфра/UI hotfix — архив) |
 | Открытые вопросы к архитектору | 1) BUG-248/249 (Grafana, 🟢 low) — в бэклог; 2) BACKLOG-307 (RBAC Grafana) — v3.1.0; 3) BUG-236 вариант B (webhook) — v3.1.0 (BACKLOG-315) |
 
 ---
@@ -36,6 +36,7 @@
 | **53.4e-grafana + hotfix** | **Grafana: тестирование (TEST-NOTE-8.1…8.6) + hotfix (BUG-245/246/247/236/241/243/239)** | **v3.14.2** | `day_53_4e_grafana_hotfix_report.md` |
 | **53.4e-rbac-hotfix** | **RBAC блоки 12–13 (Users, Roles): BUG-253/254/255/256/257/258 + BACKLOG-316** | **v3.14.3** | `day_53_4e_rbac_hotfix_report.md` |
 | **53.4f (тест-инфра)** | **BUG-259/260/261/263, BACKLOG-317, BUG-262 этап A** | **v3.14.3** | `day_53_4f_test_infra_report.md`, `day_53_4f_bug263_report.md` |
+| **53.4f (UI hotfix)** | **BUG-265/266/267 (dashboard RBAC/403), BUG-270/271 (users responsive), BACKLOG-320/321/324** | **v3.14.4** | `day_53_4f_ui_hotfix_report.md` |
 
 ---
 
@@ -106,6 +107,15 @@
 - BUG-263 — ✅ `test_webui_pages_with_filters` проверяет подключение `/static/js/audit.js` + наличие `loadFilterOptions` в JS (было — в серверном HTML, ложно-отрицательный). UI корректен, тест-инфра.
 - Unit-команда зафиксирована: `pytest tests/unit manager/tests -q` → **517 passed** (корневой `conftest.py`, без `--basetemp`).
 
+**Закрыто в UI hotfix (v3.14.4, 18.10.2026):**
+- BUG-265/267 — `dashboard.js`: `checkAuditAccess()` (через `RBAC.isAuditor()` + `whenSessionReady()`, fallback `Auth.me()`) — viewer/scanner больше не вызывают `/api/audit/*`; KPI «—» + плашка «Нет прав на аудит» (`#auditCharts`, `#recentEvents`).
+- BUG-266 — `api.js`: `console.warn` только для `status !== 403` (RBAC-403 — ожидаемые, без спама); `e.status` заполняется.
+- BUG-270/271 — `/users`: `.table-responsive-users` (`overflow-x: auto`; `min-width: 760px` ≤900px, `900px` ≤480px).
+- BACKLOG-324 — `/findings`: мобильный collapse фильтров (кастомный тоггл `toggleFindingsFilters` + CSS, т.к. Bootstrap JS bundle не подключён).
+- BACKLOG-320/321 — a11y: скрытый `username` в `#passwordForm`, `autocomplete` на inputs (`users.html`, `findings.html`).
+- BACKLOG-325 — затемнение overlay уже в `main.css` (`rgba(0,0,0,.5)`), правок не требовалось.
+- Unit-команда: `pytest tests/unit manager/tests -q` → **521 passed** (было 517; +4 новых).
+
 **Grafana (решения 17.10.2026):**
 - **RBAC:** подтверждён BACKLOG-307, реализация — **v3.1.0** (Auth Proxy, `X-WEBAUTH-USER`). Маппинг: admin→Admin, auditor→Editor, scanner/viewer→Viewer.
 - **Тестирование:** TEST-NOTE-8.1…8.6 — **✅**.
@@ -116,10 +126,10 @@
 
 ## 📌 Рекомендации архитектору
 
-1. **Следующий шаг — верификация WebUI-блока 14 (Settings)** (ручной прогон). После редизайна v3.14.1 они закрыты кодом, но не проверены вручную.
-2. **Затем — 55** (GitHub-пакет) → **56** (BUG-117 hotfix) → **57** (релиз).
-3. **`STATE_TEST_SESSION.md`** — обновлён до v3.14.3, блоки 12–13 — ✅ (после прогона), 14–17 — ⏳.
-4. **`ARCHITECTURE.md`** — v3.14.3 (ролевая модель: BUG-253/257/258, BACKLOG-316).
+1. **Следующий шаг — Retention (Блок 18)**.
+2. **Затем — 55** (GitHub-пакет) → **56** (BUG-117 hotfix) → **57** (релиз v3.0.0).
+3. **`STATE_TEST_SESSION.md`** — обновлён до v3.14.4, блоки 12–13 — ✅ (после прогона), 14–17 — ⏳ (15/17 частично закрыты UI hotfix).
+4. **`ARCHITECTURE.md`** — v3.14.4 (ролевая модель + UI hotfix: RBAC-фронт дашборда, responsive).
 5. **BUG-248/249** — 🟢 low, в бэклог v3.1.0.
 6. **BACKLOG-307** — v3.1.0.
 7. **E2E-артефакты** — ✅ очищены (53.4e).
@@ -127,9 +137,10 @@
 9. **BUG-263** — ✅ закрыт (v3.14.3, 53.4f): тест проверяет `/static/js/audit.js` + `loadFilterOptions` в JS; UI корректен.
 10. **BUG-262** — этап A ✅; этап B (seed + маркеры `requires_minio`/`requires_seed`) — до 55; этап C (CI) — BACKLOG-046 (день 55).
 11. **BACKLOG-317** — ✅ `name: dcap-test`; перед `down` стенда убеждаться, что project name отличается от основного.
+12. **UI hotfix v3.14.4** — ✅ BUG-265/266/267/270/271, BACKLOG-320/321/324 (BACKLOG-325 — закрыт ранее); BACKLOG-326 (карточки users на 393px) — v3.1.0.
 
 ---
 
-**Актуально на:** 17.10.2026
-**Версия:** v3.14.3
-**Следующий шаг:** верификация WebUI 14 → 55 → 56 → 57
+**Актуально на:** 18.10.2026
+**Версия:** v3.14.4
+**Следующий шаг:** Retention (Блок 18) → 55 → 56 → 57

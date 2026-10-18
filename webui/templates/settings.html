@@ -101,6 +101,8 @@
         <div class="modal-header"><h3>Смена пароля</h3><button type="button" class="btn btn-sm" onclick="closeModal('passwordModal')">&times;</button></div>
         <form id="passwordForm" onsubmit="event.preventDefault(); changePassword();">
             <div class="modal-body">
+                <!-- BACKLOG-320 (v3.14.4): скрытое username для a11y/autofill (Chrome warn). -->
+                <input type="text" name="username" autocomplete="username" value="admin" style="display:none" readonly>
                 <div class="mb-3"><label class="form-label">Текущий пароль *</label><input type="password" id="curPassword" class="form-control" required autocomplete="current-password"></div>
                 <div class="mb-3">
                     <label class="form-label">Новый пароль *</label>

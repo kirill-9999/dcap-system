@@ -3,8 +3,8 @@
 > **Обновляется архитектором при изменениях архитектуры.**
 > Текущее состояние — в `STATE.md`. План и бэклог — в `ROADMAP.md`.
 
-**Обновлено:** 17.10.2026
-**Версия архитектуры:** v3.14.3 (RBAC hotfix: защита admin-from-self, иммутабельность системных ролей, кастомные роли отключены; WebUI-редизайн завершён; Grafana протестирована + hotfix: BUG-245/246/247/236/241/243/239)
+**Обновлено:** 18.10.2026
+**Версия архитектуры:** v3.14.4 (UI hotfix: RBAC-фронт dashboard — viewer/scanner не вызывают /api/audit/*, KPI «—» + «Нет прав»; responsive `/users` и `/findings`; a11y-поля. Ранее: RBAC hotfix — защита admin-from-self, иммутабельность системных ролей, кастомные роли отключены; WebUI-редизайн завершён; Grafana протестирована + hotfix: BUG-245/246/247/236/241/243/239)
 
 ---
 
@@ -133,8 +133,8 @@ dcap-system/
 │ └── grafana/provisioning/
 │
 ├── tests/
-│ ├── unit/ # unit-тесты (517 passed (combined) на v3.14.3: tests/unit + manager/tests; 53.4f: BUG-259/260/261 — conftest basetemp, connectors regular-package; NEW v3.14.3: test_auth_rbac_v3143.py (6 тестов — POST /roles→403, системные роли immutable, admin-from-self→400, «хотя бы одна роль»→400); NEW v3.14.2: manager/tests/test_metrics_v3142.py (6 тестов); v3.13.41: test_delete_resource_v31341.py (BUG-150), 3 теста S3 bucket-фолбэк (BUG-149); v3.13.39: *_v31339.py — audit rollback, change-password, RBAC /api/audit, roles CRUD)
-│ ├── e2e/ # E2E-тесты (эталон 53 passed / 7 skipped при предусловиях; факт 48 passed/12 skipped/5 failed без предусловий на :18000/:18001 — BUG-262; v3.13.41: test_s3_scan_v31341.py — S3-скан MinIO >0 files, ≥9 находок)
+│ ├── unit/ # unit-тесты (521 passed (combined) на v3.14.4: tests/unit + manager/tests; NEW v3.14.4: test_dashboard_v3144.py (4 теста — RBAC-проверка, 403-console, .table-responsive-users, #auditCharts); 53.4f: BUG-259/260/261 — conftest basetemp, connectors regular-package; v3.14.3: test_auth_rbac_v3143.py (6 тестов — POST /roles→403, системные роли immutable, admin-from-self→400, «хотя бы одна роль»→400); v3.14.2: manager/tests/test_metrics_v3142.py (6 тестов); v3.13.41: test_delete_resource_v31341.py (BUG-150), 3 теста S3 bucket-фолбэк (BUG-149); v3.13.39: *_v31339.py — audit rollback, change-password, RBAC /api/audit, roles CRUD)
+│ ├── e2e/ # E2E-тесты (эталон 53 passed / 7 skipped при предусловиях; факт 51 passed/13 skipped/4 failed/1 error без предусловий на :18000/:18001 — BUG-262; v3.14.4: test_responsive_v3144.py — 4 теста; v3.13.41: test_s3_scan_v31341.py — S3-скан MinIO >0 files, ≥9 находок)
 │ ├── chaos/ # Chaos-тесты
 │ ├── load/ # Нагрузочные
 │ └── fixtures/ # Общие фикстуры (auth, db, manager, scanner, test_files)
@@ -1115,6 +1115,12 @@ BUG-239 (v3.14.2)	2 пустые панели dcap-scanner (per-file duration, O
 BUG-253 (v3.14.3)	Можно снять роль admin с себя → лок-аут	✅ Чекбокс admin disabled + PUT /users/{self} без admin → 400
 BUG-254 (v3.14.3)	Создание пользователя без ролей	✅ POST /users без ролей → 400 + frontend-валидация
 BUG-255 (v3.14.3)	Кнопка «Войти» не в стиле Dovetail	✅ 8px радиус, padding 10×16, weight 500
+BUG-265/267 (v3.14.4)	dashboard.js: viewer → /api/audit/* → 403-спам + KPI «—»	✅ RBAC-проверка (canAudit через RBAC.isAuditor()); KPI «—» + плашка «Нет прав на аудит» (#auditCharts)
+BUG-266 (v3.14.4)	api.js: console.error на 403	✅ console.warn только для status !== 403
+BUG-270/271 (v3.14.4)	/users: таблица невидима (393px) / обрезается (768px)	✅ .table-responsive-users (overflow-x; min-width 760/900px)
+BACKLOG-324 (v3.14.4)	/findings (393px): фильтры full-screen	✅ Мобильный collapse (кастомный тоггл, без Bootstrap JS)
+BACKLOG-320/321 (v3.14.4)	a11y: password-form без username; inputs без autocomplete	✅ Скрытый username в #passwordForm + autocomplete
+BACKLOG-325 (v3.14.4)	Overlay без затемнения	✅ Уже закрыт ранее (main.css: rgba(0,0,0,.5))
 BUG-256 (v3.14.3)	Viewer → /users: молчаливый редирект	✅ Toast «Недостаточно прав» + редирект (api.js)
 BUG-257 (v3.14.3)	Системные роли: name/ad_group можно менять	✅ Backend 400 + поля disabled в /roles
 BUG-258 (v3.14.3)	Кастомные роли без permissions бесполезны	📋 Отключено (POST /roles → 403, кнопка disabled); v3.1.0 — вернуть с permissions
@@ -1158,7 +1164,7 @@ Grid-wireframe тонкий (~3 %)	Если визуально не видно �
 docs/DESIGN.md нет	DESIGN.md временно в корне репо	✅ решено 53.4e (git mv → docs/DESIGN.md)
 Font Awesome (не stroke-SVG)	Остаётся в 53.4a–53.4e	BACKLOG-101 (v3.1.0)
 WebUI light-тема	Не поддерживается (dark-only)	BACKLOG-102 (v3.1.0)
-Теги docker-образов	Все — ${VERSION:-3.14.3}	✅ v3.14.3
+Теги docker-образов	Все — ${VERSION:-3.14.4}	✅ v3.14.4
 📘 АДМИН-РУКОВОДСТВО (Дни 42.1–42.4)
 Принцип: документация = проверенный факт.
 
@@ -1178,5 +1184,5 @@ README.md	Оглавление + быстрый старт	❌ нет
 09-retention.md	Архивация	❌ нет
 10-troubleshooting.md	Решение проблем	✅ есть
 11-faq.md	Частые вопросы	❌ нет
-Актуально на: 17.10.2026
-Версия архитектуры: v3.14.3 (RBAC hotfix — блоки 12–13 закрыты (v3.14.3); тест-инфра 53.4f (v3.14.3); WebUI-редизайн — этапы 1–5 закрыты (v3.14.1); Grafana протестирована + hotfix (v3.14.2); Блоки 1–9, 53.1a–53.3, 53.4a–f, 53.4e-grafana закрыты)
+Актуально на: 18.10.2026
+Версия архитектуры: v3.14.4 (UI hotfix 53.4f — блоки 15/17 частично (v3.14.4); RBAC hotfix — блоки 12–13 закрыты (v3.14.3); тест-инфра 53.4f (v3.14.3); WebUI-редизайн — этапы 1–5 закрыты (v3.14.1); Grafana протестирована + hotfix (v3.14.2); Блоки 1–9, 53.1a–53.3, 53.4a–f, 53.4e-grafana закрыты)

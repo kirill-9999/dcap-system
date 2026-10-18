@@ -9,6 +9,45 @@
 
 ---
 
+## [v3.14.4] — 2026-10-18
+
+### Fixed (53.4f UI hotfix — блоки 15/17: Console/RBAC, Responsive)
+
+- **BUG-265/267** — `dashboard.js`: перед вызовом `/api/audit/*` добавлена
+  RBAC-проверка (`canAudit` через `RBAC.isAuditor()` + `whenSessionReady()`);
+  для viewer/scanner эндпоинты не вызываются (убран 403-спам), KPI «Ресурсов»/
+  «Агентов» = «—», вместо пустых графиков — плашка «Нет прав на аудит»
+  (контейнер `#auditCharts` в `dashboard.html`).
+- **BUG-266** — `api.js`: `console.warn` только для `status !== 403`
+  (ожидаемые RBAC-403 не засоряют консоль).
+- **BUG-270/271** — `/users`: таблица обёрнута в `.table-responsive-users`
+  (`overflow-x: auto`; `min-width: 760px` ≤900px, `900px` ≤480px) — колонки
+  больше не обрезаются.
+- **BACKLOG-324** — `/findings`: панель фильтров сворачивается кнопкой на
+  мобильном (кастомный тоггл — Bootstrap JS bundle не подключён).
+- **BACKLOG-320** — `settings.html`: скрытый `username` в `#passwordForm`
+  (a11y/autofill warn).
+- **BACKLOG-321** — `autocomplete` на inputs (`users.html`, `findings.html`).
+
+### Added
+
+- `tests/unit/test_dashboard_v3144.py` — 4 теста (RBAC-проверка, 403-console,
+  `.table-responsive-users`, `#auditCharts`).
+- `tests/e2e/test_responsive_v3144.py` — 4 E2E-проверки (users responsive,
+  findings collapse, auditCharts, api.js 403).
+
+### Changed
+
+- `docker-compose.yml`, `docker-compose.test.yml` — `VERSION` по умолчанию
+  `3.14.4`.
+
+### Note
+
+- **BACKLOG-325** (overlay без затемнения) — уже закрыт ранее (`main.css`:
+  `rgba(0,0,0,.5)`); правок не потребовалось.
+
+---
+
 ## [v3.14.3] — 2026-10-17
 
 ### Fixed (53.4e RBAC hotfix — блоки 12–13: Users, Roles)

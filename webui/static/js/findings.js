@@ -349,3 +349,12 @@ const FindingsPage = {
 };
 
 document.addEventListener('DOMContentLoaded', () => FindingsPage.init());
+
+// BACKLOG-324 (v3.14.4): мобильный collapse фильтров (без Bootstrap JS —
+// базовый bundle не подключён; чистый класс-тоггл + CSS).
+function toggleFindingsFilters(btn) {
+  const panel = document.getElementById('filtersCollapse');
+  if (!panel) return;
+  const open = panel.classList.toggle('open');
+  if (btn) btn.setAttribute('aria-expanded', open ? 'true' : 'false');
+}

@@ -1,6 +1,6 @@
-# 🧪 DCAP Test Session — Состояние на 17.10.2026
+# 🧪 DCAP Test Session — Состояние на 18.10.2026
 
-> **Мастер-сессия ручного тестирования DCAP v3.14.3**
+> **Мастер-сессия ручного тестирования DCAP v3.14.4**
 > Блок 1 (Smoke) — ✅
 > Блок 2 (Auth/RBAC) — ✅
 > Блок 3 (Scanner deep) — ✅
@@ -19,7 +19,9 @@
 > **53.4e-grafana + hotfix — ✅ v3.14.2**
 > **53.4e-rbac-hotfix (блоки 12–13: Users, Roles) — ✅ v3.14.3**
 > **WebUI-прогон: блоки 1–11 — ✅ (закрыты 10–12.10.2026)**
-> **WebUI-прогон: блоки 12–13 — ✅ (v3.14.3); блоки 14–17 — ⏳ верификация (следующий шаг)**
+> **WebUI-прогон: блоки 12–13 — ✅ (v3.14.3)**
+> **53.4f UI hotfix (блоки 15/17: dashboard RBAC, responsive /users//findings) — ✅ v3.14.4**
+> **WebUI-прогон: блоки 14, 16 — ⏳**
 
 ---
 
@@ -27,15 +29,15 @@
 
 | Параметр | Значение |
 |----------|----------|
-| **Версия** | v3.14.3 |
+| **Версия** | v3.14.4 |
 | **Целевая версия** | v3.0.0 (релиз) |
 | **Пройдено** | Блоки 1–9; 53.1a–53.3; 53.4a; 53.4a-доп; 53.4a-доп3/4/5; 53.4b; 53.4c/d/e; 53.4e-grafana + hotfix; 53.4e-rbac-hotfix; 53.4f (тест-инфра); **WebUI 1–13** |
 | **Следующий блок** | **Верификация WebUI 14–17** (Settings, Console, Network, Responsive) |
 | **Auth mode** | hybrid (SPNEGO → JWT fallback) |
 | **Контейнеров** | 15 |
 | **Сканер** | На хосте, `3.14.3`, `S3_*` ENV — ✅ (BUG-148 закрыт в v3.13.39) |
-| **Unit** | **517 passed** (`pytest tests/unit manager/tests -q`, корневой `conftest.py`, без `--basetemp`) |
-| **E2E** | **48 passed, 12 skipped, 5 failed** (стенд `:18000/:18001`, без предусловий); эталон **53 passed, 7 skipped** — при предусловиях (сканер `:9101`, MinIO `:9000`, seed-findings, `auditor`). BUG-259/260/261/263 ✅, BACKLOG-317 ✅, BUG-262 этап A ✅; TEST-NOTE-10.8/10.10; CI — BACKLOG-046 (день 55) |
+| **Unit** | **521 passed** (`pytest tests/unit manager/tests -q`, корневой `conftest.py`, без `--basetemp`; +4 — `test_dashboard_v3144.py`) |
+| **E2E** | **51 passed, 13 skipped, 4 failed, 1 error** (стенд `:18000/:18001`, без предусловий); эталон **53 passed, 7 skipped** — при предусловиях (сканер `:9101`, MinIO `:9000`, seed-findings, `auditor`). 53.4f UI hotfix: +4 e2e ✅; фейлы/ошибка — предусловия (MinIO/seed). BUG-259/260/261/263, BACKLOG-317, BUG-262 этап A — ✅; CI — BACKLOG-046 (день 55) |
 | **Docker Compose** | v5.5.1 |
 
 ---
@@ -78,6 +80,14 @@
 - ✅ **BUG-258** — создание кастомных ролей отключено (`POST /roles` → 403, кнопка disabled); возврат с `permissions` — v3.1.0.
 - ✅ **BACKLOG-316** — роль `scanner` скрыта в `/users` (в `/roles` остаётся).
 - ✅ **BUG-252 (follow-up)** — `base.css`: `input:not([type=checkbox]):not([type=radio])`; checkbox bg `rgb(103,152,255)` + галочка (headless), text/select — `--color-deep-coal`.
+
+### 53.4f UI hotfix (v3.14.4) — блоки 15/17 (Console/RBAC, Responsive)
+- ✅ **BUG-265/267** — `dashboard.js`: RBAC-проверка (`canAudit` через `RBAC.isAuditor()`); viewer/scanner не вызывают `/api/audit/*`; KPI «—» + плашка «Нет прав на аудит».
+- ✅ **BUG-266** — `api.js`: нет console-спама на 403.
+- ✅ **BUG-270/271** — `/users`: `.table-responsive-users` (overflow-x, min-width 760/900px).
+- ✅ **BACKLOG-324** — `/findings`: мобильный collapse фильтров (без Bootstrap JS).
+- ✅ **BACKLOG-320/321** — a11y: скрытый `username` в `#passwordForm`, `autocomplete` на inputs.
+- ✅ **BACKLOG-325** — overlay уже затемнён (`main.css`), правок не требовалось.
 
 ### 53.4e (v3.14.1) — полировка
 *(без изменений)*
@@ -207,19 +217,18 @@
 
 ## 📋 СЛЕДУЮЩИЕ ШАГИ
 
-### Следующий шаг — верификация WebUI 12–17
+### Следующий шаг — Retention (Блок 18)
 
 **Порядок:**
-**Порядок:**
-1. ~~**Блок 12 (Users)** — `/users` (admin): CRUD, роли, пароль, GMT, локализация.*~~ — ✅ v3.14.3
-2. **Блок 13 (Roles)** — `/roles` (admin): список, системные роли — ✅ v3.14.3 (создание отключено, BUG-258).
-3. **Блок 14 (Settings)** — `/settings` (admin): retention policies, смена пароля.
-4. **Блок 15 (Console)** — все страницы: `favicon.ico`, CSP, `[DOM]` password.
-5. **Блок 16 (Network)** — woff2 + API-запросы.
-6. **Блок 17 (Responsive)** — sidebar collapse, таблицы, 768px / 393px.
+1. ~~**Блок 12 (Users)**~~ — ✅ v3.14.3
+2. ~~**Блок 13 (Roles)**~~ — ✅ v3.14.3
+3. **Блок 14 (Settings)** — ⏳ (частично: a11y `username` — BACKLOG-320, v3.14.4).
+4. **Блок 15 (Console)** — ✅ частично (UI hotfix v3.14.4: dashboard RBAC/403).
+5. **Блок 16 (Network)** — ⏳.
+6. **Блок 17 (Responsive)** — ✅ частично (UI hotfix v3.14.4: `/users`, `/findings`).
 
-**После 14–17:**
-- Обновить `STATE_TEST_SESSION.md` (статусы 14–17).
+**Далее:**
+- **Retention (Блок 18).**
 - **55 (GitHub-пакет):** BACKLOG-028/046.
 - **56 (BUG-117 hotfix).**
 - **57 (релиз v3.0.0).**
@@ -281,26 +290,27 @@
 5. `docs/DESIGN.md`.
 
 **Триггер:**
-Продолжаем мастер-сессию DCAP v3.14.3.
+Продолжаем мастер-сессию DCAP v3.14.4.
 Приложены: STATE_TEST_SESSION.md, STATE.md, ROADMAP.md, ARCHITECTURE.md, docs/DESIGN.md.
 
-Пройдено: Блоки 1–9; 53.1a–53.3; 53.4a; 53.4a-доп; 53.4a-доп3/4/5; 53.4b; 53.4c/d/e; 53.4e-grafana + hotfix; 53.4e-rbac-hotfix; WebUI-прогон (блоки 1–13).
+Пройдено: Блоки 1–9; 53.1a–53.3; 53.4a; 53.4a-доп; 53.4a-доп3/4/5; 53.4b; 53.4c/d/e; 53.4e-grafana + hotfix; 53.4e-rbac-hotfix; 53.4f тест-инфра; 53.4f UI hotfix; WebUI-прогон (блоки 1–13, частично 15/17).
 Закрыты в v3.14.2: BUG-245/246/247/236/241/243/239.
 Закрыты в v3.14.3: BUG-253/254/255/256/257/258, BACKLOG-316.
+Закрыты в v3.14.4: BUG-265/266/267/270/271, BACKLOG-320/321/324.
 Подтверждён: BACKLOG-307 (RBAC Grafana — v3.1.0).
 Новые 🟢: BUG-248 (`Celery tasks (total)`), BUG-249 (`PostgreSQL connections`).
 
-Следующий: верификация WebUI-блоков 14–17.
+Следующий: Retention (Блок 18).
 Затем — 55 (GitHub) → 56 (BUG-117) → 57 (релиз v3.0.0).
 
-Unit: 517 passed (`pytest tests/unit manager/tests -q`).
-E2E: 48 passed, 12 skipped, 5 failed (стенд `:18000/:18001`, без предусловий);
+Unit: 521 passed (`pytest tests/unit manager/tests -q`).
+E2E: 51 passed, 13 skipped, 4 failed, 1 error (стенд `:18000/:18001`, без предусловий);
 53/7 — при предусловиях (сканер :9101, MinIO :9000, seed, auditor).
-BUG-259/260/261/263, BACKLOG-317, BUG-262 этап A — ✅ (53.4f).
-Стек: v3.14.3 (Docker Compose v5.5.1). Scanner (host): 3.14.3.
+BUG-259/260/261/263, BACKLOG-317, BUG-262 этап A — ✅.
+Стек: v3.14.4 (Docker Compose v5.5.1). Scanner (host): 3.14.4.
 
 Начни с проверки: git log --oneline -10.
 
 ---
 
-**Конец STATE_TEST_SESSION.md** — актуализирован под v3.14.3 (17.10.2026)
+**Конец STATE_TEST_SESSION.md** — актуализирован под v3.14.4 (18.10.2026)

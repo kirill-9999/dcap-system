@@ -51,7 +51,7 @@ services:
       AUTH_LOGIN_MAX_ATTEMPTS: "100000"
       # 53.3-test-stand-fix: иначе /api/health отдаёт version=unknown
       # (main.py: env VERSION → config.json version → unknown).
-      VERSION: ${VERSION:-3.13.41}
+      VERSION: ${VERSION:-3.14.4}
     ports: ["18000:8000"]
     depends_on:
       postgres_test: { condition: service_healthy }
@@ -75,7 +75,7 @@ services:
     environment:
       MANAGER_URL: http://manager_test:8000
       # webui/config.py по умолчанию отдаёт 3.13.11 — переопределяем env.
-      VERSION: ${VERSION:-3.13.41}
+      VERSION: ${VERSION:-3.14.4}
     ports: ["18001:8001"]
     depends_on:
       manager_test:

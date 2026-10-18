@@ -35,7 +35,15 @@ const api = {
         this._handleErrors(r);
         if (!r.ok) {
             const err = await r.json().catch(() => ({ detail: r.statusText || ('HTTP ' + r.status) }));
-            throw new Error(errorToRussian(err.detail || ('HTTP ' + r.status)));
+            // BUG-266 (v3.14.4): не засоряем консоль на ожидаемых 403 (RBAC-ограничения) —
+            // предупреждаем только для прочих ошибок.
+            const status = r.status;
+            if (status !== 403) {
+                console.warn('API error:', status, err.detail || ('HTTP ' + status));
+            }
+            const e = new Error(errorToRussian(err.detail || ('HTTP ' + status)));
+            e.status = status;
+            throw e;
         }
         // BUG-150/фронт (53.4c): 204 No Content / пустое тело — не JSON.
         if (r.status === 204) return null;
