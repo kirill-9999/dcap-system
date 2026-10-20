@@ -35,29 +35,21 @@ function getColors() {
     };
 }
 
-// BUG-265/267/NEW-4/4H (v3.14.5): доступ к /api/audit/* есть только у admin/auditor.
-// Если Auth.me() вернул роли — используем их как источник правды, без разрешающего fallback на RBAC.
+// BUG-265/267/NEW-4/4H (v3.14.6): доступ к /api/audit/* есть только у admin/auditor.
+// Используем только Auth.me() как источник правды. Если ролей не получены — запрещаем.
 async function checkAuditAccess() {
     try {
         if (window.whenSessionReady) await window.whenSessionReady();
     } catch (e) { /* ignore */ }
 
-    // 1) Надёжный источник — Auth.me()
     if (typeof Auth !== 'undefined' && Auth.me) {
         try {
             const me = await Auth.me();
-            if (me && Array.isArray(me.roles)) {
+            if (me && Array.isArray(me.roles) && me.roles.length > 0) {
                 const roles = me.roles;
-                if (roles.includes('admin') || roles.includes('auditor')) return true;
-                // Явный список ролей без прав аудита — сразу запрещаем, без fallback
-                return false;
+                return roles.includes('admin') || roles.includes('auditor');
             }
         } catch (e) { /* ignore */ }
-    }
-
-    // 2) Fallback только если Auth.me() недоступен/не вернул роли
-    if (typeof RBAC !== 'undefined' && RBAC.isAuditor) {
-        return RBAC.isAuditor();
     }
 
     return false;
