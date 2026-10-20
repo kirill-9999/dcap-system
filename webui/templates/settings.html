@@ -51,6 +51,7 @@
                         <div class="mb-2"><span class="text-muted">TTL:</span> <b id="retAuditTtl">—</b> дн.</div>
                         <div class="mb-2"><span class="text-muted">Архив TTL:</span> <b id="retAuditArchiveTtl">—</b> дн.</div>
                         <div class="mb-0"><span class="text-muted">Архивация:</span> <b id="retAuditArchiveOn">—</b></div>
+                        <div class="mt-2 small text-muted">Последний запуск: <span id="lastRun">—</span></div>
                     </div>
                 </div>
             </div>
@@ -81,10 +82,10 @@
             </div>
         </div>
         <div class="row g-3 mt-1">
-            <div class="col-md-3"><div class="stat-item"><span class="stat-label">События аудита</span><span class="stat-value" id="statAuditCount">0</span></div></div>
-            <div class="col-md-3"><div class="stat-item"><span class="stat-label">Архивные события</span><span class="stat-value" id="statArchiveCount">0</span></div></div>
-            <div class="col-md-3"><div class="stat-item"><span class="stat-label">Находки</span><span class="stat-value" id="statFindingsCount">0</span></div></div>
-            <div class="col-md-3"><div class="stat-item"><span class="stat-label">Завершённые задачи</span><span class="stat-value" id="statTasksCount">0</span></div></div>
+            <div class="col-md-3"><div class="stat-item"><span class="stat-label me-2">События аудита</span><span class="stat-value" id="statAuditCount">0</span></div></div>
+            <div class="col-md-3"><div class="stat-item"><span class="stat-label me-2">Архивные события</span><span class="stat-value" id="statArchiveCount">0</span></div></div>
+            <div class="col-md-3"><div class="stat-item"><span class="stat-label me-2">Находки</span><span class="stat-value" id="statFindingsCount">0</span></div></div>
+            <div class="col-md-3"><div class="stat-item"><span class="stat-label me-2">Завершённые задачи</span><span class="stat-value" id="statTasksCount">0</span></div></div>
         </div>
         <div class="mt-3 d-flex flex-wrap gap-2">
             <button class="btn btn-warning" onclick="runRetention(false)" title="Выполнить архивацию и очистку по политикам хранения"><i class="fas fa-play"></i> Запустить архивацию</button>

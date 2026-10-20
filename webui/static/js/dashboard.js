@@ -35,18 +35,28 @@ function getColors() {
     };
 }
 
-// BUG-265/267 (v3.14.4): доступ к /api/audit/* есть только у admin/auditor.
-// Роль берём из RBAC (main.js), дождавшись готовности сессии; fallback — Auth.me().
+// BUG-265/267/NEW-4 (v3.14.5): доступ к /api/audit/* есть только у admin/auditor.
+// Надёжная проверка через Auth.me() с fallback на RBAC и ожиданием сессии.
 async function checkAuditAccess() {
     try {
         if (window.whenSessionReady) await window.whenSessionReady();
     } catch (e) { /* ignore */ }
-    if (typeof RBAC !== 'undefined' && RBAC.isAuditor) return RBAC.isAuditor();
+
+    // 1) Надёжный источник — Auth.me()
     if (typeof Auth !== 'undefined' && Auth.me) {
-        const me = await Auth.me().catch(() => null);
-        const roles = (me && me.roles) || [];
-        return roles.includes('admin') || roles.includes('auditor');
+        try {
+            const me = await Auth.me();
+            const roles = (me && me.roles) || [];
+            if (roles.includes('admin') || roles.includes('auditor')) return true;
+            if (roles.length) return false;
+        } catch (e) { /* ignore */ }
     }
+
+    // 2) Fallback на RBAC
+    if (typeof RBAC !== 'undefined' && RBAC.isAuditor) {
+        return RBAC.isAuditor();
+    }
+
     return false;
 }
 
@@ -202,15 +212,19 @@ function renderFindingsCharts(findings) {
     }
     const catLabels = Object.keys(catMap);
     const catValues = Object.values(catMap);
-    makeChart('findingsByCategoryChart', {
-        type: 'doughnut',
-        data: {
-            labels: catLabels,
-            datasets: [{ data: catValues, backgroundColor: monoSlice(catLabels.length) }]
-        },
-        // BUG-229 (v3.14.0): адаптив + положение легенды на мобильных.
-        options: { responsive: true, maintainAspectRatio: false, aspectRatio: 1, plugins: { legend: { position: legendPosition() } } }
-    });
+    if (!catLabels.length) {
+        const c = document.getElementById('findingsByCategoryChart');
+        if (c && c.parentElement) c.parentElement.innerHTML = '<div class="text-muted text-center p-4">Нет данных</div>';
+    } else {
+        makeChart('findingsByCategoryChart', {
+            type: 'doughnut',
+            data: {
+                labels: catLabels,
+                datasets: [{ data: catValues, backgroundColor: monoSlice(catLabels.length) }]
+            },
+            options: { responsive: true, maintainAspectRatio: false, aspectRatio: 1, plugins: { legend: { position: legendPosition() } } }
+        });
+    }
 
     const resMap = {};
     for (const f of findings) {
@@ -219,43 +233,58 @@ function renderFindingsCharts(findings) {
         resMap[short] = (resMap[short] || 0) + 1;
     }
     const sorted = Object.entries(resMap).sort((a, b) => b[1] - a[1]).slice(0, 10);
-    makeChart('findingsByResourceChart', {
-        type: 'bar',
-        data: {
-            labels: sorted.map(s => s[0]),
-            datasets: [{ label: '\u041d\u0430\u0445\u043e\u0434\u043a\u0438', data: sorted.map(s => s[1]), backgroundColor: MONO_PALETTE[0] }]
-        },
-        options: {
-            indexAxis: 'y',
-            responsive: true,
-            maintainAspectRatio: false,
-            aspectRatio: 1,
-            plugins: { legend: { display: false } },
-            scales: { x: { beginAtZero: true } }
-        }
-    });
+    if (!sorted.length) {
+        const c = document.getElementById('findingsByResourceChart');
+        if (c && c.parentElement) c.parentElement.innerHTML = '<div class="text-muted text-center p-4">Нет данных</div>';
+    } else {
+        makeChart('findingsByResourceChart', {
+            type: 'bar',
+            data: {
+                labels: sorted.map(s => s[0]),
+                datasets: [{ label: 'Находки', data: sorted.map(s => s[1]), backgroundColor: MONO_PALETTE[0] }]
+            },
+            options: {
+                indexAxis: 'y',
+                responsive: true,
+                maintainAspectRatio: false,
+                aspectRatio: 1,
+                plugins: { legend: { display: false } },
+                scales: { x: { beginAtZero: true } }
+            }
+        });
+    }
 }
 
 function renderAuditCharts(s) {
     const byType = s.by_type || [];
-    makeChart('auditChart', {
-        type: 'bar',
-        data: {
-            labels: byType.map(t => t.type),
-            datasets: [{ label: 'События', data: byType.map(t => t.count), backgroundColor: monoSlice(byType.length) }]
-        },
-        options: { responsive: true, maintainAspectRatio: false, aspectRatio: 1, plugins: { legend: { display: false } }, scales: { y: { beginAtZero: true } } }
-    });
+    if (!byType.length) {
+        const c = document.getElementById('auditChart');
+        if (c && c.parentElement) c.parentElement.innerHTML = '<div class="text-muted text-center p-4">Нет данных</div>';
+    } else {
+        makeChart('auditChart', {
+            type: 'bar',
+            data: {
+                labels: byType.map(t => t.type),
+                datasets: [{ label: 'События', data: byType.map(t => t.count), backgroundColor: monoSlice(byType.length) }]
+            },
+            options: { responsive: true, maintainAspectRatio: false, aspectRatio: 1, plugins: { legend: { display: false } }, scales: { y: { beginAtZero: true } } }
+        });
+    }
 
     const bySource = s.by_source || [];
-    makeChart('auditBySourceChart', {
-        type: 'doughnut',
-        data: {
-            labels: bySource.map(x => x.source),
-            datasets: [{ data: bySource.map(x => x.count), backgroundColor: monoSlice(bySource.length) }]
-        },
-        options: { responsive: true, maintainAspectRatio: false, aspectRatio: 1, plugins: { legend: { position: legendPosition() } } }
-    });
+    if (!bySource.length) {
+        const c = document.getElementById('auditBySourceChart');
+        if (c && c.parentElement) c.parentElement.innerHTML = '<div class="text-muted text-center p-4">Нет данных</div>';
+    } else {
+        makeChart('auditBySourceChart', {
+            type: 'doughnut',
+            data: {
+                labels: bySource.map(x => x.source),
+                datasets: [{ data: bySource.map(x => x.count), backgroundColor: monoSlice(bySource.length) }]
+            },
+            options: { responsive: true, maintainAspectRatio: false, aspectRatio: 1, plugins: { legend: { position: legendPosition() } } }
+        });
+    }
 }
 
 function updateRecentEvents(events) {

@@ -10,6 +10,7 @@ from celery.schedules import crontab
 # Интервал из конфига (retention.interval_hours) используется для
 # интервального режима на больших интервалах; crontab фиксирован на 3:00.
 retention_schedule = crontab(minute=0, hour=3)
+#retention_schedule = crontab(minute='*')
 
 # Sweep расписаний сканера: каждые 2 часа (очередь scanner_tasks).
 scanner_sweep = crontab(minute=0, hour="*/2")

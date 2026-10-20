@@ -69,7 +69,12 @@ async function loadRetention() {
     }
     try {
         const r = await api.get('/api/retention/status');
-        const last = r.last_run ? formatDate(r.last_run) : '—';
+        const last = r.last_run ? formatDate(r.last_run) : (r.last_run === null ? 'Никогда' : '—');
+        // BUG-NEW-6 (v3.14.5): заполняем отдельный элемент lastRun, если есть
+        if (document.getElementById('lastRun')) {
+            const d = r.last_run ? new Date(r.last_run) : null;
+            document.getElementById('lastRun').textContent = d ? d.toLocaleString('ru-RU') : (r.last_run === null ? 'Никогда' : '—');
+        }
         document.getElementById('retentionStatus').textContent =
             'Интервал: ' + (r.interval_hours != null ? r.interval_hours : '—') + ' ч · Последний запуск: ' + last +
             (r.running ? ' · Выполняется…' : '');
@@ -124,6 +129,11 @@ async function changePassword() {
         closeModal('passwordModal');
         ['curPassword', 'newPassword', 'newPassword2'].forEach(id => { document.getElementById(id).value = ''; });
     } catch (e) {
+        // BUG-NEW-5 (v3.14.5): не редиректим на /login при неверном пароле
+        if (e.status === 400 || e.status === 401 || e.status === 403) {
+            showToast(e.message || 'Неверный текущий пароль', 'error');
+            return;
+        }
         showToast('Ошибка: ' + errorToRussian(e.message), 'error');
     }
 }

@@ -11,6 +11,11 @@ const api = {
     _handleErrors(r) {
         if (r.status === 401) {
             if (typeof Auth !== 'undefined') Auth.setToken(null);
+            // BUG-NEW-5 (v3.14.5): не редиректим на /login при смене пароля — обрабатываем в settings.js
+            const endpoint = (r.url || '').toString();
+            if (endpoint.indexOf('/api/auth/change-password') !== -1) {
+                return r;
+            }
             if (window.location.pathname !== '/login') window.location.href = '/login';
         }
         // BUG-213/BUG-256 (v3.14.3): не хватает прав — сообщаем причину и
