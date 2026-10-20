@@ -1,4 +1,4 @@
-# 🧪 DCAP Test Session — Состояние на 18.10.2026
+# 🧪 DCAP Test Session — Состояние на 20.10.2026
 
 > **Мастер-сессия ручного тестирования DCAP v3.14.4**
 > Блок 1 (Smoke) — ✅
@@ -22,6 +22,8 @@
 > **WebUI-прогон: блоки 12–13 — ✅ (v3.14.3)**
 > **53.4f UI hotfix (блоки 15/17: dashboard RBAC, responsive /users//findings) — ✅ v3.14.4**
 > **WebUI-прогон: блоки 14, 16 — ⏳**
+> **Блок 18 (Retention) — ✅ ЗАКРЫТ (v3.14.4, 20.10.2026)**
+> **53.4g (UI hotfix, v3.14.5) — 🔄 в работе**
 
 ---
 
@@ -29,15 +31,15 @@
 
 | Параметр | Значение |
 |----------|----------|
-| **Версия** | v3.14.4 |
+| **Версия** | v3.14.4 (v3.14.5 в работе) |
 | **Целевая версия** | v3.0.0 (релиз) |
-| **Пройдено** | Блоки 1–9; 53.1a–53.3; 53.4a; 53.4a-доп; 53.4a-доп3/4/5; 53.4b; 53.4c/d/e; 53.4e-grafana + hotfix; 53.4e-rbac-hotfix; 53.4f (тест-инфра); **WebUI 1–13** |
-| **Следующий блок** | **Retention (Блок 18)** |
+| **Пройдено** | Блоки 1–9; 53.1a–53.3; 53.4a; 53.4a-доп; 53.4a-доп3/4/5; 53.4b; 53.4c/d/e; 53.4e-grafana + hotfix; 53.4e-rbac-hotfix; 53.4f (тест-инфра); **WebUI 1–13**; **Retention (Блок 18)** |
+| **Следующий блок** | **53.4g (v3.14.5)** — фикс багов, найденных в Блоке 18 и WebUI 14/15/17 |
 | **Auth mode** | hybrid (SPNEGO → JWT fallback) |
 | **Контейнеров** | 15 |
 | **Сканер** | На хосте, `3.14.3`, `S3_*` ENV — ✅ (BUG-148 закрыт в v3.13.39) |
 | **Unit** | **521 passed** (`pytest tests/unit manager/tests -q`, корневой `conftest.py`, без `--basetemp`; +4 — `test_dashboard_v3144.py`) |
-| **E2E** | **51 passed, 13 skipped, 4 failed, 1 error** (стенд `:18000/:18001`, без предусловий); эталон **53 passed, 7 skipped** — при предусловиях (сканер `:9101`, MinIO `:9000`, seed-findings, `auditor`). 53.4f UI hotfix: +4 e2e ✅; фейлы/error — MinIO + seed-findings (BUG-262 этап B). BUG-259/260/261/263, BACKLOG-317, BUG-262 этап A — ✅; CI — BACKLOG-046 (день 55) |
+| **E2E** | **51 passed, 16 skipped, 2 failed, 0 error** (стенд `:18000/:18001`, без предусловий); эталон **53 passed, 7 skipped** — при предусловиях (сканер `:9101`, MinIO `:9000`, seed-findings, `auditor`). 53.4f UI hotfix: +4 e2e ✅; 2 failed — seed-findings (BUG-262 этап B), MinIO — в skipped. BUG-259/260/261/263, BACKLOG-317, BUG-262 этап A — ✅; CI — BACKLOG-046 (день 55) |
 | **Docker Compose** | v5.5.1 |
 
 ---
@@ -48,7 +50,7 @@
 
 ---
 
-## ✅ ЗАКРЫТО В ЭТОЙ СЕССИИ (10–17.10.2026)
+## ✅ ЗАКРЫТО В ЭТОЙ СЕССИИ (10–20.10.2026)
 
 ### 53.4a-доп (v3.13.38)
 *(без изменений)*
@@ -110,6 +112,24 @@
 - Alertmanager: `ScannerInactive` fire → resolve, `scanner_id="1"` в labels.
 - RBAC: Users = 1 (`admin`), Auth Proxy = отсутствует → BACKLOG-307 подтверждён.
 
+### Блок 18 (Retention) — ✅ ЗАКРЫТ (v3.14.4, 20.10.2026)
+- ✅ **Шаг 1:** `/status`, `/policies`, `/stats` — корректные данные (policies: audit_events 90/365/true, findings 180, tasks 30, logs 30/100).
+- ✅ **Шаг 2:** Dry-run — `dry_run: true`, stats не изменились.
+- ✅ **Шаг 3:** Sync run — `findings: 5→0`, `completed_tasks: 1→0`.
+- ✅ **Шаг 4:** Celery (API + Beat) — на основном стенде Beat сработал в `16:01:00`, архивировал 1 находку, удалил 1 задачу, **без Mapper-ошибок**.
+- ✅ **Шаг 5:** Export — `findings_archive_20261020_154149.json` (5 находок).
+- ✅ **Примечание:** на изолированном стенде Celery-воркер не запущен (особенность `docker-compose.test.yml`) — Celery проверен на основном стенде.
+
+### Найдено в мастер-сессии (20.10.2026) — передано в 53.4g (v3.14.5)
+| ID | Название | Severity |
+|----|----------|----------|
+| **BUG-NEW-4** | Dashboard: фикс RBAC не работает (viewer → 403-спам) | 🔴 |
+| **BUG-273** | Dashboard (393px): KPI-карточки вылезают за экран | 🔴 |
+| **BUG-NEW-5** | Settings: редирект на /login при неверном пароле | 🟡 |
+| **BUG-NEW-6** | Settings: не отображается last_run | 🟡 |
+| **BUG-NEW-7** | Settings: CSS-баг (слипшийся текст счётчиков) | 🟢 |
+| **BUG-272** | Dashboard: пустые графики при 0 находок | 🟡 (опц.) |
+
 ---
 
 ## 🔴 ОТКРЫТЫЕ ПРОБЛЕМЫ
@@ -118,6 +138,8 @@
 
 | ID | Название | Фаза |
 |----|----------|------|
+| **BUG-NEW-4** | Dashboard: фикс RBAC не работает (viewer → 403-спам) | 53.4g (v3.14.5) |
+| **BUG-273** | Dashboard (393px): KPI-карточки вылезают за экран | 53.4g (v3.14.5) |
 | **BUG-117** | Manager не маскирует контексты сам | v3.0.0 hotfix (день 56) |
 | **BUG-172** | Нет `permissions` в модели RBAC | архитектура v3.1.0 |
 | **BUG-118** | Auth middleware держит 2 соединения | v3.1.0 |
@@ -129,6 +151,10 @@
 
 | ID | Проблема | ТЗ |
 |----|----------|-----|
+| BUG-NEW-5 | Settings: редирект на /login при неверном пароле | 53.4g (v3.14.5) |
+| BUG-NEW-6 | Settings: не отображается last_run | 53.4g (v3.14.5) |
+| BUG-NEW-7 | Settings: CSS-баг (слипшийся текст) | 53.4g (v3.14.5) |
+| BUG-272 | Dashboard: пустые графики при 0 находок | 53.4g (v3.14.5, опц.) |
 | BUG-123 | Windows-агент: сбор прав | 52.2 |
 | BUG-125 | Linux-агент: MANAGER_URL env | v3.1.0 |
 | BUG-130 | Linux-агент: retry без backoff | v3.1.0 |
@@ -176,6 +202,16 @@
 - ✅ RBAC: отсутствует (BACKLOG-307 подтверждён).
 - ✅ Производительность: `Last 7 days` — быстро (< 2 с).
 
+### Блок 18 (Retention) — ✅ v3.14.4 (20.10.2026)
+
+- ✅ `GET /status` → `{last_run, running: false, enabled: true}`.
+- ✅ `GET /policies` → `audit_events 90/365/true, findings 180, tasks 30, logs 30/100`.
+- ✅ `GET /stats` → `{audit_events, archived_events, findings, completed_tasks}`.
+- ✅ Dry-run → `would_archive: N`, stats не изменились.
+- ✅ Sync run → stats уменьшились на N.
+- ✅ Celery (API + Beat) → архивация, удаление задач, без Mapper-ошибок.
+- ✅ Export → файл (JSON).
+
 ---
 
 ## 🔍 КЛЮЧЕВЫЕ ДИАГНОСТИКИ
@@ -200,6 +236,12 @@
 
 ## 🎯 КЛЮЧЕВЫЕ АРХИТЕКТУРНЫЕ РЕШЕНИЯ
 
+### Retention (20.10.2026)
+- **Порядок шагов:** archive_audit → archive_findings → clean_archive → clean_tasks → export → rotate_logs.
+- **Celery Beat:** `crontab(minute=0, hour=3)` — ежедневно в 03:00 (проверено временным `crontab(minute='*')`).
+- **⚠️ `last_run`:** персистится в `manager/data/retention_state.json`, но у `celery_worker` в compose нет тома (TEST-NOTE-7.2) — в Manager `last_run` от Celery не обновляется.
+- **⚠️ `findings` архивируются всегда** (без гейта `archive_enabled`, TEST-NOTE-7.3). `audit` — только при `archive_enabled: true`.
+
 ### Grafana (17.10.2026)
 - **RBAC:** BACKLOG-307 подтверждён (Users=1, Auth Proxy отсутствует), реализация — **v3.1.0**.
 - **Маппинг:** admin→Admin, auditor→Editor, scanner/viewer→Viewer.
@@ -217,18 +259,13 @@
 
 ## 📋 СЛЕДУЮЩИЕ ШАГИ
 
-### Следующий шаг — Retention (Блок 18)
+### Следующий шаг — 53.4g (UI Hotfix v3.14.5)
 
-**Порядок:**
-1. ~~**Блок 12 (Users)**~~ — ✅ v3.14.3
-2. ~~**Блок 13 (Roles)**~~ — ✅ v3.14.3
-3. **Блок 14 (Settings)** — ⏳ (частично: a11y `username` — BACKLOG-320, v3.14.4).
-4. **Блок 15 (Console)** — ✅ частично (UI hotfix v3.14.4: dashboard RBAC/403).
-5. **Блок 16 (Network)** — ⏳.
-6. **Блок 17 (Responsive)** — ✅ частично (UI hotfix v3.14.4: `/users`, `/findings`).
+**Причина:** В ходе верификации WebUI 14/15/17 и тестирования Retention (Блок 18) найдены новые баги.
+**Задачи:** BUG-NEW-4, BUG-NEW-5, BUG-NEW-6, BUG-NEW-7, BUG-272 (опц.), BUG-273.
+**ТЗ:** `prompts/tz/day_53_4g_ui_hotfix.md`
 
-**Далее:**
-- **Retention (Блок 18).**
+### Далее:
 - **55 (GitHub-пакет):** BACKLOG-028/046.
 - **56 (BUG-117 hotfix).**
 - **57 (релиз v3.0.0).**
@@ -293,18 +330,22 @@
 Продолжаем мастер-сессию DCAP v3.14.4.
 Приложены: STATE_TEST_SESSION.md, STATE.md, ROADMAP.md, ARCHITECTURE.md, docs/DESIGN.md.
 
-Пройдено: Блоки 1–9; 53.1a–53.3; 53.4a; 53.4a-доп; 53.4a-доп3/4/5; 53.4b; 53.4c/d/e; 53.4e-grafana + hotfix; 53.4e-rbac-hotfix; 53.4f тест-инфра; 53.4f UI hotfix; WebUI-прогон (блоки 1–13, частично 15/17).
+Пройдено: Блоки 1–9; 53.1a–53.3; 53.4a; 53.4a-доп; 53.4a-доп3/4/5; 53.4b; 53.4c/d/e; 53.4e-grafana + hotfix; 53.4e-rbac-hotfix; 53.4f тест-инфра; 53.4f UI hotfix; WebUI-прогон (блоки 1–13, частично 15/17); **Блок 18 (Retention)**.
 Закрыты в v3.14.2: BUG-245/246/247/236/241/243/239.
 Закрыты в v3.14.3: BUG-253/254/255/256/257/258, BACKLOG-316.
 Закрыты в v3.14.4: BUG-265/266/267/270/271, BACKLOG-320/321/324.
 Подтверждён: BACKLOG-307 (RBAC Grafana — v3.1.0).
 Новые 🟢: BUG-248 (`Celery tasks (total)`), BUG-249 (`PostgreSQL connections`).
 
-Следующий: Retention (Блок 18).
+**Блок 18 (Retention) — ✅ ЗАКРЫТ (v3.14.4, 20.10.2026):** status/policies/stats, dry-run, sync run, Celery (API + Beat), export — все проверены.
+
+Найдены новые баги: BUG-NEW-4 (dashboard RBAC), BUG-NEW-5 (settings password), BUG-NEW-6 (settings last_run), BUG-NEW-7 (settings CSS), BUG-273 (responsive KPI), BUG-272 (пустые графики).
+
+Следующий: **53.4g (v3.14.5)** — хотфикс новых багов.
 Затем — 55 (GitHub) → 56 (BUG-117) → 57 (релиз v3.0.0).
 
 Unit: 521 passed (`pytest tests/unit manager/tests -q`).
-E2E: 51 passed, 13 skipped, 4 failed, 1 error (стенд `:18000/:18001`, без предусловий);
+E2E: 51 passed, 16 skipped, 2 failed, 0 error (стенд `:18000/:18001`, без предусловий);
 53/7 — при предусловиях (сканер :9101, MinIO :9000, seed, auditor).
 BUG-259/260/261/263, BACKLOG-317, BUG-262 этап A — ✅.
 Стек: v3.14.4 (Docker Compose v5.5.1). Scanner (host): 3.14.4.
@@ -313,4 +354,4 @@ BUG-259/260/261/263, BACKLOG-317, BUG-262 этап A — ✅.
 
 ---
 
-**Конец STATE_TEST_SESSION.md** — актуализирован под v3.14.4 (18.10.2026, e2e 51/13/4+1)
+**Конец STATE_TEST_SESSION.md** — актуализирован под v3.14.4 (20.10.2026, Блок 18 закрыт, 53.4g в работе)
