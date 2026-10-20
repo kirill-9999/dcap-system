@@ -32,12 +32,12 @@
 | **Версия** | v3.14.4 |
 | **Целевая версия** | v3.0.0 (релиз) |
 | **Пройдено** | Блоки 1–9; 53.1a–53.3; 53.4a; 53.4a-доп; 53.4a-доп3/4/5; 53.4b; 53.4c/d/e; 53.4e-grafana + hotfix; 53.4e-rbac-hotfix; 53.4f (тест-инфра); **WebUI 1–13** |
-| **Следующий блок** | **Верификация WebUI 14–17** (Settings, Console, Network, Responsive) |
+| **Следующий блок** | **Retention (Блок 18)** |
 | **Auth mode** | hybrid (SPNEGO → JWT fallback) |
 | **Контейнеров** | 15 |
 | **Сканер** | На хосте, `3.14.3`, `S3_*` ENV — ✅ (BUG-148 закрыт в v3.13.39) |
 | **Unit** | **521 passed** (`pytest tests/unit manager/tests -q`, корневой `conftest.py`, без `--basetemp`; +4 — `test_dashboard_v3144.py`) |
-| **E2E** | **51 passed, 13 skipped, 4 failed, 1 error** (стенд `:18000/:18001`, без предусловий); эталон **53 passed, 7 skipped** — при предусловиях (сканер `:9101`, MinIO `:9000`, seed-findings, `auditor`). 53.4f UI hotfix: +4 e2e ✅; фейлы/ошибка — предусловия (MinIO/seed). BUG-259/260/261/263, BACKLOG-317, BUG-262 этап A — ✅; CI — BACKLOG-046 (день 55) |
+| **E2E** | **51 passed, 13 skipped, 4 failed, 1 error** (стенд `:18000/:18001`, без предусловий); эталон **53 passed, 7 skipped** — при предусловиях (сканер `:9101`, MinIO `:9000`, seed-findings, `auditor`). 53.4f UI hotfix: +4 e2e ✅; фейлы/error — MinIO + seed-findings (BUG-262 этап B). BUG-259/260/261/263, BACKLOG-317, BUG-262 этап A — ✅; CI — BACKLOG-046 (день 55) |
 | **Docker Compose** | v5.5.1 |
 
 ---
@@ -245,12 +245,12 @@
 
 | Компонент | Версия | Статус |
 |-----------|--------|--------|
-| Manager | `dcap/manager:3.14.3` | healthy |
-| WebUI | `dcap/webui:3.14.3` | healthy |
-| Celery worker/beat | `dcap/manager:3.14.3` | healthy |
+| Manager | `dcap/manager:3.14.4` | healthy |
+| WebUI | `dcap/webui:3.14.4` | healthy |
+| Celery worker/beat | `dcap/manager:3.14.4` | healthy |
 | Postgres | 16-alpine | healthy |
 | Redis | 7-alpine | healthy |
-| Scanner | v3.14.3 (host) | running |
+| Scanner | v3.14.4 (host) | running |
 | MinIO | native `localhost:9000` | running |
 | Grafana | `:3000` | ✅ протестирована (v3.14.2) |
 | Prometheus | `:9090` | healthy (5/5 up) |
@@ -313,4 +313,4 @@ BUG-259/260/261/263, BACKLOG-317, BUG-262 этап A — ✅.
 
 ---
 
-**Конец STATE_TEST_SESSION.md** — актуализирован под v3.14.4 (18.10.2026)
+**Конец STATE_TEST_SESSION.md** — актуализирован под v3.14.4 (18.10.2026, e2e 51/13/4+1)

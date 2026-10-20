@@ -70,7 +70,7 @@
 | BUG-259 | `test_ad_permissions` — `ModuleNotFoundError` в combined-прогоне | ✅ v3.14.3 |
 | BUG-260 | Windows: `PermissionError` на `pytest-current` | ✅ v3.14.3 |
 | BUG-261 | `test_archiver_findings` — `TypeError` (устаревшая схема `Finding`) | ✅ v3.14.3 |
-| BUG-262 | E2E-эталон не воспроизводим без предусловий (47/12/6 vs 53/7) | 🟡 этап A ✅ (v3.14.3); этап B — до 55 |
+| BUG-262 | E2E-эталон не воспроизводим без предусловий (51/13/4+1 error vs 53/7) | 🟡 этап A ✅ (v3.14.3); этап B — до 55 |
 | BUG-263 | `test_webui_block5_v31322` — `X-Total-Count=0`, `loadFilterOptions` только в `audit.js` | ✅ v3.14.3 (`loadFilterOptions` — тест-инфра, не UI; `X-Total-Count` — BUG-262 этап B) |
 | BACKLOG-317 | `docker-compose.test.yml` — общее имя проекта сносит основной стек | ✅ v3.14.3 (`name: dcap-test`) |
 | BACKLOG-046 | Полный E2E-прогон на CI | день 55 |
@@ -116,6 +116,15 @@
 - BACKLOG-325 — затемнение overlay уже в `main.css` (`rgba(0,0,0,.5)`), правок не требовалось.
 - Unit-команда: `pytest tests/unit manager/tests -q` → **521 passed** (было 517; +4 новых).
 
+**Факт E2E (2026-10-18, стенд `:18000/:18001`, предусловия не выполнены):**
+- `51 passed, 13 skipped, 4 failed, 1 error` (собрано 69).
+- 4 failed — `test_s3_e2e.py::test_s3_scan_full_cycle`,
+  `::test_s3_resource_cleanup_removes_findings` (MinIO `:9000`),
+  `test_webui_block5_v31322::test_proxy_forwards_total_count`,
+  `::test_findings_filters_csv_and_empty` (seed-findings, BUG-262 этап B);
+  1 error — `test_s3_scan_v31341.py::test_s3_scan_returns_files_and_findings` (MinIO).
+- Эталон `53/7` — при предусловиях (сканер `:9101`, MinIO `:9000`, seed, auditor).
+
 **Grafana (решения 17.10.2026):**
 - **RBAC:** подтверждён BACKLOG-307, реализация — **v3.1.0** (Auth Proxy, `X-WEBAUTH-USER`). Маппинг: admin→Admin, auditor→Editor, scanner/viewer→Viewer.
 - **Тестирование:** TEST-NOTE-8.1…8.6 — **✅**.
@@ -137,7 +146,7 @@
 9. **BUG-263** — ✅ закрыт (v3.14.3, 53.4f): тест проверяет `/static/js/audit.js` + `loadFilterOptions` в JS; UI корректен.
 10. **BUG-262** — этап A ✅; этап B (seed + маркеры `requires_minio`/`requires_seed`) — до 55; этап C (CI) — BACKLOG-046 (день 55).
 11. **BACKLOG-317** — ✅ `name: dcap-test`; перед `down` стенда убеждаться, что project name отличается от основного.
-12. **UI hotfix v3.14.4** — ✅ BUG-265/266/267/270/271, BACKLOG-320/321/324 (BACKLOG-325 — закрыт ранее); BACKLOG-326 (карточки users на 393px) — v3.1.0.
+12. **UI hotfix v3.14.4** — ✅ BUG-265/266/267/270/271, BACKLOG-320/321/324 (BACKLOG-325 — закрыт ранее); карточки users на 393px (Вариант B из отчёта 53.4f, ID BACKLOG-326 не заведён в ROADMAP) — v3.1.0.
 
 ---
 
