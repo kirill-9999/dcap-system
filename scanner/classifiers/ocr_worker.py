@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+﻿#!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
 OCR Worker - отдельный процесс для Tesseract OCR
@@ -13,9 +13,52 @@ import hashlib
 from queue import Empty
 import multiprocessing as mp
 from multiprocessing import Queue, Process
+from typing import Dict, Any, Optional
 from pathlib import Path
 from typing import Dict, Optional, Tuple
 from collections import OrderedDict
+from functools import lru_cache
+
+
+@lru_cache(maxsize=1)
+def _find_tesseract_cached() -> str:
+    for env_var in ("TESSERACT_PATH", "TESSERACT_CMD"):
+        env_cmd = os.environ.get(env_var, "")
+        if env_cmd and os.path.exists(env_cmd):
+            return env_cmd
+    possible_paths = [
+        r"D:\dev\Tesseract-OCR\tesseract.exe",
+        r"E:\Program Files\Tesseract-OCR\tesseract.exe",
+        r"C:\Program Files\Tesseract-OCR\tesseract.exe",
+        r"C:\Program Files (x86)\Tesseract-OCR\tesseract.exe",
+    ]
+    for path in possible_paths:
+        if os.path.exists(path):
+            return path
+    try:
+        result = subprocess.run(['where', 'tesseract'], capture_output=True, text=True, encoding='utf-8', errors='replace', timeout=3, shell=True)
+        if result.returncode == 0 and result.stdout.strip():
+            return result.stdout.strip().split('\n')[0]
+    except Exception:
+        pass
+    return 'tesseract'
+
+
+@lru_cache(maxsize=1)
+def _detect_langs_cached(tesseract_cmd: str) -> str:
+    try:
+        result = subprocess.run([tesseract_cmd, '--list-langs'], capture_output=True, text=True, encoding='utf-8', errors='replace', timeout=5, shell=False)
+        if result.returncode == 0:
+            langs = result.stdout
+            if 'rus' in langs and 'eng' in langs:
+                return 'rus+eng'
+            elif 'rus' in langs:
+                return 'rus'
+            elif 'eng' in langs:
+                return 'eng'
+    except Exception:
+        pass
+    return 'rus+eng'
 
 
 class OCRWorker:
@@ -31,8 +74,15 @@ class OCRWorker:
         self._stats = {"processed": 0, "errors": 0, "cache_hits": 0, "ocr_time": 0.0}
     
     def _find_tesseract(self) -> str:
-        """Поиск tesseract.exe в системе"""
-        # Проверяем обе переменные окружения (TESSERACT_PATH и TESSERACT_CMD)
+        """     tesseract.exe  """
+        try:
+            cmd = _find_tesseract_cached()
+            if cmd and os.path.exists(cmd):
+                print(f"[OCR_WORKER] Found via cached: {cmd}")
+                return cmd
+        except Exception:
+            pass
+        #     (   )
         for env_var in ("TESSERACT_PATH", "TESSERACT_CMD"):
             env_cmd = os.environ.get(env_var, "")
             if env_cmd and os.path.exists(env_cmd):
@@ -45,12 +95,12 @@ class OCRWorker:
             r'C:\Program Files\Tesseract-OCR\tesseract.exe',
             r'C:\Program Files (x86)\Tesseract-OCR\tesseract.exe',
         ]
-        
+
         for path in possible_paths:
             if os.path.exists(path):
                 print(f"[OCR_WORKER] Found Tesseract: {path}")
                 return path
-        
+
         try:
             result = subprocess.run(
                 ['where', 'tesseract'],
@@ -65,12 +115,16 @@ class OCRWorker:
                 return path
         except:
             pass
-        
+
         print(f"[OCR_WORKER] WARNING: Tesseract not found, using 'tesseract' from PATH")
         return 'tesseract'
     
     def _detect_languages(self) -> str:
         """Определение доступных языков"""
+        try:
+            return _detect_langs_cached(self._tesseract_cmd)
+        except Exception:
+            pass
         try:
             result = subprocess.run(
                 [self._tesseract_cmd, '--list-langs'],

@@ -1,9 +1,42 @@
-#!/usr/bin/env python3
+﻿#!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
 DCAP Agent - OCR Engine для Windows с нативным Tesseract
 """
 
+from functools import lru_cache
+import os
+import subprocess
+
+@lru_cache(maxsize=1)
+def _get_tesseract_path():
+    for env_var in ("TESSERACT_PATH","TESSERACT_CMD"):
+        env_cmd = os.environ.get(env_var,"")
+        if env_cmd and os.path.exists(env_cmd):
+            return env_cmd
+    try:
+        r = subprocess.run(["where","tesseract"], capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=3, shell=True)
+        if r.returncode == 0 and r.stdout.strip():
+            return r.stdout.strip().splitlines()[0].strip()
+    except Exception:
+        pass
+    return "tesseract"
+
+@lru_cache(maxsize=1)
+def _get_tesseract_langs(cmd):
+    try:
+        r = subprocess.run([cmd,"--list-langs"], capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=5, shell=False)
+        if r.returncode == 0 and r.stdout:
+            t = r.stdout
+            if "rus" in t and "eng" in t:
+                return "rus+eng"
+            if "rus" in t:
+                return "rus"
+            if "eng" in t:
+                return "eng"
+    except Exception:
+        pass
+    return "rus+eng"
 import subprocess
 import tempfile
 import time

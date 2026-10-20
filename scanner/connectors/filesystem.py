@@ -175,15 +175,40 @@ class FilesystemConnector:
             return [str(folder.absolute())]
 
         result = []
-        for r, dirs, files in os.walk(str(folder)):
-            if not self._recursive:
-                dirs.clear()
-            dirs[:] = [d for d in dirs if d not in self._skip_dirs]
-            for f in files:
-                file_path = Path(r) / f
-                # Расширение в списке или имя файла в credential-именах
-                if self._is_supported(file_path):
-                    result.append(str(file_path.absolute()))
+        try:
+            stack = [str(folder.absolute())]
+            while stack:
+                current = stack.pop()
+                try:
+                    with os.scandir(current) as it:
+                        for entry in it:
+                            try:
+                                if entry.is_dir(follow_symlinks=False):
+                                    name = entry.name
+                                    if name in self._skip_dirs:
+                                        continue
+                                    if not self._recursive and current != str(folder.absolute()):
+                                        continue
+                                    stack.append(entry.path)
+                                    continue
+                                if entry.is_file(follow_symlinks=False):
+                                    file_path = Path(entry.path)
+                                    if self._is_supported(file_path):
+                                        result.append(str(file_path.absolute()))
+                            except Exception:
+                                continue
+                except Exception:
+                    continue
+        except Exception:
+            # fallback
+            for r, dirs, files in os.walk(str(folder)):
+                if not self._recursive:
+                    dirs.clear()
+                dirs[:] = [d for d in dirs if d not in self._skip_dirs]
+                for f in files:
+                    file_path = Path(r) / f
+                    if self._is_supported(file_path):
+                        result.append(str(file_path.absolute()))
         return result
 
     def _is_supported(self, file_path: Path) -> bool:
