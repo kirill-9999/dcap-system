@@ -11,11 +11,37 @@
 источника (FS/ S3/...) остаётся в коннекторе.
 """
 import logging
+import threading
 from typing import Any, List, Optional
 
 from scanner.src.finding import Finding
 
 logger = logging.getLogger("dcap-scanner")
+
+# 53.4k (v3.14.9): singleton DocumentExtractor для linewise-пути.
+# Раньше extract_document_text() создавал новый DocumentExtractor (а внутри —
+# новый OCREngine: subprocess 'where tesseract' + '--list-langs' + отдельный
+# temp-каталог) на КАЖДЫЙ файл → 3 subprocess на файл. Теперь экстрактор
+# переиспользуется на весь процесс скана. OCREngine внутри потокобезопасен
+# (семафор в ocr_image), DocumentExtractor хранит лишь счётчики OCR.
+_EXTRACTOR_CACHE: dict = {}
+_EXTRACTOR_CACHE_LOCK = threading.Lock()
+
+
+def _get_document_extractor(temp_dir, ocr_enabled: bool):
+    """Вернуть (пере)используемый DocumentExtractor по ключу (temp_dir, ocr_enabled)."""
+    from utils.document_extractor import DocumentExtractor
+
+    key = (str(temp_dir), bool(ocr_enabled))
+    ex = _EXTRACTOR_CACHE.get(key)
+    if ex is not None:
+        return ex
+    with _EXTRACTOR_CACHE_LOCK:
+        ex = _EXTRACTOR_CACHE.get(key)
+        if ex is None:
+            ex = DocumentExtractor(temp_dir=temp_dir, ocr_enabled=ocr_enabled)
+            _EXTRACTOR_CACHE[key] = ex
+    return ex
 
 
 # Текстовые расширения по умолчанию (день 40.2)
@@ -202,13 +228,12 @@ def extract_document_text(
     OCR — пишем WARNING (не молчаливая потеря).
     """
     try:
-        from utils.document_extractor import DocumentExtractor
         import tempfile as _tf
         from pathlib import Path as _P
 
-        extractor = DocumentExtractor(
-            temp_dir=_P(_tf.gettempdir()),
-            ocr_enabled=ocr_enabled,
+        extractor = _get_document_extractor(
+            _P(_tf.gettempdir()),
+            ocr_enabled,
         )
         result, error = extractor.extract_text(content, ext, filename)
         if ocr_enabled and not result and error:

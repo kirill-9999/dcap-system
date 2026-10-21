@@ -8,24 +8,40 @@ from functools import lru_cache
 import os
 import subprocess
 
+# 53.4k (v3.14.9): детекция tesseract/языков кэшируется на процесс (@lru_cache).
+# Раньше OCREngine создавался на каждый файл → 'where tesseract' + '--list-langs'
+# вызывались многократно (см. отчёт 53.4k Фаза 2: 3 subprocess/файл).
+
+
 @lru_cache(maxsize=1)
 def _get_tesseract_path():
-    for env_var in ("TESSERACT_PATH","TESSERACT_CMD"):
-        env_cmd = os.environ.get(env_var,"")
+    for env_var in ("TESSERACT_PATH", "TESSERACT_CMD"):
+        env_cmd = os.environ.get(env_var, "")
         if env_cmd and os.path.exists(env_cmd):
             return env_cmd
     try:
-        r = subprocess.run(["where","tesseract"], capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=3, shell=True)
+        r = subprocess.run(["where", "tesseract"], capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=3, shell=True)
         if r.returncode == 0 and r.stdout.strip():
             return r.stdout.strip().splitlines()[0].strip()
     except Exception:
         pass
+    possible_paths = [
+        r'D:\dev\Tesseract-OCR\tesseract.exe',
+        r'E:\Program Files\Tesseract-OCR\tesseract.exe',
+        r'C:\Program Files\Tesseract-OCR\tesseract.exe',
+        r'C:\Program Files (x86)\Tesseract-OCR\tesseract.exe',
+        r'C:\Users\{}\AppData\Local\Programs\Tesseract-OCR\tesseract.exe'.format(os.environ.get('USERNAME', '')),
+    ]
+    for path in possible_paths:
+        if os.path.exists(path):
+            return path
     return "tesseract"
+
 
 @lru_cache(maxsize=1)
 def _get_tesseract_langs(cmd):
     try:
-        r = subprocess.run([cmd,"--list-langs"], capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=5, shell=False)
+        r = subprocess.run([cmd, "--list-langs"], capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=5, shell=False)
         if r.returncode == 0 and r.stdout:
             t = r.stdout
             if "rus" in t and "eng" in t:
@@ -37,14 +53,14 @@ def _get_tesseract_langs(cmd):
     except Exception:
         pass
     return "rus+eng"
-import subprocess
+
+
 import tempfile
 import time
 import threading
 import hashlib
 import uuid
 import platform
-import os
 from pathlib import Path
 from typing import Optional
 from collections import deque
@@ -83,70 +99,20 @@ class OCREngine:
         print(f"[OCR] Languages: {self._languages}")
     
     def _find_tesseract(self) -> str:
-        """Поиск Tesseract в системе Windows"""
-        # Переменная окружения TESSERACT_PATH имеет приоритет
-        env_path = os.environ.get('TESSERACT_PATH')
-        if env_path and os.path.exists(env_path):
-            print(f"[OCR] Found via TESSERACT_PATH: {env_path}")
-            return env_path
+        """Поиск Tesseract (53.4k v3.14.9: через @lru_cache — subprocess 1 раз на процесс).
 
-        # Проверка через where
-        try:
-            result = subprocess.run(
-                ['where', 'tesseract'],
-                capture_output=True,
-                text=True, encoding="utf-8", errors="replace",
-                timeout=5,
-                shell=True
-            )
-            if result.returncode == 0 and result.stdout.strip():
-                path = result.stdout.strip().split('\n')[0]
-                print(f"[OCR] Found via 'where': {path}")
-                return path
-        except:
-            pass
-        
-        # Стандартные пути установки
-        possible_paths = [
-            r'D:\dev\Tesseract-OCR\tesseract.exe',
-            r'E:\Program Files\Tesseract-OCR\tesseract.exe',
-            r'C:\Program Files\Tesseract-OCR\tesseract.exe',
-            r'C:\Program Files (x86)\Tesseract-OCR\tesseract.exe',
-            r'C:\Users\{}\AppData\Local\Programs\Tesseract-OCR\tesseract.exe'.format(os.environ.get('USERNAME', '')),
-        ]
-        
-        # Проверка стандартных путей
-        for path in possible_paths:
-            if os.path.exists(path):
-                print(f"[OCR] Found at: {path}")
-                return path
-        
-        # Fallback
-        print(f"[OCR] WARNING: Tesseract not found, using 'tesseract' from PATH")
-        return 'tesseract'
-    
+        Раньше 'where tesseract' вызывался на каждом OCREngine (на каждый файл) —
+        см. отчёт 53.4k Фаза 2. Теперь результат детекции кэшируется на процесс.
+        """
+        cmd = _get_tesseract_path()
+        print(f"[OCR] Tesseract path: {cmd}")
+        return cmd
+
     def _detect_languages(self) -> str:
-        """Определение доступных языков"""
-        try:
-            result = subprocess.run(
-                [self._tesseract_cmd, '--list-langs'],
-                capture_output=True,
-                text=True,
-                encoding='utf-8',
-                errors='replace',
-                timeout=10,
-                shell=False
-            )
-            if result.returncode == 0:
-                langs = result.stdout
-                print(f"[OCR] Available languages: {langs[:200]}")
-                if 'rus' in langs:
-                    return 'rus+eng'
-                return 'eng'
-        except Exception as e:
-            print(f"[OCR] Language detection failed: {e}")
-        
-        return 'rus+eng'
+        """Определение языков (53.4k v3.14.9: через @lru_cache — '--list-langs' 1 раз)."""
+        langs = _get_tesseract_langs(self._tesseract_cmd)
+        print(f"[OCR] Languages: {langs}")
+        return langs
     
     def _cleanup_temp_files(self):
         """Очистка временных файлов ТОЛЬКО этого экземпляра (BUG-137).
