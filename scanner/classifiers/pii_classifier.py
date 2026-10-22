@@ -47,6 +47,13 @@ CATEGORY_PRIORITY: Dict[str, int] = {
     "unknown": 0,
 }
 
+# 53.4l (v3.14.10): entity-типы Presidio, которые приходят из spaCy NER.
+# Их категории (person/location/organization/date_time/nrp) НЕ маскируются
+# (ARCHITECTURE.md, MASK_RULES: person — «не маскируется (по решению)»),
+# но на синтетических PII-файлах давали 99.9% находок (666 136 из 666 136
+# на 1000 файлах) и удваивали время анализа.
+NER_ENTITY_TYPES = ("PERSON", "LOCATION", "ORGANIZATION", "DATE_TIME", "NRP")
+
 
 class PiiClassifier(IClassifier):
     """PII классификатор на основе Presidio с локальными моделями"""
@@ -118,6 +125,49 @@ class PiiClassifier(IClassifier):
         # В день 40.2 заменён пулом движков (_get_analyzer), лок оставлен
         # как fallback для единичного движка (self._analyzers пуст).
         self._analyzer_lock = threading.Lock()
+
+        # 53.4l (v3.14.10): NER-категории (PERSON/LOCATION/ORGANIZATION/
+        # DATE_TIME/NRP) — spaCy-шум, не маскируется (ARCHITECTURE.md: person
+        # «не маскируется (по решению)»), но давал 99.9% находок (finding-взрыв).
+        # При ner_enabled=False они исключаются из analyze() и отключаются
+        # компоненты spaCy parser/ner → анализ вдвое быстрее.
+        self._ner_enabled: bool = False
+        self._excluded_entities: List[str] = list(NER_ENTITY_TYPES)
+        self._analyze_entities: Optional[List[str]] = None
+
+    def _apply_entity_filter(self, analyzer: AnalyzerEngine) -> None:
+        """Вычислить список entity-типов для analyze() и подрезать spaCy-пайплайн.
+
+        53.4l (v3.14.10): при ner_enabled=False:
+        - из analyze() исключаются NER-entity (PERSON/LOCATION/ORGANIZATION/
+          DATE_TIME/NRP) — они не маскируются и составляли 99.9% находок;
+        - в spaCy отключаются компоненты parser и ner (результаты NER не нужны,
+          parser Presidio не использует) → анализ файла ~2.7 раза быстрее.
+        """
+        if self._ner_enabled:
+            self._analyze_entities = None
+            return
+
+        excluded = set(self._excluded_entities or [])
+        try:
+            supported = list(analyzer.get_supported_entities())
+        except Exception:
+            supported = []
+        if supported:
+            self._analyze_entities = [e for e in supported if e not in excluded]
+
+        # Подрезка spaCy-пайплайна (только для созданного движка).
+        try:
+            nlp_map = getattr(analyzer.nlp_engine, "nlp", None)
+            if isinstance(nlp_map, dict):
+                for _lang, _nlp in nlp_map.items():
+                    for _comp in ("parser", "ner"):
+                        try:
+                            _nlp.disable_pipe(_comp)
+                        except Exception:
+                            pass
+        except Exception as e:
+            logger.debug("[PII] не удалось подрезать spaCy-пайплайн: %s", e)
 
     def _get_analyzer(self) -> Tuple[Optional[AnalyzerEngine], Optional[threading.Lock]]:
         """Возвращает (движок Presidio, лок) для текущего потока.
@@ -342,6 +392,16 @@ class PiiClassifier(IClassifier):
         
         self.config = config
         self._timeout = config.get("worker_timeout", 60.0)
+
+        # 53.4l (v3.14.10): NER-категории (person/location/organization/
+        # date_time/nrp) — не маскируются (ARCHITECTURE.md) и давали 99.9%
+        # находок. ner_enabled=true — вернуть прежнее поведение.
+        self._ner_enabled = bool(config.get("ner_enabled", False))
+        excluded = config.get("excluded_entities")
+        if excluded:
+            self._excluded_entities = [str(e).upper() for e in excluded]
+        else:
+            self._excluded_entities = list(NER_ENTITY_TYPES)
         
         # Инициализация Presidio с локальными моделями
         try:
@@ -365,6 +425,8 @@ class PiiClassifier(IClassifier):
                 )
                 # Добавляем кастомные распознаватели для РФ
                 self._add_custom_recognizers(analyzer)
+                # 53.4l (v3.14.10): фильтр NER-entity + подрезка spaCy-пайплайна
+                self._apply_entity_filter(analyzer)
                 # (движок, лок) — движок может использоваться несколькими
                 # потоками при пуле меньше числа воркеров, лок страхует.
                 self._analyzers.append((analyzer, threading.Lock()))
@@ -373,6 +435,13 @@ class PiiClassifier(IClassifier):
             self._analyzer = self._analyzers[0][0]
 
             print(f"[PII] [OK] Presidio инициализирован с локальными моделями (пул: {pool_size})")
+            if self._analyze_entities is not None:
+                print(
+                    f"[PII] [OK] NER-категории отключены (исключены: "
+                    f"{', '.join(self._excluded_entities)}), spaCy parser/ner off"
+                )
+            else:
+                print("[PII] [OK] NER-категории включены (ner_enabled=true)")
             
         except Exception as e:
             print(f"[PII] [ERROR] Ошибка инициализации Presidio: {e}")
@@ -411,8 +480,10 @@ class PiiClassifier(IClassifier):
                     # TASK-030 (BUG-063): двухпроходный ru+en — Presidio регистрирует
                     # CREDIT_CARD и US-паттерны только для en; кредитки в ru-тексте
                     # без en-пасса не детектируются.
-                    results_ru = analyzer.analyze(text=line, language="ru")
-                    results_en = analyzer.analyze(text=line, language="en")
+                    results_ru = analyzer.analyze(
+                        text=line, language="ru", entities=self._analyze_entities)
+                    results_en = analyzer.analyze(
+                        text=line, language="en", entities=self._analyze_entities)
                     results = list({
                         (r.entity_type, r.start, r.end): r
                         for r in (results_ru + results_en)
@@ -503,8 +574,10 @@ class PiiClassifier(IClassifier):
                 with analyzer_lock:
                     # TASK-030 (BUG-063): двухпроходный ru+en — CREDIT_CARD и
                     # US-сущности Presidio живут только в en-проходе.
-                    results_ru = analyzer.analyze(text=text, language="ru")
-                    results_en = analyzer.analyze(text=text, language="en")
+                    results_ru = analyzer.analyze(
+                        text=text, language="ru", entities=self._analyze_entities)
+                    results_en = analyzer.analyze(
+                        text=text, language="en", entities=self._analyze_entities)
                     results = list({
                         (r.entity_type, r.start, r.end): r
                         for r in (results_ru + results_en)
@@ -967,6 +1040,7 @@ class PiiClassifier(IClassifier):
                     pass_results = self._analyzer.analyze(
                         text=text,
                         language=lang,
+                        entities=self._analyze_entities,
                     )
                 for r in pass_results:
                     key = (r.entity_type, r.start, r.end)

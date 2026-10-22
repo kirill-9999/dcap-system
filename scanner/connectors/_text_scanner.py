@@ -12,7 +12,7 @@
 """
 import logging
 import threading
-from typing import Any, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 from scanner.src.finding import Finding
 
@@ -130,6 +130,65 @@ def file_pass_prefilter(text: str, classifiers: List[Any]) -> bool:
     return False
 
 
+def dedup_findings_by_file(findings: List[Finding]) -> List[Finding]:
+    """Дедуп находок в рамках одного файла (53.4l, v3.14.10).
+
+    Одно и то же совпадение (category + match_text), встречающееся в файле
+    многократно, схлопывается в одну находку. Все вхождения сохраняются в
+    metadata["locations"] (line/context_before/context_after/start_pos/end_pos),
+    line_number находки = первое вхождение.
+
+    Зачем: без дедупа на синтетических PII-файлах («Иванов Иван, 12.05.1990,
+    Москва») каждая строка даёт отдельную находку — до 600+ находок на файл
+    (finding-взрыв). После дедупа — одна находка на уникальное совпадение.
+    """
+    if not findings:
+        return findings
+
+    groups: Dict[Tuple[str, str], List[Finding]] = {}
+    for f in findings:
+        key = (
+            getattr(f, "category", "") or "",
+            getattr(f, "match_text", "") or "",
+        )
+        groups.setdefault(key, []).append(f)
+
+    deduped: List[Finding] = []
+    for items in groups.values():
+        try:
+            first = min(
+                items,
+                key=lambda x: (
+                    int(getattr(x, "line_number", 0) or 0),
+                    int(getattr(x, "start_pos", 0) or 0),
+                ),
+            )
+        except Exception:
+            first = items[0]
+
+        locations = []
+        for it in items:
+            locations.append({
+                "line": getattr(it, "line_number", None),
+                "context_before": getattr(it, "context_before", "") or "",
+                "context_after": getattr(it, "context_after", "") or "",
+                "start_pos": getattr(it, "start_pos", None),
+                "end_pos": getattr(it, "end_pos", None),
+            })
+        try:
+            locations.sort(key=lambda x: (x.get("line") or 0, x.get("start_pos") or 0))
+        except Exception:
+            pass
+
+        if not getattr(first, "metadata", None):
+            first.metadata = {}
+        first.metadata["locations"] = locations
+        first.metadata["locations_count"] = len(locations)
+        deduped.append(first)
+
+    return deduped
+
+
 def scan_text(
     text: str,
     classifiers: List[Any],
@@ -209,6 +268,10 @@ def scan_text(
                 finding.fragment_path = file_path
                 findings.append(finding)
 
+    # 53.4l (v3.14.10): дедуп в рамках файла — одно совпадение = одна находка,
+    # все вхождения в metadata["locations"].
+    findings = dedup_findings_by_file(findings)
+
     return findings
 
 
@@ -256,5 +319,6 @@ __all__ = [
     "decode_text_bytes",
     "file_pass_prefilter",
     "scan_text",
+    "dedup_findings_by_file",
     "extract_document_text",
 ]

@@ -24,7 +24,9 @@
             "enabled": true,
             "min_confidence": 0.3,
             "ocr_enabled": true,
-            "analyzer_pool_size": 4
+            "analyzer_pool_size": 4,
+            "ner_enabled": false,
+            "excluded_entities": ["PERSON", "LOCATION", "ORGANIZATION", "DATE_TIME", "NRP"]
         },
         "credentials_classifier": {
             "enabled": true,

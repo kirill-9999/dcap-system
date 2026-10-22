@@ -8,7 +8,7 @@ import json
 import os
 import sys
 from pathlib import Path
-from typing import Dict, Any, Optional
+from typing import Dict, Any, List, Optional
 from dataclasses import dataclass, field
 from datetime import datetime
 
@@ -125,9 +125,19 @@ class PiiConfig:
     max_file_size_mb: int = 100
     quick_filter_enabled: bool = True
     analyzer_pool_size: int = 0  # 0 = авто (по числу воркеров коннектора)
-    
+    # 53.4l (v3.14.10): NER-категории (person/location/organization/date_time/nrp)
+    # не маскируются (ARCHITECTURE.md), но давали 99.9% находок. ner_enabled=false
+    # исключает их из анализа и отключает spaCy parser/ner.
+    ner_enabled: bool = False
+    excluded_entities: List[str] = field(
+        default_factory=lambda: ["PERSON", "LOCATION", "ORGANIZATION", "DATE_TIME", "NRP"]
+    )
+
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> 'PiiConfig':
+        excluded = data.get("excluded_entities")
+        if isinstance(excluded, str):
+            excluded = [e.strip() for e in excluded.split(",") if e.strip()]
         return cls(
             enabled=data.get("enabled", True),
             ocr_enabled=data.get("ocr_enabled", True),
@@ -138,6 +148,8 @@ class PiiConfig:
             max_file_size_mb=data.get("max_file_size_mb", 100),
             quick_filter_enabled=data.get("quick_filter_enabled", True),
             analyzer_pool_size=data.get("analyzer_pool_size", 0),  # <-- ДОБАВЛЕНО (день 40.2+)
+            ner_enabled=data.get("ner_enabled", False),
+            excluded_entities=excluded or ["PERSON", "LOCATION", "ORGANIZATION", "DATE_TIME", "NRP"],
         )
 
 
@@ -353,7 +365,9 @@ class AppConfig:
                     "ocr_timeout": self.classifiers.pii.ocr_timeout,
                     "max_file_size_mb": self.classifiers.pii.max_file_size_mb,
                     "quick_filter_enabled": self.classifiers.pii.quick_filter_enabled,
-                    "analyzer_pool_size": self.classifiers.pii.analyzer_pool_size
+                    "analyzer_pool_size": self.classifiers.pii.analyzer_pool_size,
+                    "ner_enabled": self.classifiers.pii.ner_enabled,
+                    "excluded_entities": self.classifiers.pii.excluded_entities
                 },
                 "credentials": {
                     "enabled": self.classifiers.credentials.enabled,

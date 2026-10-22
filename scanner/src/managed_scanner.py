@@ -535,6 +535,9 @@ class ManagedScanner:
                         "max_file_size_mb": pii_config.max_file_size_mb,
                         "quick_filter_enabled": pii_config.quick_filter_enabled,
                         "analyzer_pool_size": pii_config.analyzer_pool_size,  # 0 = авто
+                        # 53.4l (v3.14.10): NER-категории (person/location/...)
+                        "ner_enabled": getattr(pii_config, "ner_enabled", False),
+                        "excluded_entities": getattr(pii_config, "excluded_entities", None),
                     }
                     if self.config and self.config.connector and pii_config.analyzer_pool_size <= 0:
                         pii_config_dict["max_parallel_files"] = (
@@ -843,6 +846,8 @@ class ManagedScanner:
             "hex_preview": finding.hex_preview,
             **_embed_fragment(finding),  # BACKLOG-086 (TASK-046)
         }
+        if getattr(finding, "metadata", None):
+            d["metadata"] = finding.metadata
 
         if enc is not None:
             d["fingerprint"] = enc.fingerprint(fpath, line_no, value, finding.finding_type)

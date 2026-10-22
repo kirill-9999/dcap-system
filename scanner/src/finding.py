@@ -6,7 +6,7 @@
 Находка = конкретное совпадение в строке файла (или фрагменте).
 """
 from dataclasses import dataclass, field
-from typing import Optional
+from typing import Any, Dict, Optional
 
 
 @dataclass
@@ -39,6 +39,7 @@ class Finding:
     byte_offset: Optional[int] = None
     byte_length: Optional[int] = None
     hex_preview: Optional[str] = None
+    metadata: Dict[str, Any] = field(default_factory=dict)  # 53.4l: locations[] и др.
 
     def to_dict(self) -> dict:
         """Для сериализации (без шифрования — оно позже)."""
@@ -61,6 +62,7 @@ class Finding:
             "byte_offset": self.byte_offset,
             "byte_length": self.byte_length,
             "hex_preview": self.hex_preview,
+            "metadata": self.metadata,
         }
 
 
