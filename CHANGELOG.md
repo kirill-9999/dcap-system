@@ -7,6 +7,25 @@
 
 ---
 
+## [Unreleased] — 2026-10-22 (v3.14.11)
+
+### Performance (53.4m — мультипроцессинг сканера)
+
+- **ProcessPoolExecutor** для ФС-сканирования (`FilesystemConnector.scan_path`): реальный параллелизм без GIL. 1000 файлов: **63.7 → 132.9 ф/мин (×2.09)** на 4 физических ядрах, пик RSS дерева 3025 → 4649 МБ (**×1.54**), 0 потерянных находок.
+- **Ленивая инициализация классификаторов в воркерах** — новый `scanner/classifiers/factory.py`: в пул передаётся picklable spec `{name, config}`, экземпляр строится при первом файле и кешируется на процесс (`get_classifier`, `build_classifiers`). spaCy-модели не копируются из родителя (spawn).
+- **`worker_specs()`** — в воркерах `analyzer_pool_size=1` и `start_ocr_worker=False` (OCR изображений идёт через `DocumentExtractor`).
+- **`performance`** в `scanner_config.json`: `executor` (`process`/`thread`), `max_workers` (4), `chunk_size` (100); `AppConfig.performance` (верхнеуровневая секция + fallback на `orchestrator.performance`). Автоматический откат на потоки, если классификаторы не сериализуются.
+- **Graceful shutdown по Ctrl+C**: уже собранные находки возвращаются, незапущенные задачи отменяются, пул гасится (`shutdown(wait=True)`).
+- `PiiClassifier._get_nlp_engine()`: наличие моделей проверяется через `importlib.util.find_spec` вместо `spacy.load` (минус ~450 МБ пика и секунды старта в каждом процессе).
+- Тесты: `tests/unit/test_multiprocessing_v31411.py` (9), `tests/unit/test_perf_regression_v31411.py` (2), `tests/e2e/test_multiprocessing_v31411.py` (1). Unit-набор — **566 passed**.
+
+### Performance (53.4l — дедуп находок + NER-off, v3.14.10)
+
+- Дедуп в рамках файла по `(category, match_text)` + `metadata["locations"]` (100 повторов → 1 находка с 100 locations).
+- NER-категории (PERSON/LOCATION/ORGANIZATION/DATE_TIME/NRP) исключены из Presidio (`ner_enabled=false`), spaCy `parser`/`ner` отключены: 666 136 → 598 находок, 24.0 → 65.8 ф/мин.
+
+---
+
 ## [Unreleased] — 2026-10-20 (v3.14.5)
 
 ### Fixed (53.4g UI hotfix — блоки 14/15/17: Settings, RBAC, Responsive)

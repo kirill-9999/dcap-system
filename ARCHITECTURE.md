@@ -623,6 +623,17 @@ Manager распределяет задачи: первый, кто дёрнул
 
 ⚠️ Ограничение: N инстансов должны иметь уникальные scanner_id (иначе heartbeat перезапишет чужой) и уникальные state_dir (иначе гонка за state.json).
 
+Параллелизм файлов внутри задачи (v3.14.11)
+FilesystemConnector.scan_path обрабатывает файлы пулом исполнителей:
+- `performance.executor`: `"process"` (по умолчанию) — ProcessPoolExecutor (реальный параллелизм, без GIL) / `"thread"` — ThreadPoolExecutor (fallback);
+- `performance.max_workers` (по умолчанию 4) — число исполнителей; `performance.chunk_size` (100) — размер окна задач «в полёте» (bounded submit, память не растёт с числом файлов).
+
+Классификаторы в воркерах создаются лениво: родитель передаёт только спецификацию (имя + config, `scanner/classifiers/factory.py`), экземпляр строится при первом файле в процессе и кешируется на процесс. spaCy-модели поднимаются только в процессах, реально обработавших PII-файл; в воркерах `analyzer_pool_size=1`, OCR-воркер PII-классификатора не стартует (`start_ocr_worker=False`), temp_dir у каждого процесса свой (`WORKER_TEMP_DIR`, `_init_worker`).
+
+Память: spawn (Windows) — модели не разделяются (~0.5 ГБ RSS на процесс, дошедший до PII); fork (Linux) — модели разделяются copy-on-write. При нехватке RAM уменьшать `max_workers` (2 вместо 4).
+
+Ctrl+C: graceful shutdown — уже собранные находки возвращаются, незапущенные задачи отменяются, пул гасится через `shutdown(wait=True)`.
+
 Endpoint / credentials
 Endpoint — per-task (payload scan_config.connector.s3), поэтому один сканер может работать с разными endpoint (MinIO, AWS S3, Wasabi).
 

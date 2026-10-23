@@ -3,8 +3,8 @@
 > **Руководство администратора DCAP.**
 > Раздел «Сканер»: установка, настройка, ENV, ключи Findings, FP-фильтр.
 
-**Обновлено:** 04.10.2026
-**Версия:** v3.13.32
+**Обновлено:** 22.10.2026
+**Версия:** v3.14.11
 
 ---
 
@@ -18,7 +18,8 @@
 6. [Запуск](#6-запуск)
 7. [Интеграция с Manager](#7-интеграция-с-manager)
 8. [S3/MinIO-сканирование](#8-s3minio-сканирование)
-9. [Troubleshooting](#9-troubleshooting)
+9. [Параллелизм ФС](#9-параллелизм-фс-v31411)
+10. [Troubleshooting](#10-troubleshooting)
 
 ---
 
@@ -318,7 +319,47 @@ curl -X POST "http://localhost:8000/api/resources?path=s3://bucket/prefix&type=s
 обработает их последовательно. Для параллелизма — N инстансов сканера
 (Manager разводит задачи между ними через `/api/scanner/tasks/pending`).
 
-## 9. Troubleshooting
+## 9. Параллелизм ФС (v3.14.11)
+
+Файлы внутри одной задачи обрабатываются пулом исполнителей — секция
+`performance` в `scanner/config/scanner_config.json`:
+
+```json
+{
+  "performance": {
+    "executor": "process",
+    "max_workers": 4,
+    "chunk_size": 100,
+    "max_parallel_files": 8
+  }
+}
+```
+
+| Параметр | Значение | Смысл |
+|----------|----------|-------|
+| `executor` | `process` (по умолчанию) / `thread` | `ProcessPoolExecutor` — реальный параллелизм без GIL; `thread` — fallback (например, если запуск процессов запрещён политикой) |
+| `max_workers` | 4 | Число процессов/потоков-исполнителей. Не больше числа физических ядер |
+| `chunk_size` | 100 | Размер окна задач «в полёте» (bounded submit) |
+| `max_parallel_files` | 8 | Верхний порог параллелизма (legacy, используется как fallback) |
+
+**Память.** spaCy-модели в каждом процессе свои: на Windows (spawn) —
+≈ 0.5 ГБ RSS на процесс, дошедший до PII-файла; на Linux (fork) модели
+разделяются copy-on-write. Модели грузятся **лениво** — процесс, не
+встретивший PII-файл, остаётся лёгким. Если RAM мало — уменьшить
+`max_workers` (например, до 2).
+
+**Ctrl+C** — graceful shutdown: уже собранные находки не теряются,
+незапущенные задачи отменяются.
+
+**Логи** показывают выбранный режим:
+
+```text
+[FS] ProcessPoolExecutor: 4 процессов, chunk=100
+[FS] ThreadPoolExecutor: 8 потоков
+[FS] Классификаторы не сериализуются — process-режим невозможен, thread
+```
+
+## 10. Troubleshooting
 | Симптом | Причина | Fix |
 |---------|---------|-----|
 | `FINDINGS_ENCRYPTION_KEY not set` | Ключи не заданы | Задать ENV (§5) |

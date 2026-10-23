@@ -2,10 +2,10 @@
 > Единственный источник правды о текущем состоянии проекта.
 > План и бэклог — в `ROADMAP.md`. Архитектура — в `ARCHITECTURE.md`.
 
-**Обновлено:** 20.10.2026
-**Текущая версия:** v3.14.4 (v3.14.5 в работе)
+**Обновлено:** 22.10.2026
+**Текущая версия:** v3.14.11
 **Целевая версия:** v3.0.0 (релиз)
-**Статус:** 🟢 Блоки 1–9 закрыты. BACKLOG-097 (S3-коннектор) закрыт. WebUI-редизайн этапы 1–5 закрыты — **REDESIGN COMPLETE (v3.14.1)**. Grafana протестирована (TEST-NOTE-8.1…8.6), 6 багов закрыто в hotfix v3.14.2, RBAC подтверждён (BACKLOG-307 → v3.1.0). RBAC hotfix (блоки 12–13: Users, Roles) — 7 задач (BUG-253/254/255/256/257/258, BACKLOG-316) закрыто в v3.14.3. UI hotfix v3.14.4 (блоки 15/17): закрыты BUG-265/266/267 (dashboard RBAC + 403-спам), BUG-270/271 (users responsive), BACKLOG-320/321/324 (BACKLOG-325 закрыт ранее). **Retention (Блок 18) — ✅ ЗАКРЫТ (v3.14.4, 20.10.2026) — проверены все 5 шагов + Celery Beat.** Найдены новые баги (BUG-NEW-4…7, BUG-272, BUG-273) — **переданы в 53.4g (v3.14.5)**. Unit **521 passed** (`pytest tests/unit manager/tests -q`), e2e **51/16/2/0** без предусловий (эталон **53/7**). **Следующий шаг — 53.4g (v3.14.5) → 55 (GitHub) → 56 (BUG-117) → 57 (релиз v3.0.0).**
+**Статус:** 🟢 Блоки 1–9, Retention закрыты. **53.4l (v3.14.10)** — дедуп находок + NER-off (666 136 → 598 находок, 24.0 → 65.8 ф/мин). **53.4m (v3.14.11)** — ProcessPoolExecutor: 63.7 → 132.9 ф/мин (×2.09) на 4 ядрах, пик RSS ×1.54, 0 потерянных находок, Ctrl+C graceful. Unit **566 passed** (`pytest tests/unit manager/tests -q`). **Следующий шаг — 53.4g (v3.14.5) → 55 (GitHub) → 56 (BUG-117) → 57 (релиз v3.0.0).**
 
 ---
 
@@ -13,14 +13,14 @@
 
 | Параметр | Значение |
 |----------|----------|
-| Текущий день | 53.4g (UI hotfix) — **в работе** |
-| Статус дня | 🔄 Выполняется (v3.14.5) |
-| Последний принятый отчёт | `day_53_4f_ui_hotfix_report.md` (v3.14.4); `day_53_4g_retention_report.md` (Блок 18, v3.14.4) |
+| Текущий день | 53.4m (мультипроцессинг сканера) — **завершён** (v3.14.11) |
+| Статус дня | ✅ Выполнен (8 пунктов приёмки: 5 ✅, 2 ⚠️ железо, 1 ⛔ нет S3-стенда) |
+| Последний принятый отчёт | `day_53_4m_scanner_multiprocessing_report.md` (v3.14.11); `day_53_4l_scanner_perf_phase2_report.md` (v3.14.10) |
 | Следующий шаг | **53.4g (v3.14.5)** → **55 (GitHub) → 56 (BUG-117) → 57 (релиз v3.0.0)** |
-| Открытых BUG | ~15 (включая новые BUG-NEW-4…7, BUG-272, BUG-273) |
-| Открытых BACKLOG | ~50 (BACKLOG-156…315 — v3.1.0/бэклог) |
-| ТЗ собраны | 1 активное (`prompts/tz/day_53_4g_ui_hotfix.md`) |
-| Открытые вопросы к архитектору | 1) BUG-248/249 (Grafana, 🟢 low) — в бэклог; 2) BACKLOG-307 (RBAC Grafana) — v3.1.0; 3) BUG-236 вариант B (webhook) — v3.1.0 (BACKLOG-315) |
+| Открытых BUG | ~15 (BUG-NEW-4…7, BUG-272, BUG-273 — ждут 53.4g) |
+| Открытых BACKLOG | ~50 (BACKLOG-156…326 — v3.1.0/бэклог) |
+| ТЗ собраны | 2 (`prompts/tz/day_53_4g_ui_hotfix.md` активно, `day_53_4m_scanner_multiprocessing.md` → архив) |
+| Открытые вопросы к архитектору | 1) порог 200 ф/мин недостижим на 4 ядрах (132.9; на 8 ядрах ≈ 250–290) — нужен ли доп. день на оптимизацию; 2) BUG-248/249/307 — v3.1.0 |
 
 ---
 
@@ -38,6 +38,8 @@
 | **53.4f (тест-инфра)** | **BUG-259/260/261/263, BACKLOG-317, BUG-262 этап A** | **v3.14.3** | `day_53_4f_test_infra_report.md`, `day_53_4f_bug263_report.md` |
 | **53.4f (UI hotfix)** | **BUG-265/266/267 (dashboard RBAC/403), BUG-270/271 (users responsive), BACKLOG-320/321/324** | **v3.14.4** | `day_53_4f_ui_hotfix_report.md` |
 | **Блок 18 (Retention)** | **Полный цикл: status/policies/stats, dry-run, sync run, Celery (API + Beat), export** | **v3.14.4** | `day_53_4g_retention_report.md` |
+| **53.4l (перф сканера, фаза 2)** | **Дедуп в файле + `locations[]`, NER-off (666 136 → 598 находок), 65.8 ф/мин** | **v3.14.10** | `day_53_4l_scanner_perf_phase2_report.md` |
+| **53.4m (мультипроцессинг)** | **ProcessPoolExecutor (4 воркера), ленивая инициализация spaCy, `performance`-конфиг, graceful Ctrl+C — 132.9 ф/мин (×2.09)** | **v3.14.11** | `day_53_4m_scanner_multiprocessing_report.md` |
 
 ---
 
@@ -128,6 +130,19 @@
 - На изолированном стенде Celery-воркер не запущен (особенность `docker-compose.test.yml`), поэтому Celery проверен на основном стенде.
 - **Celery Beat работает** (проверено временным изменением `crontab(minute='*')` + пересборка образа).
 
+**53.4l (v3.14.10) — перф сканера, фаза 2:**
+- Дедуп в рамках файла по `(category, match_text)`: 666 136 → 598 находок, каждая с `metadata["locations"]` (100 повторов → 1 находка + 100 locations).
+- NER-категории (PERSON/LOCATION/ORGANIZATION/DATE_TIME/NRP) исключены из Presidio, `ner_enabled=false`, spaCy `parser`/`ner` off.
+- 1000 файлов: 24.0 → 65.8 ф/мин (×2.74), 0 потерянных значимых находок (598 = 598). Отчёт: `day_53_4l_scanner_perf_phase2_report.md`.
+
+**53.4m (v3.14.11) — мультипроцессинг сканера:**
+- `ProcessPoolExecutor` (executor-режим из `performance`, `max_workers=4`, `chunk_size=100`, bounded submit + `FIRST_COMPLETED`, авто-откат на потоки).
+- Ленивая инициализация классификаторов в воркерах: `scanner/classifiers/factory.py` (spec `{name, config}` → экземпляр при первом файле, кеш на процесс); у PII в воркере `analyzer_pool_size=1`, `start_ocr_worker=False`.
+- `spacy.load` в проверке моделей → `importlib.util.find_spec` (минус ~450 МБ пика и секунды старта).
+- Замеры (1000 файлов, i5-7400 4 ядра): **63.7 → 132.9 ф/мин (×2.09)**, ETA 2 000 000: 21.8 → **10.4 дн**, пик RSS дерева 3025 → 4649 МБ (**×1.54**), 0 lost; Ctrl+C — graceful (`findings=5, children_after=0`).
+- ⚠️ Порог ТЗ 200 ф/мин требует 6–8 физических ядер (на 8 ядрах ≈ 250–290 ф/мин); на <300 файлах процесс-режим проигрывает потокам из-за старта воркеров. Отчёт: `day_53_4m_scanner_multiprocessing_report.md`.
+- Unit: **566 passed** (`tests/unit + manager/tests`).
+
 **Найдено в мастер-сессии (20.10.2026) — передано в 53.4g (v3.14.5):**
 - BUG-NEW-4 (критичный) — dashboard RBAC: `checkAuditAccess()` не блокирует запросы к `/api/audit/*` под viewer (403-спам, тосты).
 - BUG-NEW-5 — Settings: редирект на `/login` при неверном пароле (вместо тоста).
@@ -167,9 +182,18 @@
 12. **UI hotfix v3.14.4** — ✅ BUG-265/266/267/270/271, BACKLOG-320/321/324 (BACKLOG-325 — закрыт ранее); карточки users на 393px (BACKLOG-326) — v3.1.0.
 13. **Блок 18 (Retention)** — ✅ закрыт (все 5 шагов + Celery Beat).
 14. **53.4g (v3.14.5)** — активное ТЗ: `prompts/tz/day_53_4g_ui_hotfix.md`.
+15. **53.4l/53.4m** — ✅ закрыты (v3.14.10/v3.14.11): сканер 65.8 → 132.9 ф/мин, память ×1.54.
+16. **Сканер: порог 200 ф/мин** — на 4 ядрах не достижим (132.9); нужен хост с 6–8 физическими ядрами либо батчинг файлов (следующий шаг оптимизации, если приоритетно).
+17. **S3-скан после 53.4m** — не проверялся (нет MinIO-стенда в сессии); `S3LineConnector` наследует `scan_path` — прогнать `tests/e2e/test_s3_scan_v31341.py` при поднятом MinIO.
+
+**Последние использованные файлы:** `scanner/classifiers/factory.py`, `scanner/connectors/filesystem.py`,
+`scanner/classifiers/pii_classifier.py`, `scanner/src/config_loader.py`, `scanner/src/managed_scanner.py`,
+`scanner/config/scanner_config.json`, `tests/unit/test_multiprocessing_v31411.py`,
+`tests/unit/test_perf_regression_v31411.py`, `tests/e2e/test_multiprocessing_v31411.py`,
+`temp/phase3/measure_1000_mp.py`, `temp/phase3/run_with_mem.ps1`, `temp/phase3/test_ctrl_c.py`.
 
 ---
 
-**Актуально на:** 20.10.2026
-**Версия:** v3.14.4 (v3.14.5 в работе)
+**Актуально на:** 22.10.2026
+**Версия:** v3.14.11
 **Следующий шаг:** 53.4g (v3.14.5) → 55 → 56 → 57
