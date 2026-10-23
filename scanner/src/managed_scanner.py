@@ -543,6 +543,11 @@ class ManagedScanner:
                         pii_config_dict["max_parallel_files"] = (
                             getattr(self.config.connector, "max_parallel_files", None) or 4
                         )
+                    # 53.4m (v3.14.11): в process-режиме файлы обрабатывают
+                    # воркеры (там пул = 1), родитель не анализирует — не грузим
+                    # лишние потоки Presidio.
+                    if self._is_process_executor():
+                        pii_config_dict["analyzer_pool_size"] = 1
                 pii.configure(pii_config_dict)
                 self.classifiers.append(pii)
                 logger.info(f"[OK] PII Classifier loaded (OCR enabled: {pii_config_dict.get('ocr_enabled', True)})")
@@ -616,7 +621,9 @@ class ManagedScanner:
                 "buffer_size": self.config.connector.buffer_size,
                 "max_text_chars": self.config.connector.max_text_chars,
                 "context_lines": self.config.connector.context_lines,
-                "max_parallel_files": getattr(self.config.connector, "max_parallel_files", 1) or 1
+                "max_parallel_files": getattr(self.config.connector, "max_parallel_files", 1) or 1,
+                # 53.4m (v3.14.11): режим исполнения и размер пула воркеров
+                "performance": self._get_performance_dict(),
             }
         return {
             "extensions": ["*"],
@@ -626,8 +633,25 @@ class ManagedScanner:
             "buffer_size": 1024 * 1024,
             "max_text_chars": 200000,
             "context_lines": 2,
-            "max_parallel_files": 1
+            "max_parallel_files": 1,
+            "performance": self._get_performance_dict(),
         }
+
+    def _get_performance_dict(self) -> Dict[str, Any]:
+        """Секция performance для коннектора (53.4m, v3.14.11)."""
+        perf = getattr(self.config, "performance", None) if self.config else None
+        if perf is None:
+            return {}
+        return {
+            "max_parallel_files": getattr(perf, "max_parallel_files", 8),
+            "executor": getattr(perf, "executor", "process"),
+            "max_workers": getattr(perf, "max_workers", 4),
+            "chunk_size": getattr(perf, "chunk_size", 100),
+        }
+
+    def _is_process_executor(self) -> bool:
+        """True, если файлы обрабатываются ProcessPoolExecutor (53.4m)."""
+        return str(self._get_performance_dict().get("executor") or "").lower() == "process"
     
     def _get_orchestrator_config(self) -> Dict[str, Any]:
         """Получить конфигурацию оркестратора"""

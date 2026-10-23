@@ -355,25 +355,21 @@ class PiiClassifier(IClassifier):
         }
         
         try:
-            # Проверяем наличие моделей
+            # Проверяем наличие моделей. 53.4m (v3.14.11): через find_spec, а не
+            # spacy.load — иначе модели грузятся дважды (+~450 МБ RSS и секунды
+            # старта в каждом процессе-воркере).
+            import importlib.util
+
             import spacy
-            try:
-                spacy.load("ru_core_news_sm")
-                print("[PII] [OK] Модель ru_core_news_sm найдена")
-            except Exception as e:
-                print(f"[PII] [WARN] Модель ru_core_news_sm не найдена: {e}")
-                print("[PII]    Скачиваем...")
-                spacy.cli.download("ru_core_news_sm")
-                print("[PII] [OK] Модель ru_core_news_sm скачана")
-            
-            try:
-                spacy.load("en_core_web_sm")
-                print("[PII] [OK] Модель en_core_web_sm найдена")
-            except Exception as e:
-                print(f"[PII] [WARN] Модель en_core_web_sm не найдена: {e}")
-                print("[PII]    Скачиваем...")
-                spacy.cli.download("en_core_web_sm")
-                print("[PII] [OK] Модель en_core_web_sm скачана")
+
+            for _model in ("ru_core_news_sm", "en_core_web_sm"):
+                if importlib.util.find_spec(_model) is None:
+                    print(f"[PII] [WARN] Модель {_model} не найдена")
+                    print("[PII]    Скачиваем...")
+                    spacy.cli.download(_model)
+                    print(f"[PII] [OK] Модель {_model} скачана")
+                else:
+                    print(f"[PII] [OK] Модель {_model} найдена")
             
             # Создаём провайдер
             provider = NlpEngineProvider(nlp_configuration=configuration)
@@ -455,8 +451,10 @@ class PiiClassifier(IClassifier):
         ocr_enabled = self.config.get("ocr_enabled", True)
         self.extractor = DocumentExtractor(temp_dir, ocr_enabled, 1)
         
-        # Запускаем OCRWorker (для изоляции Tesseract)
-        if self.config.get("ocr_enabled", True):
+        # Запускаем OCRWorker (для изоляции Tesseract).
+        # 53.4m (v3.14.11): в воркерах процесс-пула OCRWorker не нужен
+        # (start_ocr_worker=False) — OCR изображений идёт через extractor.
+        if self.config.get("ocr_enabled", True) and self.config.get("start_ocr_worker", True):
             self._start_ocr_worker()
         
         self._initialized = True

@@ -226,7 +226,12 @@ class PerformanceConfig:
     emergency_restart_threshold: int = 85
     monitoring_enabled: bool = True
     monitor_interval: float = 5.0
-    
+    # 53.4m (v3.14.11): параллелизм обработки файлов
+    executor: str = "process"
+    max_workers: int = 4
+    chunk_size: int = 100
+    max_parallel_files: int = 8
+
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> 'PerformanceConfig':
         return cls(
@@ -240,7 +245,11 @@ class PerformanceConfig:
             models_memory_threshold_vms=data.get("models_memory_threshold_vms", 12000),
             emergency_restart_threshold=data.get("emergency_restart_threshold", 85),
             monitoring_enabled=data.get("monitoring_enabled", True),
-            monitor_interval=data.get("monitor_interval", 5.0)
+            monitor_interval=data.get("monitor_interval", 5.0),
+            executor=data.get("executor", "process"),
+            max_workers=data.get("max_workers", 4),
+            chunk_size=data.get("chunk_size", 100),
+            max_parallel_files=data.get("max_parallel_files", 8),
         )
 
 
@@ -309,16 +318,23 @@ class AppConfig:
     orchestrator: OrchestratorConfig = field(default_factory=OrchestratorConfig)
     finding_collector: FindingCollectorConfig = field(default_factory=FindingCollectorConfig)
     client: ClientConfig = field(default_factory=ClientConfig)
-    
+    # 53.4m (v3.14.11): верхнеуровневая секция performance (executor/max_workers/...)
+    performance: PerformanceConfig = field(default_factory=lambda: PerformanceConfig())
+
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> 'AppConfig':
+        orchestrator_raw = data.get("orchestrator", {}) or {}
+        performance_raw = data.get("performance")
+        if performance_raw is None:
+            performance_raw = orchestrator_raw.get("performance", {})
         return cls(
             scanner=ScannerConfig.from_dict(data.get("scanner", {})),
             connector=ConnectorConfig.from_dict(data.get("connector", {})),
             classifiers=ClassifiersConfig.from_dict(data.get("classifiers", {})),
-            orchestrator=OrchestratorConfig.from_dict(data.get("orchestrator", {})),
+            orchestrator=OrchestratorConfig.from_dict(orchestrator_raw),
             finding_collector=FindingCollectorConfig.from_dict(data.get("finding_collector", {})),
-            client=ClientConfig.from_dict(data.get("client", {}))
+            client=ClientConfig.from_dict(data.get("client", {})),
+            performance=PerformanceConfig.from_dict(performance_raw or {}),
         )
     
     @classmethod
@@ -411,6 +427,13 @@ class AppConfig:
                 "timeout": self.client.timeout,
                 "heartbeat_timeout": self.client.heartbeat_timeout,
                 "submit_timeout": self.client.submit_timeout
+            },
+            # 53.4m (v3.14.11): параллелизм обработки файлов
+            "performance": {
+                "max_parallel_files": self.performance.max_parallel_files,
+                "executor": self.performance.executor,
+                "max_workers": self.performance.max_workers,
+                "chunk_size": self.performance.chunk_size
             }
         }
     

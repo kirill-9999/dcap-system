@@ -17,6 +17,9 @@
         "save_interval": 1000,
         "catalog_save_interval": 1000,
         "max_parallel_files": 8,
+        "executor": "process",
+        "max_workers": 4,
+        "chunk_size": 100,
         "timeout_per_file_sec": 60
     },
     "classifiers": {

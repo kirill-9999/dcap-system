@@ -11,6 +11,8 @@
 источника (FS/ S3/...) остаётся в коннекторе.
 """
 import logging
+import os
+import tempfile
 import threading
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -19,18 +21,70 @@ from scanner.src.finding import Finding
 logger = logging.getLogger("dcap-scanner")
 
 # 53.4k (v3.14.9): singleton DocumentExtractor для linewise-пути.
-# Раньше extract_document_text() создавал новый DocumentExtractor (а внутри —
-# новый OCREngine: subprocess 'where tesseract' + '--list-langs' + отдельный
-# temp-каталог) на КАЖДЫЙ файл → 3 subprocess на файл. Теперь экстрактор
-# переиспользуется на весь процесс скана. OCREngine внутри потокобезопасен
-# (семафор в ocr_image), DocumentExtractor хранит лишь счётчики OCR.
 _EXTRACTOR_CACHE: dict = {}
 _EXTRACTOR_CACHE_LOCK = threading.Lock()
 
+# 53.4m (v3.14.11): temp_dir на процесс (нет race condition на ocr_* файлах).
+WORKER_TEMP_DIR = None
+
+
+def _init_worker():
+    """Инициализация в каждом процессе (53.4m).
+
+    logging базовый, temp_dir свой на процесс.
+    Классификаторы и модели — лениво (get_classifier) при первом файле.
+    """
+    global WORKER_TEMP_DIR
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s [%(process)d] %(levelname)s %(name)s: %(message)s",
+    )
+    try:
+        WORKER_TEMP_DIR = tempfile.mkdtemp(prefix="dcap_worker_%s_" % os.getpid())
+    except Exception:
+        WORKER_TEMP_DIR = tempfile.gettempdir()
+
+
+def _get_worker_temp_dir():
+    global WORKER_TEMP_DIR
+    if WORKER_TEMP_DIR is None:
+        try:
+            WORKER_TEMP_DIR = tempfile.mkdtemp(prefix="dcap_worker_%s_" % os.getpid())
+        except Exception:
+            WORKER_TEMP_DIR = tempfile.gettempdir()
+    return WORKER_TEMP_DIR
+
+
+def _get_executor(executor_type: str, max_workers: int):
+    """Фабрика executor'ов (53.4m)."""
+    from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor
+
+    etype = (executor_type or "process").strip().lower()
+    try:
+        mw = int(max_workers) if max_workers is not None else 4
+    except Exception:
+        mw = 4
+    mw = max(1, mw)
+    if etype == "process":
+        return ProcessPoolExecutor(max_workers=mw, initializer=_init_worker)
+    return ThreadPoolExecutor(max_workers=mw)
+
 
 def _get_document_extractor(temp_dir, ocr_enabled: bool):
-    """Вернуть (пере)используемый DocumentExtractor по ключу (temp_dir, ocr_enabled)."""
+    """Вернуть (пере)используемый DocumentExtractor по ключу (temp_dir, ocr_enabled).
+
+    В процесс-воркере (53.4m) temp_dir — свой на процесс (WORKER_TEMP_DIR).
+    """
     from utils.document_extractor import DocumentExtractor
+
+    try:
+        import multiprocessing as _mp
+        if _mp.current_process().name != "MainProcess":
+            td = _get_worker_temp_dir()
+            if td:
+                temp_dir = td
+    except Exception:
+        pass
 
     key = (str(temp_dir), bool(ocr_enabled))
     ex = _EXTRACTOR_CACHE.get(key)
