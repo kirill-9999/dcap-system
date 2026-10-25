@@ -1,0 +1,28 @@
+[extend]
+useDefault = true
+
+[allowlist]
+paths = [
+  '''.*/test/.*''',
+  '''.*/tests/.*''',
+  '''.*/examples/.*''',
+  '''.*\.md''',
+  '''.*/reports/.*''',
+  '''.*dcap_sources_.*''',
+  '''.*generate_test_tree\.py''',
+  '''.*create_test_data\.py''',
+  '''.*03_create_data\.py''',
+]
+regexes = [
+  '''admin123''',
+  '''admin/admin123''',
+  '''GPG_KEY''',
+  '''A035C8C19219BA821ECEA86B64E628F8D684696D''',
+  '''ghp_abc123''',
+  '''ghp_abc123def456''',
+  '''sk_test_4eC39''',
+  '''K9xQv2mN4rT8zL0pW6s''',
+  '''jwt\.secret''',
+  '''0a2b3c4d5e6f708192a3b4c5d6e7f809''',
+  '''eyJhbGciOiJIUzI1NiJ9\.eyJzdWIiOiIxIn0\.abcdef''',
+]

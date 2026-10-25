@@ -116,3 +116,7 @@ secrets/
 
 # Scanner runtime state (53.4n resume)
 scanner/state/
+
+# Security scan artifacts (53.5)
+reports/
+dcap_sources_*.txt
