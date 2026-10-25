@@ -76,6 +76,10 @@ services:
       REDIS_URL: redis://:${REDIS_PASSWORD:-redis123}@redis:6379/0
       REDIS_PASSWORD: ${REDIS_PASSWORD:-redis123}
       JWT_SECRET_KEY: ${JWT_SECRET_KEY:-change-me-in-production}
+      # Режим аутентификации: local | windows | hybrid. В hybrid Manager отдаёт
+      # 401 с WWW-Authenticate: Negotiate → браузер показывает системное окно
+      # логина Windows. Берём значение из .env (по умолчанию local).
+      AUTH_MODE: ${AUTH_MODE:-local}
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
       VERSION: ${VERSION:-3.14.5}
       # Ключи Findings — только ENV (TASK-018; для dev fallback отключён)

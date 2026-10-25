@@ -473,14 +473,49 @@ class FilesystemConnector:
         stop_event (день 42.5+): threading.Event — при установке сканирование
         останавливается после текущих файлов (Ctrl+C, scanner.stop()).
         """
-        findings: List[Finding] = []
-        files = self._discover_files(path)
+        files = self.discover_files(path)
         if not files:
             if progress_callback:
                 progress_callback(1, 0, 0, path)
+            return []
+        return self.scan_files(
+            files,
+            classifiers,
+            progress_callback=progress_callback,
+            stop_event=stop_event,
+        )
+
+    def discover_files(self, path: str) -> List[str]:
+        """Публичный обход каталога (53.4n, v3.14.12).
+
+        Возвращает стабильный (отсортированный) список файлов — порядок важен
+        для чанкинга и resume в managed-сканере.
+        """
+        return sorted(self._discover_files(path))
+
+    def scan_files(
+        self,
+        files: List[str],
+        classifiers: List[Any],
+        progress_callback: Optional[Callable[[int, int, int, str], None]] = None,
+        stop_event: Optional[Any] = None,
+        offset: int = 0,
+        total: Optional[int] = None,
+        executor: Optional[Any] = None,
+    ) -> List[Finding]:
+        """Сканирует переданный список файлов (53.4n, v3.14.12).
+
+        Выделено из scan_path, чтобы managed-сканер мог обрабатывать задание
+        чанками (с сохранением состояния). offset/total — абсолютная нумерация
+        прогресса: progress_callback(1, offset + i, total, file_path).
+        """
+        findings: List[Finding] = []
+        if not files:
+            if progress_callback:
+                progress_callback(1, offset, offset if total is None else total, "")
             return findings
 
-        total = len(files)
+        total = len(files) if total is None else total
         max_workers = self._max_workers
 
         def _stopped() -> bool:
@@ -499,14 +534,16 @@ class FilesystemConnector:
                 traceback.print_exc()
                 return []
 
-        if max_workers <= 1:
+        if executor is None and max_workers <= 1:
             # Последовательный режим (как раньше, день 40.2)
             for i, file_path in enumerate(files, start=1):
                 if _stopped():
-                    logger.info("[FS] Сканирование остановлено (stop_event) на %d/%d", i, total)
+                    logger.info(
+                        "[FS] Сканирование остановлено (stop_event) на %d/%d", offset + i, total
+                    )
                     break
                 if progress_callback:
-                    progress_callback(1, i, total, file_path)
+                    progress_callback(1, offset + i, total, file_path)
                 findings.extend(_scan_one(file_path))
             return findings
 
@@ -532,7 +569,17 @@ class FilesystemConnector:
 
         ex = None
         submit = None
-        if executor_type == "process":
+        # 53.4o (v3.14.13, BUG-286): переиспользование внешнего executor'а
+        # (созданного один раз в managed_scanner) — не создаём пул на каждый чанк.
+        if executor is not None:
+            from concurrent.futures import ProcessPoolExecutor as _PPE
+            ex = executor
+            if isinstance(executor, _PPE):
+                submit = lambda fp: executor.submit(_process_scan_one, fp)  # noqa: E731
+            else:
+                submit = lambda fp: executor.submit(_scan_one, fp)  # noqa: E731
+            logger.debug("[FS] scan_files: используем переданный executor")
+        elif executor_type == "process":
             from scanner.classifiers.factory import classifier_specs, worker_specs
 
             specs = worker_specs(classifier_specs(classifiers))
@@ -569,7 +616,7 @@ class FilesystemConnector:
         def _on_done(file_path: str, result: List[Finding]) -> None:
             with lock:
                 done_counter[0] += 1
-                current = done_counter[0]
+                current = offset + done_counter[0]
             if progress_callback:
                 try:
                     progress_callback(1, current, total, file_path)
@@ -629,10 +676,13 @@ class FilesystemConnector:
                     future.cancel()
             pending.clear()
         finally:
-            try:
-                ex.shutdown(wait=True)
-            except Exception:
-                pass
+            # Внешний executor не закрываем здесь — его жизненный цикл
+            # контролирует вызывающий код (managed_scanner).
+            if executor is None:
+                try:
+                    ex.shutdown(wait=True)
+                except Exception:
+                    pass
 
         return findings
 

@@ -5,7 +5,10 @@ DCAP Agent - OCR Engine для Windows с нативным Tesseract
 """
 
 from functools import lru_cache
+import logging
 import os
+
+logger = logging.getLogger(__name__)
 import subprocess
 
 # 53.4k (v3.14.9): детекция tesseract/языков кэшируется на процесс (@lru_cache).
@@ -95,8 +98,8 @@ class OCREngine:
         self._tesseract_cmd = self._find_tesseract()
         self._languages = self._detect_languages()
         
-        print(f"[OCR] Tesseract path: {self._tesseract_cmd}")
-        print(f"[OCR] Languages: {self._languages}")
+        logger.debug(f"[OCR] Tesseract path: {self._tesseract_cmd}")
+        logger.debug(f"[OCR] Languages: {self._languages}")
     
     def _find_tesseract(self) -> str:
         """Поиск Tesseract (53.4k v3.14.9: через @lru_cache — subprocess 1 раз на процесс).
@@ -105,13 +108,13 @@ class OCREngine:
         см. отчёт 53.4k Фаза 2. Теперь результат детекции кэшируется на процесс.
         """
         cmd = _get_tesseract_path()
-        print(f"[OCR] Tesseract path: {cmd}")
+        logger.debug(f"[OCR] Tesseract path: {cmd}")
         return cmd
 
     def _detect_languages(self) -> str:
         """Определение языков (53.4k v3.14.9: через @lru_cache — '--list-langs' 1 раз)."""
         langs = _get_tesseract_langs(self._tesseract_cmd)
-        print(f"[OCR] Languages: {langs}")
+        logger.debug(f"[OCR] Languages: {langs}")
         return langs
     
     def _cleanup_temp_files(self):
@@ -226,11 +229,11 @@ class OCREngine:
             
         except subprocess.TimeoutExpired:
             self.stats["errors"] += 1
-            print(f"[OCR] Timeout after {timeout}s")
+            logger.debug(f"[OCR] Timeout after {timeout}s")
             return None
         except Exception as e:
             self.stats["errors"] += 1
-            print(f"[OCR] Error: {e}")
+            logger.debug(f"[OCR] Error: {e}")
             return None
         finally:
             # Очистка временных файлов
@@ -259,7 +262,7 @@ class OCREngine:
             self._cache.clear()
             self._cache_order.clear()
         self._cleanup_temp_files()
-        print(f"[OCR] Reset completed")
+        logger.debug(f"[OCR] Reset completed")
 
 
 __all__ = ['OCREngine']

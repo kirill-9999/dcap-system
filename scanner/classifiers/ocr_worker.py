@@ -4,7 +4,10 @@
 OCR Worker - отдельный процесс для Tesseract OCR
 """
 
+import logging
 import os
+
+logger = logging.getLogger(__name__)
 import gc
 import time
 import tempfile
@@ -78,7 +81,7 @@ class OCRWorker:
         try:
             cmd = _find_tesseract_cached()
             if cmd and os.path.exists(cmd):
-                print(f"[OCR_WORKER] Found via cached: {cmd}")
+                logger.debug(f"[OCR_WORKER] Found via cached: {cmd}")
                 return cmd
         except Exception:
             pass
@@ -86,7 +89,7 @@ class OCRWorker:
         for env_var in ("TESSERACT_PATH", "TESSERACT_CMD"):
             env_cmd = os.environ.get(env_var, "")
             if env_cmd and os.path.exists(env_cmd):
-                print(f"[OCR_WORKER] Tesseract from {env_var}: {env_cmd}")
+                logger.debug(f"[OCR_WORKER] Tesseract from {env_var}: {env_cmd}")
                 return env_cmd
 
         possible_paths = [
@@ -98,7 +101,7 @@ class OCRWorker:
 
         for path in possible_paths:
             if os.path.exists(path):
-                print(f"[OCR_WORKER] Found Tesseract: {path}")
+                logger.debug(f"[OCR_WORKER] Found Tesseract: {path}")
                 return path
 
         try:
@@ -111,12 +114,12 @@ class OCRWorker:
             )
             if result.returncode == 0 and result.stdout.strip():
                 path = result.stdout.strip().split('\n')[0]
-                print(f"[OCR_WORKER] Found via 'where': {path}")
+                logger.debug(f"[OCR_WORKER] Found via 'where': {path}")
                 return path
         except:
             pass
 
-        print(f"[OCR_WORKER] WARNING: Tesseract not found, using 'tesseract' from PATH")
+        logger.debug(f"[OCR_WORKER] WARNING: Tesseract not found, using 'tesseract' from PATH")
         return 'tesseract'
     
     def _detect_languages(self) -> str:
@@ -142,7 +145,7 @@ class OCRWorker:
                 elif 'eng' in langs:
                     return 'eng'
         except Exception as e:
-            print(f"[OCR_WORKER] Language detection failed: {e}")
+            logger.debug(f"[OCR_WORKER] Language detection failed: {e}")
         return 'rus+eng'
     
     def _get_cache_key(self, image_data: bytes, languages: str, psm: int) -> str:
@@ -283,12 +286,12 @@ class OCRWorker:
     def run(self, request_queue: Queue, response_queue: Queue, max_cache_size: int = 500):
         """Основной цикл обработки"""
         self._max_cache_size = max_cache_size
-        print(f"[OCR_WORKER] Процесс запущен (PID: {os.getpid()})")
+        logger.debug(f"[OCR_WORKER] Процесс запущен (PID: {os.getpid()})")
         
         self._tesseract_cmd = self._find_tesseract()
         self._languages = self._detect_languages()
-        print(f"[OCR_WORKER] Tesseract: {self._tesseract_cmd}")
-        print(f"[OCR_WORKER] Языки: {self._languages}")
+        logger.debug(f"[OCR_WORKER] Tesseract: {self._tesseract_cmd}")
+        logger.debug(f"[OCR_WORKER] Языки: {self._languages}")
         
         last_gc = time.time()
         last_cleanup = time.time()
@@ -321,7 +324,7 @@ class OCRWorker:
             except KeyboardInterrupt:
                 break
             except Exception as e:
-                print(f"[OCR_WORKER] Error: {e}")
+                logger.debug(f"[OCR_WORKER] Error: {e}")
                 if 'request' in locals():
                     try:
                         response_queue.put({
@@ -333,8 +336,8 @@ class OCRWorker:
                     except:
                         pass
         
-        print(f"[OCR_WORKER] Завершение. Обработано запросов: {self._request_count}")
-        print(f"[OCR_WORKER] Статистика: {self._stats}")
+        logger.debug(f"[OCR_WORKER] Завершение. Обработано запросов: {self._request_count}")
+        logger.debug(f"[OCR_WORKER] Статистика: {self._stats}")
     
     def stop(self):
         self._running = False

@@ -21,7 +21,7 @@ import warnings
 import threading
 from pathlib import Path
 from datetime import datetime
-from typing import Optional, Dict, Any, List
+from typing import Callable, Optional, Dict, Any, List
 import requests
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
@@ -57,6 +57,7 @@ from scanner.src.heartbeat import HeartbeatThread
 from scanner.src import metrics as scanner_metrics
 from scanner.src.encryption import get_encryption, mask, mask_line, mask_context
 from scanner.src.finding import Finding
+from scanner.src.state_manager import ScanState
 
 logger = logging.getLogger("dcap-scanner")
 
@@ -218,9 +219,53 @@ class ManagerClient:
         
         self.files_scanned = 0
         self.findings_found = 0
-        
+
+        # 53.4n (v3.14.12, BUG-284): оффлайн-детект для лога восстановления связи
+        self._offline = False
+        self._offline_since: Optional[datetime] = None
+
         logger.info(f"[ManagerClient] Initialized: URL={base_url}, ScannerID={scanner_id}")
-    
+
+    def _request(self, method: str, path: str, **kwargs) -> requests.Response:
+        """Единая точка HTTP-запросов (53.4n, v3.14.12).
+
+        Отслеживает доступность Manager и логирует восстановление связи
+        (BUG-284): раньше reconnect проходил молча, и по логам нельзя было
+        понять, что связь пропадала.
+        """
+        url = f"{self.base_url}{path}"
+        was_offline = getattr(self, "_offline", False)
+        try:
+            if hasattr(self.session, "request"):
+                response = self.session.request(method, url, **kwargs)
+            else:
+                meth = getattr(self.session, method.lower(), None)
+                if meth is None:
+                    meth = self.session.post
+                response = meth(url, **kwargs)
+        except requests.exceptions.RequestException as exc:
+            if not self._offline:
+                self._offline = True
+                self._offline_since = datetime.utcnow()
+                logger.warning(
+                    "[Manager] Соединение потеряно (%s %s): %s — оффлайн-режим",
+                    method,
+                    path,
+                    exc,
+                )
+            raise
+
+        if was_offline:
+            since = self._offline_since
+            downtime = ""
+            if since is not None:
+                downtime = f" (простой {int((datetime.utcnow() - since).total_seconds())} с)"
+            logger.info("[Manager] Соединение восстановлено%s — продолжаем работу", downtime)
+            self._offline = False
+            self._offline_since = None
+
+        return response
+
     def register(self, name: str, hostname: str = None, ip_address: str = None, scan_interval: int = 10) -> Optional[int]:
         url = f"{self.base_url}/api/scanner/register"
         
@@ -245,7 +290,7 @@ class ManagerClient:
         
         try:
             logger.info(f"[Register] Registering scanner: {name}")
-            response = self.session.post(url, json=data, timeout=self.timeout)
+            response = self._request("POST", "/api/scanner/register", json=data, timeout=self.timeout)
             
             if response.status_code == 200:
                 result = response.json()
@@ -277,7 +322,7 @@ class ManagerClient:
         }
         
         try:
-            response = self.session.post(url, json=data, timeout=self.heartbeat_timeout)
+            response = self._request("POST", "/api/scanner/heartbeat", json=data, timeout=self.heartbeat_timeout)
             if response.status_code == 200:
                 logger.debug(f"[Heartbeat] OK: {status}")
                 return True
@@ -300,7 +345,7 @@ class ManagerClient:
         params = {"scanner_id": self.scanner_id}
         
         try:
-            response = self.session.get(url, params=params, timeout=self.timeout)
+            response = self._request("GET", url[len(self.base_url):], params=params, timeout=self.timeout)
             if response.status_code == 200:
                 data = response.json()
                 task = data.get("task")
@@ -339,7 +384,8 @@ class ManagerClient:
         findings: List[Dict[str, Any]],
         catalog_entries: List[Dict[str, Any]],
         failed_files: List[Dict[str, Any]],
-        stats: Dict[str, Any]
+        stats: Dict[str, Any],
+        final: bool = True,
     ) -> str:
         """Отправка результатов с явным статусом (BUG-097, TASK-066, v3.13.25).
 
@@ -347,12 +393,16 @@ class ManagerClient:
         удалённым заданием ретраился бесконечно: Manager отвечал 404, сканер
         сохранял файл заново и повторял попытку в каждом цикле main().
         Теперь 404 → SubmitStatus.LOST, и вызывающий код отбрасывает пачку.
+
+        final=False (53.4n, v3.14.12): промежуточный чанк не завершает задание
+        (Manager не ставит completed) — остальные данные игнорируются.
         """
         if self.scanner_id is None:
             logger.warning("[SubmitResults] Scanner not registered")
             return SubmitStatus.RETRY
             
         url = f"{self.base_url}/api/scanner/tasks/{task_id}/results"
+        path = f"/api/scanner/tasks/{task_id}/results"
         # BACKLOG-086 (TASK-050): разбивка по размеру payload, а не только по
         # счётчику — встроенные фрагменты (до 2 МБ каждый) могут набрать мегабайты.
         chunks = _split_by_size(findings, MAX_BATCH_SIZE_BYTES)
@@ -367,8 +417,14 @@ class ManagerClient:
                     "failed_files": failed_files if is_last else [],
                     "stats": stats if is_last else {},
                 }
-                params = {"batch": batch_idx, "total": total_batches}
-                response = self.session.post(url, json=data, params=params, timeout=self.submit_timeout)
+                params = {
+                    "batch": batch_idx,
+                    "total": total_batches,
+                    # 53.4n: последний батч завершает задание только если это
+                    # финальный чанк всего сканирования.
+                    "final": 1 if (final and is_last) else 0,
+                }
+                response = self._request("POST", path, json=data, params=params, timeout=self.submit_timeout)
                 if response.status_code == 200:
                     result = response.json()
                     logger.info(f"[SubmitResults] batch {batch_idx}/{total_batches}: {result.get('findings_count', 0)} findings saved")
@@ -398,7 +454,7 @@ class ManagerClient:
         url = f"{self.base_url}/api/scanner/{self.scanner_id}"
         
         try:
-            response = self.session.get(url, timeout=self.timeout)
+            response = self._request("GET", url[len(self.base_url):], timeout=self.timeout)
             if response.status_code == 200:
                 return response.json()
             else:
@@ -424,8 +480,9 @@ class ManagerClient:
         try:
             for i in range(0, len(fingerprints), FP_CHUNK):
                 chunk = fingerprints[i:i + FP_CHUNK]
-                response = self.session.post(
-                    url,
+                response = self._request(
+                    "POST",
+                    "/api/findings/check-fingerprints",
                     json={"fingerprints": chunk},
                     timeout=self.timeout,
                 )
@@ -447,13 +504,38 @@ class ManagerClient:
             logger.warning("[CheckFingerprints] Error: %s", e)
             return None
 
+    def release_task(self, task_id: int, reason: str = "scanner aborted") -> bool:
+        """Вернуть задание в очередь Manager (53.4n, v3.14.12, BUG-280).
+
+        Используется вместо fail_task при остановке сканера: задание остаётся
+        pending и будет продолжено с сохранённого чанка (resume).
+        """
+        if self.scanner_id is None:
+            return False
+        url = f"/api/scanner/tasks/{task_id}/release"
+        try:
+            response = self._request(
+                "POST", url, json={"reason": reason}, timeout=self.timeout
+            )
+            if response.status_code in (200, 204):
+                logger.info(f"[Release] Task {task_id} возвращено в очередь (resume)")
+                return True
+            if response.status_code in (404, 410):
+                logger.warning(f"[Release] Task {task_id} не найдено в Manager")
+                return False
+            logger.warning(f"[Release] Failed: {response.status_code} {response.text[:200]}")
+            return False
+        except Exception as e:
+            logger.error(f"[Release] Error: {e}")
+            return False
+
     def fail_task(self, task_id: int, reason: str = "scanner aborted") -> bool:
         """BUG-034: уведомить Manager о прерывании задачи (Ctrl+C/stop)."""
         if self.scanner_id is None:
             return False
         url = f"{self.base_url}/api/scanner/tasks/{task_id}/fail"
         try:
-            response = self.session.post(url, json={"reason": reason}, timeout=self.timeout)
+            response = self._request("POST", url[len(self.base_url):], json={"reason": reason}, timeout=self.timeout)
             if response.status_code == 200:
                 logger.info(f"[FailTask] Task {task_id} marked failed")
                 return True
@@ -925,15 +1007,38 @@ class ManagedScanner:
             )
         return filtered
 
-    def _scan_line_by_line(self, resource_path: str) -> Dict[str, Any]:
-        """Построчное сканирование каталога (день 40.2).
+    def _chunk_size(self) -> int:
+        """Размер чанка для resume (53.4n): performance.chunk_size, по умолчанию 100."""
+        try:
+            value = int(self._get_performance_dict().get("chunk_size") or 100)
+        except (TypeError, ValueError):
+            value = 100
+        return max(1, value)
 
-        Возвращает {"findings": [...], "files_scanned": int, "error": str|None}.
+    def _scan_line_by_line(
+        self,
+        resource_path: str,
+        start_chunk: int = 0,
+        chunk_size: Optional[int] = None,
+        on_chunk: Optional[Callable[[int, int, List[Finding]], bool]] = None,
+        meta: Optional[Dict[str, Any]] = None,
+        executor: Optional[Any] = None,
+    ) -> Dict[str, Any]:
+        """Построчное сканирование каталога (день 40.2; чанки — 53.4n).
+
+        Возвращает {"findings": [...], "files_scanned": int, "error": str|None,
+        "total_files": int, "total_chunks": int, "chunks_done": int}.
+
+        on_chunk(chunk_index, total_chunks, findings) вызывается после каждого
+        чанка; возврат False — остановить сканирование (используется для
+        по-чанкового submit и сохранения состояния).
         """
         line_capable = [c for c in self.classifiers if hasattr(c, "scan_line")]
 
         # счётчик обработанных файлов для stats
         scanned = [0]
+        # при resume (53.4n) скорость/ETA считаем от начала текущего запуска
+        run_base = [0]
         # тайминги для консольного прогресса (День 40.x: скорость + ETA)
         start_time = [time.time()]
         last_report = [0.0]
@@ -958,7 +1063,8 @@ class ManagedScanner:
 
         def _report(current: int, total: int):
             elapsed = time.time() - start_time[0]
-            speed = current / elapsed if elapsed > 0 else 0.0
+            done = max(0, current - run_base[0])
+            speed = done / elapsed if elapsed > 0 else 0.0
             rate = speed if speed > 0 else 0.0
             eta = (total - current) / rate if rate > 0 else None
             if self.heartbeat_thread is not None:
@@ -996,24 +1102,133 @@ class ManagedScanner:
                     # между консольными отчётами всё равно обновляем heartbeat в фоне
                     try:
                         elapsed = time.time() - start_time[0]
-                        speed = current / elapsed if elapsed > 0 else 0.0
+                        done = max(0, current - run_base[0])
+                        speed = done / elapsed if elapsed > 0 else 0.0
                         eta = (total - current) / speed if speed > 0 else None
                         self.heartbeat_thread.set_progress(current, total, speed, int(eta) if eta else None)
                     except Exception:
                         pass
 
-        findings = self._connector.scan_path(
-            resource_path,
-            line_capable,
-            progress_callback=_progress,
-            stop_event=self._stop_event,
-        )
-        # финальный отчёт с общей скоростью
-        _report(scanned[0], scanned[0])
+        # 53.4n (v3.14.12): если коннектор умеет отдавать список файлов —
+        # сканируем чанками (нужно для resume), иначе — одним scan_path.
+        discover = getattr(self._connector, "discover_files", None)
+        scan_chunk = getattr(self._connector, "scan_files", None)
+        if not callable(discover) or not callable(scan_chunk):
+            findings = self._connector.scan_path(
+                resource_path,
+                line_capable,
+                progress_callback=_progress,
+                stop_event=self._stop_event,
+            )
+            _report(scanned[0], scanned[0])
+            return {
+                "findings": findings,
+                "files_scanned": scanned[0],
+                "error": None,
+                "total_files": scanned[0],
+                "total_chunks": 1,
+                "chunks_done": 1 if findings or scanned[0] else 0,
+            }
+
+        files = discover(resource_path)
+        total_files = len(files)
+        if meta is not None:
+            meta["total_files"] = total_files
+        if not total_files:
+            if self.heartbeat_thread is not None:
+                try:
+                    self.heartbeat_thread.set_progress(0, 0)
+                except Exception:
+                    pass
+            return {
+                "findings": [],
+                "files_scanned": 0,
+                "error": None,
+                "total_files": 0,
+                "total_chunks": 0,
+                "chunks_done": 0,
+            }
+
+        chunk_size = int(chunk_size or self._chunk_size())
+        chunk_size = max(1, chunk_size)
+        total_chunks = (total_files + chunk_size - 1) // chunk_size
+        start_chunk = max(0, min(int(start_chunk), total_chunks))
+        if meta is not None:
+            meta["total_files"] = total_files
+            meta["total_chunks"] = total_chunks
+            meta["chunk_size"] = chunk_size
+
+        findings: List[Finding] = []
+        chunks_done = start_chunk
+        scanned[0] = min(start_chunk * chunk_size, total_files)
+        run_base[0] = scanned[0]
+
+        for chunk_idx in range(start_chunk, total_chunks):
+            if self._stop_event.is_set() or self._should_exit:
+                logger.info("[FS] Сканирование остановлено на чанке %d/%d", chunk_idx, total_chunks)
+                break
+
+            offset = chunk_idx * chunk_size
+            chunk_files = files[offset:offset + chunk_size]
+
+            def _chunk_progress(stage: int, current: int, tot: int, file_path: str,
+                                _offset: int = offset):
+                _progress(stage, _offset + current, total_files, file_path)
+
+            part = scan_chunk(
+                chunk_files,
+                line_capable,
+                progress_callback=_chunk_progress,
+                stop_event=self._stop_event,
+                offset=offset,
+                total=total_files,
+                executor=executor,
+            )
+
+            if self._stop_event.is_set() or self._should_exit:
+                # Прерванный чанк не засчитываем: при resume он пересканируется,
+                # дубли отсекаются fingerprint'ом в Manager.
+                # 53.4p: прогресс не откатываем — сохраняем максимум.
+                scanned[0] = max(scanned[0], offset)
+                if meta is not None:
+                    meta["scanned"] = scanned[0]
+                logger.info(
+                    "[FS] Остановка внутри чанка %d/%d — чанк будет пересканирован",
+                    chunk_idx,
+                    total_chunks,
+                )
+                break
+
+            findings.extend(part)
+            chunks_done = chunk_idx + 1
+            # 53.4p (v3.14.14, BUG-289): прогресс монотонный — не откатываемся.
+            scanned[0] = max(scanned[0], min(offset + len(chunk_files), total_files))
+            if meta is not None:
+                meta["scanned"] = scanned[0]
+            _report(scanned[0], total_files)
+
+            if on_chunk is not None:
+                try:
+                    keep_going = on_chunk(chunk_idx, total_chunks, part)
+                except Exception as e:
+                    logger.error("[Scanner] Ошибка обработки чанка %d/%d: %s",
+                                 chunk_idx, total_chunks, e)
+                    keep_going = False
+                if keep_going is False:
+                    break
+
+        scanned[0] = max(scanned[0], scanned[0])
+        if meta is not None:
+            meta["scanned"] = scanned[0]
+        # финальный отчёт
+        _report(scanned[0], total_files)
         return {
             "findings": findings,
             "files_scanned": scanned[0],
             "error": None,
+            "total_files": total_files,
+            "total_chunks": total_chunks,
+            "chunks_done": chunks_done,
         }
 
     def _progress_report_interval(self) -> float:
@@ -1050,12 +1265,39 @@ class ManagedScanner:
         except Exception as e:
             logger.debug("Metrics update error: %s", e)
 
+    def _serialize_chunk(
+        self, findings: List[Finding], resource_path: str
+    ) -> List[Dict[str, Any]]:
+        """Сериализация находок чанка (53.4n).
+
+        BUG-022: группируем находки по строке и маскируем ВСЕ PII строки,
+        а не только своей категории.
+        """
+        findings_by_line: dict = {}
+        for finding in findings:
+            key = (finding.fragment_path or resource_path, int(finding.line_number or 0))
+            findings_by_line.setdefault(key, []).append(finding)
+
+        serialized = [
+            self._serialize_finding(
+                finding,
+                resource_path,
+                all_findings_in_line=findings_by_line[
+                    (finding.fragment_path or resource_path, int(finding.line_number or 0))
+                ],
+            )
+            for finding in findings
+        ]
+        return self._filter_false_positives(serialized)
+
     def _execute_task_linewise(self, task: Dict[str, Any], resource_path: str,
                                scan_config: Dict[str, Any]) -> Dict[str, Any]:
-        """Построчное исполнение задания (день 40.2).
+        """Построчное исполнение задания (день 40.2; чанки/resume — 53.4n).
 
-        Использует FilesystemConnector + scan_line классификаторов,
-        шифрует/маскирует находки, фильтрует FP через check-fingerprints.
+        Сканирует задание чанками по performance.chunk_size, после каждого
+        чанка отправляет находки в Manager и сохраняет состояние. При остановке
+        задание возвращается в очередь Manager (release) и при следующем
+        получении продолжается с последнего завершённого чанка.
         """
         task_id = task["id"]
 
@@ -1063,114 +1305,289 @@ class ManagedScanner:
             self.heartbeat_thread.set_task(task_id)
             self.heartbeat_thread.set_progress(0, None)
 
+        state = ScanState(task_id, state_dir=str(self._get_state_dir()))
+        resume = state.load()
+        chunk_size = self._chunk_size()
+        start_chunk = 0
+        prior_findings = 0
+        started_at = task.get("assigned_at")
+
+        if resume:
+            saved_path = resume.get("root_path")
+            saved_chunk_size = int(resume.get("chunk_size") or chunk_size)
+            if saved_path and saved_path != resource_path:
+                logger.warning(
+                    "[Resume] Путь задания изменился (%s → %s) — начинаем с нуля",
+                    saved_path, resource_path,
+                )
+                state.clear()
+                resume = {}
+            elif saved_chunk_size != chunk_size:
+                logger.warning(
+                    "[Resume] chunk_size изменился (%d → %d) — начинаем с нуля",
+                    saved_chunk_size, chunk_size,
+                )
+                state.clear()
+                resume = {}
+            else:
+                start_chunk = state.get_resume_chunk()
+                prior_findings = int(resume.get("findings_count") or 0)
+                started_at = resume.get("started_at") or started_at
+                completed_index = int(resume.get("last_completed_index") or 0)
+                logger.info(
+                    "[Resume] Задание %d: продолжаем с чанка %d/%s "
+                    "(файлов обработано: %d, находок ранее: %d)",
+                    task_id,
+                    start_chunk + 1,
+                    resume.get("total_chunks"),
+                    completed_index + 1 if resume.get("last_completed_index") is not None else 0,
+                    prior_findings,
+                )
+
         logger.info(
             "[Scanner] Построчное сканирование %s (task %d, source_type=%s)",
             resource_path, task_id, self._current_source_type,
         )
 
-        scan_result = self._scan_line_by_line(resource_path)
-        findings_objects = scan_result["findings"]
+        meta: Dict[str, Any] = {}
+        # 53.4p (v3.14.14, BUG-289): монотонный прогресс (resume-aware).
+        _total_scanned = [start_chunk * chunk_size]
+        run_findings = 0
+        files_with_findings: set = set()
+        category_stats: Dict[str, int] = {}
+        submit_lost = False
+        submit_failed = False
 
-        # Мгновенная остановка: если stop_event выставлен после скана —
-        # НЕ сериализуем/шифруем находки и НЕ шлём FP-фильтр (день 40.2+).
-        if self._should_exit or self._stop_event.is_set():
-            logger.warning(
-                f"[Scanner] Task {task_id} прервана при остановке — "
-                f"post-processing пропущен ({len(findings_objects)} находок не сериализованы)"
+        def _stats(aborted: bool) -> Dict[str, Any]:
+            return {
+                "files_scanned": int(meta.get("scanned", 0) or 0)
+                if aborted
+                else int(meta.get("total_files", 0) or 0),
+                "files_failed": 0,
+                "files_with_findings": len(files_with_findings),
+                "total_findings": prior_findings + run_findings,
+                "unique_findings": prior_findings + run_findings,
+                "category_stats": dict(category_stats),
+                "started_at": started_at or datetime.utcnow().isoformat(),
+                "completed_at": datetime.utcnow().isoformat(),
+                "encryption": "enabled" if self._enc else "legacy",
+                "aborted": aborted,
+            }
+
+        def _on_chunk(chunk_idx: int, total_chunks: int, chunk_findings: List[Finding]) -> bool:
+            nonlocal run_findings, submit_lost, submit_failed
+
+            serialized = self._serialize_chunk(chunk_findings, resource_path)
+            # Остановка пришла во время чанка — не отправляем неполный чанк.
+            if self._stop_event.is_set() or self._should_exit:
+                return False
+
+            is_last = chunk_idx == total_chunks - 1
+
+            run_findings += len(serialized)
+            for item in serialized:
+                file_path = item.get("file_path")
+                if file_path:
+                    files_with_findings.add(file_path)
+                finding_type = item.get("finding_type", "unknown")
+                category_stats[finding_type] = category_stats.get(finding_type, 0) + 1
+
+            stats = _stats(aborted=False)
+            catalog_entries = (
+                self._collect_catalog_entries(resource_path, serialized) if is_last else []
             )
+
+            if serialized or is_last:
+                status = self.client.submit_results_status(
+                    task_id=task_id,
+                    findings=serialized,
+                    catalog_entries=catalog_entries,
+                    failed_files=[],
+                    stats=stats,
+                    final=is_last,
+                )
+                if status == SubmitStatus.LOST:
+                    submit_lost = True
+                    logger.warning(
+                        "[SubmitResults] Task %d удалён в Manager — состояние очищено",
+                        task_id,
+                    )
+                    return False
+                if status != SubmitStatus.OK:
+                    submit_failed = True
+                    logger.error(
+                        "[SubmitResults] Чанк %d/%d не отправлен — задание будет "
+                        "продолжено с этого чанка",
+                        chunk_idx + 1,
+                        total_chunks,
+                    )
+                    return False
+
+            _total_scanned[0] = max(
+                _total_scanned[0], int(meta.get("scanned", 0) or 0)
+            )
+            state.save(
+                root_path=resource_path,
+                chunk_size=chunk_size,
+                total_chunks=total_chunks,
+                total_files=int(meta.get("total_files", 0) or 0),
+                last_completed_chunk=chunk_idx,
+                last_completed_index=(chunk_idx + 1) * chunk_size - 1,
+                findings_count=prior_findings + run_findings,
+                files_scanned=_total_scanned[0],
+                started_at=started_at,
+            )
+            logger.info(
+                "[Resume] Чанк %d/%d обработан, состояние сохранено "
+                "(находок в задании: %d)",
+                chunk_idx + 1,
+                total_chunks,
+                prior_findings + run_findings,
+            )
+            return True
+
+        # 53.4o (v3.14.13, BUG-286): один ProcessPoolExecutor на все чанки
+        # (создаётся один раз, переиспользуется — spaCy грузится 4 раза, а не 40).
+        from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor
+        from scanner.classifiers.factory import classifier_specs, worker_specs
+        from scanner.connectors.filesystem import _process_worker_init
+
+        _perf = self._get_performance_dict()
+        _maxw = int(_perf.get("max_workers") or 4)
+        _specs = None
+        try:
+            _specs = worker_specs(classifier_specs(line_capable))
+        except Exception:
+            _specs = None
+
+        if str(_perf.get("executor") or "process").lower() == "process" and _specs is not None:
+            with ProcessPoolExecutor(
+                max_workers=_maxw,
+                initializer=_process_worker_init,
+                initargs=(self._connector, _specs),
+            ) as _executor:
+                # for chunk_idx in range(start_chunk, total_chunks):
+                scan_result = self._scan_line_by_line(
+                    resource_path,
+                    start_chunk=start_chunk,
+                    chunk_size=chunk_size,
+                    on_chunk=_on_chunk,
+                    meta=meta,
+                    executor=_executor,
+                )
+        else:
+            _executor = ThreadPoolExecutor(max_workers=_maxw)
+            try:
+                # for chunk_idx in range(start_chunk, total_chunks):
+                scan_result = self._scan_line_by_line(
+                    resource_path,
+                    start_chunk=start_chunk,
+                    chunk_size=chunk_size,
+                    on_chunk=_on_chunk,
+                    meta=meta,
+                    executor=_executor,
+                )
+            finally:
+                try:
+                    _executor.shutdown(wait=True)
+                except Exception:
+                    pass
+        total_chunks = int(scan_result.get("total_chunks") or 0)
+
+        if submit_lost:
+            state.clear()
             return {
                 "findings": [],
                 "catalog_entries": [],
                 "failed_files": [],
-                "stats": {
-                    "files_scanned": int(scan_result.get("files_scanned", 0) or 0),
-                    "files_failed": 0,
-                    "files_with_findings": 0,
-                    "total_findings": 0,
-                    "unique_findings": 0,
-                    "category_stats": {},
-                    "started_at": task.get("assigned_at", datetime.utcnow().isoformat()),
-                    "completed_at": datetime.utcnow().isoformat(),
-                    "encryption": "enabled" if self._enc else "legacy",
-                    "aborted": True,
-                },
+                "stats": _stats(aborted=True),
+                "already_submitted": True,
+                "resumable": False,
+                "lost": True,
             }
 
-        # Сериализация в новый формат (шифрование/маскирование на хосте)
-        # BUG-022: группируем находки по строке и маскируем ВСЕ PII строки,
-        # а не только своей категории.
-        findings_by_line: dict = {}
-        for _f in findings_objects:
-            _key = (_f.fragment_path or resource_path, int(_f.line_number or 0))
-            findings_by_line.setdefault(_key, []).append(_f)
-
-        serialized = [
-            self._serialize_finding(
-                f,
-                resource_path,
-                all_findings_in_line=findings_by_line[
-                    (f.fragment_path or resource_path, int(f.line_number or 0))
-                ],
+        # Пустой каталог: как раньше — пустой финальный батч завершает задание.
+        if total_chunks == 0:
+            stats = _stats(aborted=False)
+            status = self.client.submit_results_status(
+                task_id=task_id,
+                findings=[],
+                catalog_entries=[],
+                failed_files=[],
+                stats=stats,
+                final=True,
             )
-            for f in findings_objects
-        ]
+            if status == SubmitStatus.OK:
+                state.clear()
+                logger.info("[Scanner] Task %d completed (linewise): файлов нет", task_id)
+            return {
+                "findings": [],
+                "catalog_entries": [],
+                "failed_files": [],
+                "stats": stats,
+                "already_submitted": True,
+                "resumable": False,
+            }
 
-        # Batch FP-фильтр: FP/confirmed не отправляем
-        serialized = self._filter_false_positives(serialized)
+        completed = (
+            not submit_failed
+            and not self._should_exit
+            and not self._stop_event.is_set()
+            and int(scan_result.get("chunks_done") or 0) >= total_chunks
+        )
 
-        failed_files: List[Dict[str, Any]] = []
-        if scan_result.get("error"):
-            failed_files.append({
-                "path": resource_path,
-                "error": scan_result["error"],
-                "error_type": "scan",
-            })
+        if completed:
+            state.clear()
+            stats = _stats(aborted=False)
+            self._update_metrics(stats)
+            logger.info(f"[Scanner] Task {task_id} completed (linewise):")
+            logger.info(f"  - Files scanned: {stats['files_scanned']}")
+            logger.info(f"  - Files with findings: {stats['files_with_findings']}")
+            logger.info(f"  - Total findings: {stats['total_findings']}")
+            logger.info(f"  - Chunks: {total_chunks}/{total_chunks}")
+            logger.info(f"  - Failed files: {stats['files_failed']}")
+            return {
+                "findings": [],
+                "catalog_entries": [],
+                "failed_files": [],
+                "stats": stats,
+                "already_submitted": True,
+                "resumable": False,
+            }
 
-        files_scanned = int(scan_result.get("files_scanned", 0) or 0)
-        files_with_findings = {
-            d.get("file_path", "") for d in serialized if d.get("file_path")
-        }
-        category_stats: Dict[str, int] = {}
-        for d in serialized:
-            ft = d.get("finding_type", "unknown")
-            category_stats[ft] = category_stats.get(ft, 0) + 1
-
-        stats: Dict[str, Any] = {
-            "files_scanned": files_scanned,
-            "files_failed": len(failed_files),
-            "files_with_findings": len(files_with_findings),
-            "total_findings": len(serialized),
-            "unique_findings": len(serialized),
-            "category_stats": category_stats,
-            "started_at": task.get("assigned_at", datetime.utcnow().isoformat()),
-            "completed_at": datetime.utcnow().isoformat(),
-            "encryption": "enabled" if self._enc else "legacy",
-        }
-
-        catalog_entries = self._collect_catalog_entries(resource_path, serialized)
-
-        self._update_metrics(stats)
-
-        logger.info(f"[Scanner] Task {task_id} completed (linewise):")
-        logger.info(f"  - Files scanned: {stats['files_scanned']}")
-        logger.info(f"  - Files with findings: {stats['files_with_findings']}")
-        logger.info(f"  - Total findings: {stats['total_findings']}")
-        logger.info(f"  - Folders with findings: {len(catalog_entries)}")
-        logger.info(f"  - Failed files: {stats['files_failed']}")
-
-        if serialized:
-            logger.info("[Scanner] Sample findings (first 5):")
-            for i, d in enumerate(serialized[:5]):
-                logger.info(
-                    f"  {i + 1}. [{d.get('finding_type')}/{d.get('category')}] "
-                    f"{d.get('file_path', '')}:{d.get('line_number', '')}"
-                )
-
+        # Остановка/ошибка отправки: задание остаётся в очереди Manager и будет
+        # продолжено с последнего успешно отправленного чанка.
+        stats = _stats(aborted=True)
+        saved_chunk = state.get_resume_chunk()
+        released = self.client.release_task(
+            task_id,
+            reason="submit failed (resume)" if submit_failed else "scanner stopped (resume)",
+        )
+        if released:
+            logger.info(
+                "[Resume] Задание %d приостановлено: обработано чанков %d/%d, "
+                "находок %d — продолжим с чанка %d при следующем запуске",
+                task_id,
+                saved_chunk,
+                total_chunks,
+                prior_findings + run_findings,
+                saved_chunk + 1,
+            )
+        else:
+            logger.warning(
+                "[Resume] Не удалось вернуть задание %d в очередь — Manager "
+                "вернёт его по таймауту (сохранено чанков: %d/%d)",
+                task_id,
+                saved_chunk,
+                total_chunks,
+            )
         return {
-            "findings": serialized,
-            "catalog_entries": catalog_entries,
-            "failed_files": failed_files,
+            "findings": [],
+            "catalog_entries": [],
+            "failed_files": [],
             "stats": stats,
+            "already_submitted": True,
+            "resumable": True,
         }
 
     def _execute_task(self, task: Dict[str, Any]) -> Dict[str, Any]:
@@ -1517,13 +1934,34 @@ class ManagedScanner:
                         continue
                     
                     if self._should_exit or self._stop_event.is_set():
-                        logger.warning("[STOP] Задача прервана пользователем — уведомляем Manager")
-                        try:
-                            self.client.fail_task(task["id"], reason="scanner aborted (Ctrl+C)")
-                        except Exception as e:
-                            logger.error(f"[STOP] Не удалось уведомить Manager: {e}")
+                        if result.get("resumable"):
+                            # 53.4n: задание уже возвращено в очередь (release),
+                            # продолжение — при следующем запуске.
+                            logger.info(
+                                "[STOP] Задача %s приостановлена — продолжение с ",
+                                task["id"],
+                            )
+                        else:
+                            logger.warning(
+                                "[STOP] Задача прервана пользователем — уведомляем Manager"
+                            )
+                            try:
+                                self.client.fail_task(
+                                    task["id"], reason="scanner aborted (Ctrl+C)"
+                                )
+                            except Exception as e:
+                                logger.error(f"[STOP] Не удалось уведомить Manager: {e}")
                         break
-                    
+
+                    if result.get("already_submitted"):
+                        # 53.4n: результаты отправлены по чанкам внутри
+                        # _execute_task_linewise — повторно не отправляем.
+                        logger.info(
+                            f"[OK] Task {task['id']}: результаты отправлены по чанкам"
+                        )
+                        self.client.heartbeat(status="idle")
+                        continue
+
                     submit_status = self.client.submit_results_status(
                         task_id=task["id"],
                         findings=result.get("findings", []),
@@ -1549,10 +1987,17 @@ class ManagedScanner:
                     time.sleep(self.interval)
                     
             except KeyboardInterrupt:
-                logger.warning("[STOP] Ctrl+C — задача прервана, уведомляем Manager")
+                logger.warning("[STOP] Ctrl+C — останавливаемся, состояние сохраняем")
                 try:
                     if "task" in locals() and task:
-                        self.client.fail_task(task["id"], reason="scanner aborted (Ctrl+C)")
+                        # 53.4n: сначала пробуем вернуть задание в очередь
+                        # (resume), fail — только если release не удался.
+                        if not self.client.release_task(
+                            task["id"], reason="scanner aborted (Ctrl+C)"
+                        ):
+                            self.client.fail_task(
+                                task["id"], reason="scanner aborted (Ctrl+C)"
+                            )
                 except Exception as e:
                     logger.error(f"[STOP] Не удалось уведомить Manager: {e}")
                 break

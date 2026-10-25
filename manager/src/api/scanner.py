@@ -1,6 +1,6 @@
 # manager/src/api/scanner.py
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 from sqlalchemy.orm import Session
 from sqlalchemy import and_, or_
 from pydantic import BaseModel
@@ -372,6 +372,16 @@ async def submit_results(
         _batch_no_06045225 = 1
         _batch_total_06045225 = 1
     _is_final_06045225 = _batch_no_06045225 >= _batch_total_06045225
+    # 53.4n (v3.14.12, BUG-280): сканер шлёт результаты по чанкам. Промежуточные
+    # чанки не должны завершать задание — явный final=0/1 в query имеет приоритет
+    # над batch/total (обратная совместимость: без параметра — как раньше).
+    _final_param_06045225 = request.query_params.get("final")
+    if _final_param_06045225 is not None:
+        _is_final_06045225 = str(_final_param_06045225).strip().lower() in (
+            "1",
+            "true",
+            "yes",
+        )
 
     task = db.query(models.ScanTask).filter(models.ScanTask.id == task_id).first()
     if not task:
@@ -743,23 +753,30 @@ def release_task(
     if not task:
         raise HTTPException(404, "Task not found")
     
-    if task.status != "assigned":
-        raise HTTPException(400, f"Task is not assigned (status: {task.status})")
-    
+    # 53.4p (v3.14.14, BUG-288): release — идемпотентный no-op для
+    # завершённых/уже ожидающих заданий (иначе scanner получает 400 и
+    # не может корректно завершить цикл).
+    if task.status == "completed":
+        logger.info("[Release] Task %d already completed — no-op (204)", task_id)
+        return Response(status_code=204)
+    if task.status == "pending":
+        logger.info("[Release] Task %d already pending — no-op (204)", task_id)
+        return Response(status_code=204)
+    if task.status == "failed":
+        raise HTTPException(409, f"Task is failed (status: {task.status})")
+    if task.status not in ("assigned", "running"):
+        raise HTTPException(409, f"Task is not assigned (status: {task.status})")
+
     old_scanner_id = task.scanner_id
-    
+
     task.status = "pending"
     task.scanner_id = None
     task.assigned_at = None
     db.commit()
-    
+
     logger.info(f"[Task] Task {task_id} released from scanner {old_scanner_id}")
-    
-    return {
-        "status": "released",
-        "task_id": task_id,
-        "old_scanner_id": old_scanner_id
-    }
+
+    return Response(status_code=204)
 
 
 @router.delete("/{scanner_id}")

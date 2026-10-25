@@ -223,6 +223,7 @@ class S3LineConnector:
         classifiers: List[Any],
         progress_callback: Optional[Callable[[int, int, int, str], None]] = None,
         stop_event: Optional[Any] = None,
+        start_key: Optional[str] = None,
     ) -> List[Finding]:
         """Сканирует bucket по prefix. Возвращает список Finding.
 
@@ -235,7 +236,33 @@ class S3LineConnector:
 
         progress_callback(stage, current, total, file_path): stage 1 = скан.
         stop_event: threading.Event — прерывание после текущего объекта.
+        start_key: resume (53.4n) — пропустить ключи <= start_key.
         """
+        keys = self.discover_files(path)
+        total = len(keys)
+        if not total:
+            if progress_callback:
+                progress_callback(1, 0, 0, path or self._prefix)
+            return []
+
+        if start_key:
+            filtered = [k for k in keys if k > start_key]
+            logger.info(
+                "[S3Line] resume: пропущено %d ключей (start_key=%r)",
+                total - len(filtered),
+                start_key,
+            )
+            keys = filtered
+
+        return self.scan_files(
+            keys,
+            classifiers,
+            progress_callback=progress_callback,
+            stop_event=stop_event,
+        )
+
+    def discover_files(self, path: str) -> List[str]:
+        """Публичный отсортированный список ключей (53.4n, v3.14.12)."""
         # Bucket — обычно из scan_config.connector.s3 (см. 53.1a):
         # Manager кладёт bucket в payload задачи, а path (s3://bucket/prefix)
         # используется только как suffix для префикса. Если в path указан
@@ -269,20 +296,31 @@ class S3LineConnector:
             "[S3Line] scan_path: endpoint=%s, bucket=%s, prefix=%r",
             self._endpoint, effective_bucket, source_prefix,
         )
-        keys = self._discover_keys(source_prefix, effective_bucket)
-        total = len(keys)
-        if not total:
-            if progress_callback:
-                progress_callback(1, 0, 0, path or source_prefix)
-            return []
+        return sorted(self._discover_keys(source_prefix, effective_bucket))
 
+    def scan_files(
+        self,
+        keys: List[str],
+        classifiers: List[Any],
+        progress_callback: Optional[Callable[[int, int, int, str], None]] = None,
+        stop_event: Optional[Any] = None,
+        offset: int = 0,
+        total: Optional[int] = None,
+    ) -> List[Finding]:
+        """Сканирует переданные ключи (53.4n) — чанки/resume как у FS-коннектора."""
         findings: List[Finding] = []
+        if not keys:
+            if progress_callback:
+                progress_callback(1, offset, offset if total is None else total, "")
+            return findings
+
+        total = len(keys) if total is None else total
         for idx, key in enumerate(keys, start=1):
             if stop_event is not None and stop_event.is_set():
-                logger.info("[S3Line] Остановка на %d/%d", idx, total)
+                logger.info("[S3Line] Остановка на %d/%d", offset + idx, total)
                 break
             if progress_callback:
-                progress_callback(1, idx, total, key)
+                progress_callback(1, offset + idx, total, key)
             try:
                 findings.extend(self.scan_file(key, classifiers))
             except Exception as exc:

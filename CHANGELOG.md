@@ -6,6 +6,41 @@
 версионирование — [SemVer](https://semver.org/).
 
 ---
+## [Unreleased] — 2026-10-25 (v3.14.14)
+
+### Hotfix (53.4p — scanner resume hotfix)
+
+- **BUG-287**: `final=True` только на последнем чанке (`chunk_idx == total_chunks - 1`),
+  иначе Manager завершал задание после первого чанка (400 на следующих).
+- **BUG-288**: `POST /api/scanner/tasks/{id}/release` для `completed`/`pending` —
+  no-op (204), для `failed` — 409; `ManagerClient.release_task` принимает 204.
+- **BUG-289**: прогресс сканирования монотонный (`_total_scanned` accumulator,
+  `meta["scanned"]`, max вместо перезаписи).
+- Unit: `tests/unit/test_resume_hotfix_v31414.py` (3).
+
+---
+
+## [Unreleased] — 2026-10-25 (v3.14.12)
+
+### Features (53.4n — scanner resume)
+
+- **BUG-280**: сканер сохраняет состояние по чанкам (scanner/src/state_manager.py,
+  ScanState); при остановке (Ctrl+C) задание возвращается в очередь Manager
+  через POST /api/scanner/tasks/{id}/release (resume) вместо ail.
+  Повторное получение задания продолжается с последнего завершённого чанка;
+  дубли отсекаются fingerprint-дедупом в Manager.
+- **BUG-283**: файловый лог сканера (logs/scanner.log, ротация) + консоль DEBUG;
+  print-сообщения PII/OCR переведены на logger.
+- **BUG-284**: логирование восстановления связи с Manager (_request-обёртка).
+- FilesystemConnector/S3LineConnector: публичные discover_files/scan_files
+  для чанкинга и resume; ManagerClient.submit_results_status(..., final=...).
+
+### Tests
+
+- 	ests/unit/test_scan_state_v31412.py (6), 	ests/unit/test_logging_v31412.py (2).
+- Unit всего: 516 passed.
+
+---
 
 ## [Unreleased] — 2026-10-22 (v3.14.11)
 

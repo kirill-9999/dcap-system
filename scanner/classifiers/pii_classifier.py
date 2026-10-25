@@ -220,7 +220,7 @@ class PiiClassifier(IClassifier):
                 return
             
             try:
-                print("[PII] Запуск OCRWorker (изоляция Tesseract)...")
+                logger.info("[PII] Запуск OCRWorker (изоляция Tesseract)...")
                 from classifiers.ocr_worker import start_ocr_worker
                 
                 models_cache = self.config.get("models_cache", "models")
@@ -237,10 +237,10 @@ class PiiClassifier(IClassifier):
                 self._ocr_response_thread = threading.Thread(target=self._process_ocr_responses, daemon=True)
                 self._ocr_response_thread.start()
                 
-                print(f"[PII] OCRWorker запущен (PID: {self._ocr_process.pid})")
+                logger.info(f"[PII] OCRWorker запущен (PID: {self._ocr_process.pid})")
                 
             except Exception as e:
-                print(f"[PII] Ошибка запуска OCRWorker: {e}")
+                logger.error(f"[PII] Ошибка запуска OCRWorker: {e}")
                 self._ocr_started = False
     
     def _process_ocr_responses(self):
@@ -277,7 +277,7 @@ class PiiClassifier(IClassifier):
                 "timeout": self.config.get("ocr_timeout", 60)
             }, timeout=5)
         except Exception as e:
-            print(f"[PII] Ошибка отправки в OCRWorker: {e}")
+            logger.warning(f"[PII] Ошибка отправки в OCRWorker: {e}")
             return None
         
         start_time = time.time()
@@ -317,7 +317,7 @@ class PiiClassifier(IClassifier):
         if not self._ocr_started:
             return
         
-        print("[PII] Остановка OCRWorker...")
+        logger.info("[PII] Остановка OCRWorker...")
         
         try:
             from classifiers.ocr_worker import stop_ocr_worker
@@ -338,7 +338,7 @@ class PiiClassifier(IClassifier):
         with self._ocr_pending_lock:
             self._ocr_pending_requests.clear()
         
-        print(f"[PII] OCRWorker остановлен")
+        logger.info("[PII] OCRWorker остановлен")
     
     def _get_nlp_engine(self):
         """
@@ -364,22 +364,22 @@ class PiiClassifier(IClassifier):
 
             for _model in ("ru_core_news_sm", "en_core_web_sm"):
                 if importlib.util.find_spec(_model) is None:
-                    print(f"[PII] [WARN] Модель {_model} не найдена")
-                    print("[PII]    Скачиваем...")
+                    logger.warning(f"[PII] [WARN] Модель {_model} не найдена")
+                    logger.info("[PII]    Скачиваем...")
                     spacy.cli.download(_model)
-                    print(f"[PII] [OK] Модель {_model} скачана")
+                    logger.info(f"[PII] [OK] Модель {_model} скачана")
                 else:
-                    print(f"[PII] [OK] Модель {_model} найдена")
+                    logger.info(f"[PII] [OK] Модель {_model} найдена")
             
             # Создаём провайдер
             provider = NlpEngineProvider(nlp_configuration=configuration)
             nlp_engine = provider.create_engine()
             
-            print("[PII] [OK] NLP движок создан с моделями: en_core_web_sm, ru_core_news_sm")
+            logger.info("[PII] [OK] NLP движок создан с моделями: en_core_web_sm, ru_core_news_sm")
             return nlp_engine
             
         except Exception as e:
-            print(f"[PII] [ERROR] Ошибка создания NLP движка: {e}")
+            logger.error(f"[PII] [ERROR] Ошибка создания NLP движка: {e}")
             raise
     
     def configure(self, config: Dict[str, Any]) -> None:
@@ -430,20 +430,21 @@ class PiiClassifier(IClassifier):
             # совместимость: единичный движок используется как self._analyzer
             self._analyzer = self._analyzers[0][0]
 
-            print(f"[PII] [OK] Presidio инициализирован с локальными моделями (пул: {pool_size})")
+            logger.info(f"[PII] [OK] Presidio инициализирован с локальными моделями (пул: {pool_size})")
             if self._analyze_entities is not None:
-                print(
-                    f"[PII] [OK] NER-категории отключены (исключены: "
-                    f"{', '.join(self._excluded_entities)}), spaCy parser/ner off"
+                logger.info(
+                    "[PII] [OK] NER-категории отключены (исключены: %s), "
+                    "spaCy parser/ner off",
+                    ", ".join(self._excluded_entities),
                 )
             else:
-                print("[PII] [OK] NER-категории включены (ner_enabled=true)")
+                logger.info("[PII] [OK] NER-категории включены (ner_enabled=true)")
             
         except Exception as e:
-            print(f"[PII] [ERROR] Ошибка инициализации Presidio: {e}")
-            print("[PII]    Установите модели вручную:")
-            print("[PII]    python -m spacy download ru_core_news_sm")
-            print("[PII]    python -m spacy download en_core_web_sm")
+            logger.error(f"[PII] [ERROR] Ошибка инициализации Presidio: {e}")
+            logger.info("[PII]    Установите модели вручную:")
+            logger.info("[PII]    python -m spacy download ru_core_news_sm")
+            logger.info("[PII]    python -m spacy download en_core_web_sm")
             raise
         
         # Настройка DocumentExtractor с OCR
@@ -997,7 +998,7 @@ class PiiClassifier(IClassifier):
         )
         analyzer.registry.add_recognizer(email_recognizer)
         
-        print("[PII]   Добавлены кастомные распознаватели: PhoneRU, PassportRU, SnilsRU, InnRU, EmailRU")
+        logger.info("[PII]   Добавлены кастомные распознаватели: PhoneRU, PassportRU, SnilsRU, InnRU, EmailRU")
     
     def can_classify(self, file_context: FileContext) -> bool:
         max_size = self.config.get("max_file_size_mb", 100) * 1024 * 1024
@@ -1088,7 +1089,7 @@ class PiiClassifier(IClassifier):
                 ))
                 
         except Exception as e:
-            print(f"[PII] Ошибка анализа: {e}")
+            logger.warning(f"[PII] Ошибка анализа: {e}")
         
         # BUG-066 (день 46.3): url-finding, перекрывающий email-finding —
         # отбрасываем url (это домен внутри адреса, а не самостоятельный URL).
@@ -1201,13 +1202,13 @@ class PiiClassifier(IClassifier):
     def reload_models(self) -> None:
         """Перезагрузка (для Presidio не требуется)"""
         self.cache.clear()
-        print("[PII] Кэш очищен")
+        logger.debug("[PII] Кэш очищен")
     
     def shutdown(self):
         """Завершение работы"""
-        print("[PII] Завершение...")
+        logger.info("[PII] Завершение...")
         self._stop_ocr_worker()
-        print("[PII] Завершено")
+        logger.info("[PII] Завершено")
     
     def get_requirements(self) -> Dict[str, Any]:
         return {

@@ -1,44 +1,25 @@
-📋 ТЗ v3.14.12 — Scanner Resume (53.4n)
+📋 ТЗ v3.14.12 — Scanner Resume + Logging + Reconnect (53.4n)
 Файл: prompts/tz/day_53_4n_scanner_resume.md
-Дата: 22.10.2026
+Дата: 23.10.2026
 Версия: v3.14.11 → v3.14.12
-Приоритет: 🔴 Блокер v3.0.0 (эксплуатация: длинные сканы невозможны без resume)
+Приоритет: 🔴 Блокер v3.0.0 (эксплуатация: resume, логирование, reconnect)
 Исполнитель: Разработчик (ИИ-агент Open Code)
-Длительность: 0.5–1 день
-Зависимость: после 53.4m (v3.14.11, multiprocessing) — resume строится поверх ProcessPoolExecutor.
+Длительность: 1–1.5 дня
+Зависимость: после 53.4m (v3.14.11, multiprocessing)
 
 ⚠️ ГЛАВНОЕ ТРЕБОВАНИЕ
 Функциональность НЕ сокращается. Все находки baseline присутствуют (fingerprint set ⊆ after). Контекст (metadata["locations"]) сохранён. Resume не должен дублировать находки и не должен терять уже найденные.
 
+Консольный вывод — сохраняется полностью. На консоли — все события (как сейчас). В лог-файл — значимые события и ошибки (не спам).
+
 Замер — обязателен. Без E2E test_resume_v31412 (1000 файлов, chunk_size=100, 10 чанков) — не принимаем.
 
-📊 Контекст: почему resume сложнее с multiprocessing
-Было (ThreadPool, до 53.4m): last_processed_index в родительском процессе — resume с paths[last_processed_index+1:].
-
-Стало (ProcessPool, после 53.4m): файлы разбиты на чанки (chunk_size=100), каждый чанк — в отдельном процессе. Resume должен знать:
-
-Какие чанки завершены (last_completed_chunk).
-
-Сколько файлов в чанке (chunk_size).
-
-Сколько всего чанков (total_chunks = ceil(total_files / chunk_size)).
-
-Иначе: если сохранить только last_processed_index=599, но чанки по 100, то resume с 600 может пропустить файлы 600–699 (незавершённый чанк 6). Или дублировать их (если чанк 6 частично обработан).
-
-Решение: resume — с последнего завершённого чанка (last_completed_chunk + 1). Чанк, который не завершён (прерван) — пересканировать с начала чанка (повторная обработка ≤ 100 файлов — приемлемо, дубликаты схлопнутся по fingerprint в Manager).
-
-🔴 BUG-280 — Scanner: остановка не продолжает задание
-Severity: 🔴 (блокер эксплуатации)
-Файлы:
-
-scanner/src/state_manager.py (новый модуль).
-
-scanner/src/managed_scanner.py.
-
-scanner/connectors/filesystem.py.
-
-scanner/connectors/s3_line_connector.py.
-
+🎯 Задачи (3 шт.)
+ID	Название	Severity
+BUG-280	Scanner resume: остановка не продолжает задание	🔴
+BUG-283	Файловый лог: консольного вывода недостаточно	🟡
+BUG-284	Reconnect: нет сообщения об успешном переподключении к Manager	🟡
+🔴 BUG-280 — Scanner Resume (основная)
 Проблема
 Сценарий:
 
@@ -62,8 +43,6 @@ Ctrl+C (или сбой).
 Graceful shutdown ProcessPoolExecutor:
 
 executor.shutdown(wait=True, cancel_futures=True) — дождаться текущих задач (или отменить, если cancel_futures=True).
-
-Важно: wait=True ждёт завершения текущих чанков. Если чанк долгий (OCR на PDF) — Ctrl+C ждёт до 30–60 сек. Это приемлемо.
 
 После shutdown — state сохраняется (не до, иначе потеряем результаты текущего чанка).
 
@@ -93,7 +72,7 @@ json
 
 Проверить scanner/state/scan_<task_id>.json для текущей задачи (Manager выдаёт task_id — проверить state для этого id).
 
-Если state есть — продолжить с last_completed_chunk + 1 (пропустить завершённые чанки).
+Если state есть — продолжить с last_completed_chunk + 1.
 
 Если нет — начать с нуля (chunk 0).
 
@@ -105,7 +84,7 @@ POST /api/scanner/tasks/{id}/release — уже есть в API. Провери�
 
 Manager должен выдавать ту же задачу (id #212) при GET /api/scanner/tasks/pending, пока она не завершена.
 
-🛠️ Что нужно сделать
+Что нужно сделать
 1. scanner/src/state_manager.py (новый модуль)
 python
 """53.4n (v3.14.12): ScanState — resume state для задач сканера (chunk-aware)."""
@@ -171,30 +150,25 @@ class ScanState:
             return 0
         return data.get("last_completed_chunk", -1) + 1
 2. scanner/src/managed_scanner.py
-_execute_task_linewise (или _execute_task):
-
 python
 async def _execute_task_linewise(self, task):
     task_id = task["id"]
     state = ScanState(task_id)
     resume = state.load()
     resume_chunk = state.get_resume_chunk()  # 0 если нет state
-    
+
     if resume:
         logger.info("[Resume] Continuing task %d from chunk %d/%d (last=%s)",
                     task_id, resume_chunk, resume["total_chunks"],
                     resume.get("last_completed_index"))
 
-    # ... запуск ProcessPoolExecutor ...
     chunk_size = self._config.performance.chunk_size  # 100
-    paths = sorted(self._discover_files(root))  # детерминированный порядок
+    paths = sorted(self._discover_files(root))
     total_chunks = (len(paths) + chunk_size - 1) // chunk_size
-
-    # разбить на чанки
     chunks = [paths[i * chunk_size:(i + 1) * chunk_size]
               for i in range(total_chunks)]
 
-    completed_chunks = resume_chunk  # с какого начинать
+    completed_chunks = resume_chunk
     findings_count = resume["findings_count"] if resume else 0
 
     try:
@@ -204,14 +178,11 @@ async def _execute_task_linewise(self, task):
         ) as executor:
             for chunk_idx in range(completed_chunks, total_chunks):
                 if self._stop_event.is_set():
-                    break  # выходим из цикла, shutdown будет ниже
-                
+                    break
                 chunk = chunks[chunk_idx]
                 future = executor.submit(self._scan_chunk, chunk, task)
-                result = future.result()  # ждём завершения чанка
+                result = future.result()
                 findings_count += len(result)
-                
-                # save state после каждого завершённого чанка
                 state.save(
                     chunk_size=chunk_size,
                     total_files=len(paths),
@@ -224,36 +195,21 @@ async def _execute_task_linewise(self, task):
                 )
     except KeyboardInterrupt:
         logger.info("[Scan] Ctrl+C — graceful shutdown")
-        # executor.__exit__ → shutdown(wait=True) — уже вызван
     finally:
         if self._stop_event.is_set():
-            # soft stop: state уже сохранён (после последнего чанка)
-            # но если Ctrl+C пришёл посреди чанка — state не обновлён
-            # (потеряем до chunk_size файлов — приемлемо)
             await self._release_task(task_id)
             return
 
-    # успешное завершение:
     state.clear()
-_release_task(task_id):
 
-python
 async def _release_task(self, task_id):
     try:
-        await self.client.release_task(task_id)  # POST /api/scanner/tasks/{id}/release
+        await self.client.release_task(task_id)
         logger.info("[Release] Task %d released (pending, not failed)", task_id)
     except Exception as e:
         logger.warning("[Release] Failed to release task %d: %s", task_id, e)
-Signal handler (Ctrl+C):
-
-python
-def _handle_sigint(self, signum, frame):
-    logger.info("[Scan] SIGINT — setting stop_event")
-    self._stop_event.set()
-    # ProcessPoolExecutor.__exit__ (wait=True) — ждёт текущий чанк
-    # После __exit__ — finally: release_task
 3. scanner/connectors/filesystem.py
-scan_path должен принимать start_chunk (или start_index):
+scan_path должен принимать start_chunk:
 
 python
 def scan_path(self, root, *, start_chunk: int = 0, chunk_size: int = 100, ...):
@@ -261,18 +217,200 @@ def scan_path(self, root, *, start_chunk: int = 0, chunk_size: int = 100, ...):
     start_index = start_chunk * chunk_size
     for idx, path in enumerate(paths[start_index:], start=start_index):
         ...
-Или — ProcessPoolExecutor.map с chunksize=chunk_size (сам разбивает). Resume — paths[start_index:] (где start_index = start_chunk * chunk_size).
-
 4. scanner/connectors/s3_line_connector.py
-Для S3: важно, что list_objects_v2 возвращает объекты в лексикографическом порядке (S3 не гарантирует, но на практике — да). Если порядок не гарантирован — хранить processed_keys (set) в state.
-
-Рекомендация: processed_keys (set) в state (полный список ключей). Для 22 500 — ~22 500 строк, ~1 МБ. Приемлемо.
-
-Или: start_key (последний обработанный ключ) — если порядок гарантирован.
+Для S3: processed_keys (set) в state (полный список ключей, ~22 500 строк ~1 МБ) или start_key (если порядок гарантирован).
 
 Resume для S3: scan_path(start_key=...) или scan_path(processed_keys={...}).
 
-🧪 Тесты
+🟡 BUG-283 — Файловый лог (не только консоль)
+Проблема
+Сейчас сканер пишет только в консоль (stdout). Файл scanner/logs/scanner.log не создаётся (проверено: Get-Item scanner\logs\scanner.log → «путь не существует»). Это проблема эксплуатации: при Ctrl+C / kill / перезагрузке консоль теряется (нет истории).
+
+Что должно быть
+Консоль — все события (как сейчас): [ScanProgress], [OCR] ..., [PII] ..., [FS] ..., [Register] ..., print(...) — всё.
+
+Файл scanner/logs/scanner.log — значимые события и ошибки:
+
+INFO: [ScanProgress], [Register], [GetTask], [Resume], [Release], [FS] ProcessPoolExecutor, [PII] [OK] NER-категории отключены, [ScanState] Saved/Cleared.
+
+WARNING / ERROR: все.
+
+Не пишутся в файл: [OCR] Found via 'where' (спам), [OCR_WORKER] ... (спам, если каждый файл), print(...) (только консоль).
+
+Что нужно сделать
+1. run_scanner.py — FileHandler + StreamHandler
+python
+import logging
+import logging.handlers
+from pathlib import Path
+
+def _setup_logging(config):
+    log_cfg = config.get("logging", {})
+    log_file = log_cfg.get("file", "logs/scanner.log")
+    log_path = Path(log_file)
+    log_path.parent.mkdir(parents=True, exist_ok=True)  # создаём logs/
+
+    level = getattr(logging, log_cfg.get("level", "INFO").upper(), logging.INFO)
+    max_bytes = log_cfg.get("max_size_mb", 100) * 1024 * 1024
+    backup_count = log_cfg.get("backup_count", 5)
+
+    root = logging.getLogger()
+    root.setLevel(level)
+
+    # Console — все события (как сейчас)
+    console = logging.StreamHandler()
+    console.setLevel(logging.DEBUG)  # всё в консоль
+    console.setFormatter(logging.Formatter(
+        "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+    ))
+    root.addHandler(console)
+
+    # File — значимые события (INFO+), ротация
+    file_handler = logging.handlers.RotatingFileHandler(
+        log_path, maxBytes=max_bytes, backupCount=backup_count, encoding="utf-8"
+    )
+    file_handler.setLevel(level)  # INFO+ в файл
+    file_handler.setFormatter(logging.Formatter(
+        "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+    ))
+    root.addHandler(file_handler)
+
+    logging.info("[Logging] Console=DEBUG, File=%s (level=%s, max=%dMB, backups=%d)",
+                 log_path, log_cfg.get("level", "INFO"), log_cfg.get("max_size_mb", 100),
+                 backup_count)
+**В main() / run() — вызвать _setup_logging(config) до остальной инициализации.
+
+2. print(...) → logger.debug(...)
+Файл: scanner/classifiers/pii_classifier.py, scanner/classifiers/ocr_worker.py.
+
+Было:
+
+python
+print(f"[OCR] Found via 'where': {path}")
+print(f"[OCR_WORKER] Tesseract: {path}")
+Стало:
+
+python
+logger.debug(f"[OCR] Found via 'where': {path}")
+logger.debug(f"[OCR_WORKER] Tesseract: {path}")
+Почему: logger.debug не пишется в файл (level=INFO), но пишется в консоль (level=DEBUG). Это ровно то, что нужно: консоль — всё, файл — значимое.
+
+Важно: logging.getLogger(__name__) в каждом модуле (не root).
+
+3. start_scanner.bat — перенаправление (опционально)
+Если FileHandler не хотите — альтернатива:
+
+bat
+python run_scanner.py scanner\config\scanner_config.json > logs\scanner.log 2>&1
+Но: это не ротация (файл растёт). FileHandler — лучше (ротация 100 МБ × 5).
+
+Тест
+python
+# tests/unit/test_logging_v31412.py
+def test_file_handler_created(tmp_path, monkeypatch):
+    """BUG-283: FileHandler создаёт scanner.log."""
+    monkeypatch.chdir(tmp_path)
+    from run_scanner import _setup_logging
+    _setup_logging({"logging": {"file": "logs/scanner.log", "level": "INFO"}})
+    logging.getLogger("test").info("test message")
+    assert (tmp_path / "logs" / "scanner.log").exists()
+
+
+def test_debug_not_in_file(tmp_path, monkeypatch):
+    """BUG-283: DEBUG — в консоль, но не в файл."""
+    monkeypatch.chdir(tmp_path)
+    from run_scanner import _setup_logging
+    _setup_logging({"logging": {"file": "logs/scanner.log", "level": "INFO"}})
+    logging.getLogger("test").debug("debug message")
+    logging.getLogger("test").info("info message")
+    content = (tmp_path / "logs" / "scanner.log").read_text(encoding="utf-8")
+    assert "debug message" not in content
+    assert "info message" in content
+Ручная приёмка
+#	Сценарий	Ожидание
+1	Запустить сканер	scanner/logs/scanner.log создан
+2	Консоль	Все события (как раньше)
+3	Файл	Только INFO+ (не [OCR] Found via 'where')
+4	Ротация	При 100 МБ — scanner.log.1, .2, … .5
+5	Ctrl+C	Файл остаётся (история сохранена)
+🟡 BUG-284 — Reconnect: сообщение об успешном переподключении
+Проблема
+Сейчас при обрыве связи с Manager сканер пытается переподключиться (retry, WARNING в лог), но не сообщает об успешном переподключении. Пользователь видит только WARNING-и (обрывы), но не знает, восстановилась ли связь.
+
+Пример из логов:
+
+text
+2026-10-23 08:01:50,587 - WARNING - Retrying (Retry(total=4, ...)): /api/scanner/heartbeat
+2026-10-23 08:07:12,152 - WARNING - Retrying (Retry(total=4, ...)): /api/scanner/heartbeat
+2026-10-23 08:20:03,616 - INFO - [GetTask] Received task 219  ← связь восстановилась, но сообщения нет
+Нужно: [ManagerClient] [OK] Reconnected (was offline Xs) — и в консоль, и в файл.
+
+Что должно быть
+При обрыве — WARNING (как сейчас) + сохранить last_offline_at = datetime.utcnow().
+
+При успешном запросе (после обрыва) — INFO: [ManagerClient] [OK] Reconnected (was offline Xs) — и консоль, и файл.
+
+Если last_offline_at не было (первый запрос) — не писать (нет «reconnect»).
+
+Что нужно сделать
+Файл: scanner/src/managed_scanner.py (или client.py, где ManagerClient).
+
+python
+import logging
+from datetime import datetime
+
+logger = logging.getLogger(__name__)
+
+class ManagerClient:
+    def __init__(self, ...):
+        ...
+        self._last_offline_at: Optional[datetime] = None
+        self._is_offline = False
+
+    def _request(self, method, path, **kwargs):
+        try:
+            response = self._session.request(method, url, **kwargs)
+            # успешный запрос — reconnect?
+            if self._is_offline:
+                offline_sec = (datetime.utcnow() - self._last_offline_at).total_seconds()
+                logger.info("[ManagerClient] [OK] Reconnected (was offline %ds)", offline_sec)
+                self._is_offline = False
+                self._last_offline_at = None
+            return response
+        except (ConnectionError, Timeout, ...) as e:
+            if not self._is_offline:
+                logger.warning("[ManagerClient] Connection lost: %s", e)
+                self._last_offline_at = datetime.utcnow()
+                self._is_offline = True
+            raise
+Важно:
+
+logger.info — и в консоль, и в файл (INFO+).
+
+Не дублировать: если уже offline — не писать WARNING на каждый retry (только первый раз). Или — писать [ManagerClient] Retrying (N/5)... на DEBUG (консоль, не файл).
+
+Heartbeat — _request тоже проходит через ManagerClient (reconnect сработает).
+
+Тест
+python
+# tests/unit/test_reconnect_v31412.py
+def test_reconnect_logged(monkeypatch, caplog):
+    """BUG-284: reconnect — INFO в лог и консоль."""
+    from scanner.src.client import ManagerClient
+    client = ManagerClient(...)
+    # имитация обрыва
+    client._is_offline = True
+    client._last_offline_at = datetime.utcnow()
+    # успешный запрос
+    with caplog.at_level(logging.INFO):
+        client._request("GET", "/api/scanner/heartbeat")
+    assert any("[OK] Reconnected" in r.message for r in caplog.records)
+Ручная приёмка
+#	Сценарий	Ожидание
+1	Остановить Manager	WARNING: Connection lost (1 раз)
+2	Запустить Manager	INFO: [OK] Reconnected (was offline Xs) — консоль + файл
+3	Повторный обрыв	WARNING снова (1 раз), затем INFO при reconnect
+🧪 Тесты (сводно)
 Unit — tests/unit/test_scan_state_v31412.py (new)
 python
 """53.4n (v3.14.12): ScanState — save/load/clear, chunk-aware."""
@@ -282,11 +420,8 @@ from scanner.src.state_manager import ScanState
 def test_save_load(tmp_path, monkeypatch):
     monkeypatch.setattr("scanner.src.state_manager.STATE_DIR", tmp_path)
     s = ScanState(212)
-    s.save(
-        chunk_size=100, total_files=1000, total_chunks=10,
-        last_completed_chunk=5, last_completed_index=599,
-        findings_count=42,
-    )
+    s.save(chunk_size=100, total_files=1000, total_chunks=10,
+           last_completed_chunk=5, last_completed_index=599, findings_count=42)
     data = s.load()
     assert data["task_id"] == 212
     assert data["chunk_size"] == 100
@@ -317,7 +452,46 @@ def test_get_resume_chunk(tmp_path, monkeypatch):
     s = ScanState(212)
     s.save(chunk_size=100, total_files=1000, total_chunks=10,
            last_completed_chunk=5, last_completed_index=599, findings_count=0)
-    assert s.get_resume_chunk() == 6  # 5 + 1
+    assert s.get_resume_chunk() == 6
+Unit — tests/unit/test_logging_v31412.py (new)
+python
+"""53.4n (v3.14.12): BUG-283 — FileHandler + StreamHandler."""
+import logging
+from pathlib import Path
+
+
+def test_file_handler_created(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    from run_scanner import _setup_logging
+    _setup_logging({"logging": {"file": "logs/scanner.log", "level": "INFO"}})
+    logging.getLogger("test").info("test message")
+    assert (tmp_path / "logs" / "scanner.log").exists()
+
+
+def test_debug_not_in_file(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    from run_scanner import _setup_logging
+    _setup_logging({"logging": {"file": "logs/scanner.log", "level": "INFO"}})
+    logging.getLogger("test").debug("debug message")
+    logging.getLogger("test").info("info message")
+    content = (tmp_path / "logs" / "scanner.log").read_text(encoding="utf-8")
+    assert "debug message" not in content
+    assert "info message" in content
+Unit — tests/unit/test_reconnect_v31412.py (new)
+python
+"""53.4n (v3.14.12): BUG-284 — reconnect."""
+import logging
+from datetime import datetime
+
+
+def test_reconnect_logged(caplog):
+    from scanner.src.client import ManagerClient
+    client = ManagerClient("http://localhost:8000", ...)
+    client._is_offline = True
+    client._last_offline_at = datetime.utcnow()
+    with caplog.at_level(logging.INFO):
+        client._request("GET", "/api/scanner/heartbeat")
+    assert any("[OK] Reconnected" in r.message for r in caplog.records)
 E2E — tests/e2e/test_resume_v31412.py (new)
 python
 """53.4n (v3.14.12): E2E — resume после остановки."""
@@ -347,7 +521,13 @@ def test_scan_resume_after_stop(api_client, test_files_dir):
 6	ScanProgress	Начинается с ~400 (не с 1)
 7	Завершить скан	findings count = baseline (без дублей, без потерь)
 8	State после завершения	scan_<task_id>.json удалён
+9	Лог-файл	scanner/logs/scanner.log создан, есть [Resume], [Release], [ScanState]
+10	Консоль	Все события (как раньше), включая [OCR] Found via 'where'
+11	Лог-файл — нет спама	[OCR] Found via 'where' не в файле
+12	Reconnect	Остановить Manager → WARNING Connection lost. Запустить → INFO [OK] Reconnected (was offline Xs) — консоль + файл
 ✅ Definition of Done
+BUG-280 (resume):
+
 □ scanner/src/state_manager.py — ScanState (save/load/clear/get_resume_chunk, chunk-aware).
 □ managed_scanner.py — graceful shutdown: executor.shutdown(wait=True) → state.save → release_task.
 □ managed_scanner.py — при старте: load_state → resume_chunk = last_completed_chunk + 1.
@@ -355,22 +535,43 @@ def test_scan_resume_after_stop(api_client, test_files_dir):
 □ filesystem.py — scan_path(start_chunk=K).
 □ s3_line_connector.py — scan_path(start_key=...) или processed_keys.
 □ State удаляется после успешного завершения.
+BUG-283 (логи):
+
+□ run_scanner.py — _setup_logging(config) с FileHandler (RotatingFileHandler) + StreamHandler.
+□ logs/ создаётся (mkdir(parents=True, exist_ok=True)).
+□ print(...) → logger.debug(...) в pii_classifier.py / ocr_worker.py.
+□ Консоль — все события (DEBUG). Файл — INFO+ (без спама).
+□ Ротация: 100 МБ × 5 бэкапов.
+BUG-284 (reconnect):
+
+□ ManagerClient._request — отслеживание _is_offline / _last_offline_at.
+□ При reconnect — logger.info("[ManagerClient] [OK] Reconnected (was offline Xs)") — консоль + файл.
+Тесты:
+
 □ Unit test_scan_state_v31412.py — passed.
+□ Unit test_logging_v31412.py — passed.
+□ Unit test_reconnect_v31412.py — passed.
 □ E2E test_resume_v31412.py — passed.
-□ Ручная приёмка 8/8 ✅.
+□ Ручная приёмка 12/12 ✅.
 □ docker inspect dcap-scanner (или версия) — обновлена.
 💾 Коммит
 powershell
 git add scanner/src/state_manager.py `
         scanner/src/managed_scanner.py `
+        scanner/src/client.py `
         scanner/connectors/filesystem.py `
         scanner/connectors/s3_line_connector.py `
+        scanner/classifiers/pii_classifier.py `
+        scanner/classifiers/ocr_worker.py `
+        run_scanner.py `
         tests/unit/test_scan_state_v31412.py `
+        tests/unit/test_logging_v31412.py `
+        tests/unit/test_reconnect_v31412.py `
         tests/e2e/test_resume_v31412.py `
         .env docker-compose.yml `
         ARCHITECTURE.md CHANGELOG.md STATE.md STATE_TEST_SESSION.md `
         docs/admin-guide/06-scanner.md
-git commit -m "feat: 53.4n scanner resume — chunk-aware state + release (v3.14.12)
+git commit -m "feat: 53.4n scanner resume + logging + reconnect (v3.14.12)
 
 BUG-280: при Ctrl+C сканер сохраняет state (last_completed_chunk,
 chunk_size, findings_count) в scanner/state/scan_<task_id>.json
@@ -378,22 +579,25 @@ chunk_size, findings_count) в scanner/state/scan_<task_id>.json
 При старте — load state, continue с last_completed_chunk + 1.
 Graceful shutdown: executor.shutdown(wait=True) до state.save.
 
-FilesystemConnector: scan_path(start_chunk=K).
-S3LineConnector: scan_path(start_key=...) / processed_keys.
-Periodic save после каждого завершённого чанка.
-State удаляется после успешного завершения.
+BUG-283: FileHandler (RotatingFileHandler) + StreamHandler.
+Консоль — все события (DEBUG). Файл — INFO+ (без спама).
+print(...) → logger.debug(...) для [OCR] / [OCR_WORKER].
+
+BUG-284: ManagerClient отслеживает offline/reconnect.
+INFO '[OK] Reconnected (was offline Xs)' — консоль + файл.
 
 Функционал сохранён: все находки baseline, без дублей, без потерь.
 
-Tests: test_scan_state_v31412.py (unit), test_resume_v31412.py (e2e)."
+Tests: test_scan_state_v31412.py (unit), test_logging_v31412.py (unit),
+test_reconnect_v31412.py (unit), test_resume_v31412.py (e2e)."
 📊 Отчёт (что прислать)
-Diff по 4 файлам (state_manager.py, managed_scanner.py, filesystem.py, s3_line_connector.py) — или описание.
+Diff по 6 файлам (state_manager.py, managed_scanner.py, client.py, filesystem.py, s3_line_connector.py, run_scanner.py) — или описание.
 
-Unit test_scan_state_v31412.py — passed.
+Unit test_scan_state_v31412.py, test_logging_v31412.py, test_reconnect_v31412.py — passed.
 
 E2E test_resume_v31412.py — passed.
 
-Ручной сценарий:
+Ручной сценарий (resume):
 
 Скриншот/лог: [Resume] Continuing task <id> from chunk 4/10.
 
@@ -404,6 +608,10 @@ findings count = baseline (без дублей).
 State-файл удалён после завершения.
 
 Manager task status после остановки — pending (не failed).
+
+Лог-файл: scanner/logs/scanner.log создан, есть [Resume], [ScanState], [Release], нет [OCR] Found via 'where'.
+
+Reconnect: лог/скриншот [ManagerClient] [OK] Reconnected (was offline Xs).
 
 docker inspect dcap-scanner (или версия).
 
@@ -416,9 +624,11 @@ Resume — с last_completed_chunk + 1. Незавершённый чанк — 
 
 State удаляется после успеха. Иначе следующий запуск той же задачи — продолжит с середины, хотя должен с начала.
 
-Для S3 — processed_keys (set) или start_key (если порядок гарантирован).
+Логи: консоль = всё, файл = значимое. print → logger.debug (консоль — да, файл — нет). logger.info — в оба. Не терять консольный вывод (как сейчас).
 
-Release, не failed. При Ctrl+C — POST /api/scanner/tasks/{id}/release (вернуть в пул). Не _fail_task.
+Reconnect — INFO, не WARNING. WARNING — при обрыве (1 раз). INFO — при восстановлении (с длительностью offline).
+
+Для S3 — processed_keys (set) или start_key (если порядок гарантирован).
 
 ⚠️ Побочный риск (из Фазы 2)
 tempfile.gettempdir() == E:\Temp, _cleanup_temp_files глоббит tmp*/ocr_*. Тестовый набор — вне %TEMP%. Зафиксировать в docs/testing.md.

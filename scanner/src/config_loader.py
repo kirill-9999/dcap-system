@@ -310,6 +310,32 @@ class ClientConfig:
 
 
 @dataclass
+class LoggingConfig:
+    """Конфигурация логирования (53.4n, v3.14.12, BUG-283)."""
+    level: str = "INFO"
+    file: str = "logs/scanner.log"
+    max_size_mb: int = 100
+    backup_count: int = 5
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> 'LoggingConfig':
+        try:
+            max_size_mb = int(data.get("max_size_mb", 100) or 100)
+        except (TypeError, ValueError):
+            max_size_mb = 100
+        try:
+            backup_count = int(data.get("backup_count", 5) or 5)
+        except (TypeError, ValueError):
+            backup_count = 5
+        return cls(
+            level=str(data.get("level", "INFO") or "INFO"),
+            file=str(data.get("file", "logs/scanner.log") or "logs/scanner.log"),
+            max_size_mb=max_size_mb,
+            backup_count=backup_count,
+        )
+
+
+@dataclass
 class AppConfig:
     """Полная конфигурация приложения"""
     scanner: ScannerConfig = field(default_factory=ScannerConfig)
@@ -318,6 +344,7 @@ class AppConfig:
     orchestrator: OrchestratorConfig = field(default_factory=OrchestratorConfig)
     finding_collector: FindingCollectorConfig = field(default_factory=FindingCollectorConfig)
     client: ClientConfig = field(default_factory=ClientConfig)
+    logging: LoggingConfig = field(default_factory=LoggingConfig)
     # 53.4m (v3.14.11): верхнеуровневая секция performance (executor/max_workers/...)
     performance: PerformanceConfig = field(default_factory=lambda: PerformanceConfig())
 
@@ -335,6 +362,7 @@ class AppConfig:
             finding_collector=FindingCollectorConfig.from_dict(data.get("finding_collector", {})),
             client=ClientConfig.from_dict(data.get("client", {})),
             performance=PerformanceConfig.from_dict(performance_raw or {}),
+            logging=LoggingConfig.from_dict(data.get("logging", {})),
         )
     
     @classmethod

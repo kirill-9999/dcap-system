@@ -11,7 +11,9 @@ run_scanner.py - Запуск Scanner в непрерывном режиме
 import sys
 import os
 import signal
+import logging
 import argparse
+from logging.handlers import RotatingFileHandler
 from pathlib import Path
 
 # Добавляем путь к проекту
@@ -50,6 +52,101 @@ def _setup_utf8():
         sys.stderr.reconfigure(encoding="utf-8")
     except (AttributeError, ValueError):
         pass
+
+
+_LOG_FORMAT = "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+
+
+def _config_value(config, section: str, key: str, default=None):
+    """Достать значение из AppConfig или обычного dict (для тестов)."""
+    if config is None:
+        return default
+    if isinstance(config, dict):
+        section_data = config.get(section) or {}
+    else:
+        section_data = getattr(config, section, None)
+    if section_data is None:
+        return default
+    if isinstance(section_data, dict):
+        return section_data.get(key, default)
+    return getattr(section_data, key, default)
+
+
+def _setup_logging(config):
+    """Логирование: консоль DEBUG + файл (info) — BUG-283 (53.4n, v3.14.12).
+
+    Раньше _execute_task_linewise работал часами без единой записи в лог.
+    Теперь значимые события (INFO+) дублируются в файл с ротацией, а
+    отладочные сообщения ([OCR] ...) остаются только в консоли.
+
+    Возвращает путь к лог-файлу (или None, если файл недоступен).
+    """
+    try:
+        level_name = str(_config_value(config, "logging", "level", "INFO") or "INFO").upper()
+    except Exception:
+        level_name = "INFO"
+    file_level = getattr(logging, level_name, logging.INFO)
+
+    log_file = _config_value(config, "logging", "file", "logs/scanner.log")
+    try:
+        max_size_mb = int(_config_value(config, "logging", "max_size_mb", 100) or 100)
+    except (TypeError, ValueError):
+        max_size_mb = 100
+    try:
+        backup_count = int(_config_value(config, "logging", "backup_count", 5) or 5)
+    except (TypeError, ValueError):
+        backup_count = 5
+
+    root = logging.getLogger()
+    for handler in list(root.handlers):
+        root.removeHandler(handler)
+        try:
+            handler.close()
+        except Exception:
+            pass
+
+    formatter = logging.Formatter(_LOG_FORMAT)
+
+    console = logging.StreamHandler()
+    console.setLevel(logging.DEBUG)
+    console.setFormatter(formatter)
+    root.addHandler(console)
+
+    file_path = None
+    if log_file:
+        try:
+            Path(log_file).parent.mkdir(parents=True, exist_ok=True)
+            file_handler = RotatingFileHandler(
+                log_file,
+                maxBytes=max_size_mb * 1024 * 1024,
+                backupCount=backup_count,
+                encoding="utf-8",
+            )
+            file_handler.setLevel(file_level)
+            file_handler.setFormatter(formatter)
+            root.addHandler(file_handler)
+            file_path = str(Path(log_file).resolve())
+        except OSError as exc:
+            print(f"[WARN] Не удалось открыть лог-файл {log_file}: {exc}")
+
+    root.setLevel(logging.DEBUG)
+
+    # Шумные библиотеки — только предупреждения (иначе DEBUG-консоль тонет)
+    for name in (
+        "urllib3",
+        "botocore",
+        "boto3",
+        "s3transfer",
+        "requests",
+        "presidio",
+        "spacy",
+        "pypdf",
+        "PIL",
+        "asyncio",
+    ):
+        logging.getLogger(name).setLevel(logging.WARNING)
+
+    return file_path
 
 
 def main():
@@ -94,14 +191,9 @@ def main():
     # Загружаем конфигурацию
     config = load_config(config_path)
     
-    # Настройка логирования
-    import logging
-    log_level = getattr(logging, config.scanner.log_level.upper(), logging.INFO)
-    logging.basicConfig(
-        level=log_level,
-        format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
-    )
-    
+    # Настройка логирования: консоль DEBUG + файл INFO (BUG-283, 53.4n)
+    log_file = _setup_logging(config)
+
     logger = logging.getLogger(__name__)
     
     # Выводим информацию о конфигурации
@@ -114,6 +206,7 @@ def main():
     print(f"[X] Scanner ID: {config.scanner.scanner_id or 'авто-регистрация'}")
     print(f"[TIME]  Интервал: {config.scanner.scan_interval} сек")
     print(f"[X] Уровень логов: {config.scanner.log_level}")
+    print(f"[X] Лог-файл: {log_file or 'недоступен'}")
     print("=" * 60)
 
     # BUG-057: fail-fast — без ключей шифрования сканер не стартует.
