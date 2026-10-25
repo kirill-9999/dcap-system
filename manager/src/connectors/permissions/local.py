@@ -30,7 +30,7 @@ class LocalPermissionCollector(PermissionCollector):
         try:
             if platform.system() != 'Windows':
                 return False
-            subprocess.run(['icacls', '--version'], capture_output=True, timeout=5, shell=True)
+            subprocess.run(['icacls'], capture_output=True, timeout=5)
             return True
         except:
             return False

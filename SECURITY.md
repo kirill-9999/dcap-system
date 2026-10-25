@@ -437,3 +437,17 @@ docs/admin-guide/05-security.md — руководство администра�
 
 Последнее обновление: 19.09.2026
 Версия: v3.13.8
+
+
+---
+
+## Принятые риски / известные ограничения (v3.14.14, 53.5)
+
+- Trivy image: 6 CRITICAL + 81 HIGH в dcap/manager (базовый python:3.11 + зависимости, в т.ч. Pillow/wheel). План: обновить базовый образ и зависимости в v3.1.0.
+- Trivy image webui: 1 CRITICAL + 52 HIGH. Аналогично.
+- Bandit: 0 HIGH, 4 MEDIUM (B603/B607/B104/B105 и др.) — задокументированы, исправление в v3.1.0.
+- pip-audit: manager — 0 уязвимостей; scanner — не удалось установить в локальном окружении (pip install падает), проверка в Docker — v3.1.0.
+- Gitleaks: образ недоступен (registry denied) — skip, повторить при доступе.
+- Semgrep: не установлен локально — skip.
+- DAST (ZAP): тест-стенд :18000/:18001 не поднят — skip.
+- Контейнеры: manager работает от пользователя dcap (non-root), CapDrop пуст, ReadonlyRootfs=false; секреты передаются через env (план: Docker Secrets/Vault в v3.1.0).
