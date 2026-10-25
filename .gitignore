@@ -113,3 +113,6 @@ certs/
 secrets/
 !secrets/.gitkeep
 
+
+# Scanner runtime state (53.4n resume)
+scanner/state/

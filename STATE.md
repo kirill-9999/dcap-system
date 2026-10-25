@@ -3,9 +3,9 @@
 > План и бэклог — в `ROADMAP.md`. Архитектура — в `ARCHITECTURE.md`.
 
 **Обновлено:** 25.10.2026
-**Текущая версия:** v3.14.14
+**Текущая версия:** v3.14.15
 **Целевая версия:** v3.0.0 (релиз)
-**Статус:** 🟢 Блоки 1–9, Retention закрыты. **53.4l (v3.14.10)** — дедуп находок + NER-off (666 136 → 598 находок, 24.0 → 65.8 ф/мин). **53.4m (v3.14.11)** — ProcessPoolExecutor: 63.7 → 132.9 ф/мин (×2.09) на 4 ядрах, пик RSS ×1.54, 0 потерянных находок, Ctrl+C graceful. Unit **566 passed** (`pytest tests/unit manager/tests -q`). **Следующий шаг — 53.4g (v3.14.5) → 55 (GitHub) → 56 (BUG-117) → 57 (релиз v3.0.0).**
+**Статус:** 🟢 Блоки 1–9 закрыты. BACKLOG-097 (S3-коннектор) закрыт. WebUI-редизайн этапы 1–5 — **REDESIGN COMPLETE (v3.14.1)**. Grafana протестирована + hotfix (v3.14.2). RBAC hotfix (Users/Roles) — v3.14.3. UI hotfix v3.14.4. 53.4g/h/i (Settings/RBAC/Scanners) — v3.14.5–7. **Retention (Блок 18) — ✅ закрыт (v3.14.4).** **53.4l (дедуп + NER off) — ✅ v3.14.10.** **53.4m (multiprocessing) — ✅ v3.14.11.** **53.4n (resume + логи + reconnect) — ✅ v3.14.12.** **53.4o (pool reuse) — ✅ v3.14.13.** **53.4p (final/release/progress) — ✅ v3.14.14.** **BUG-292 (кодировка `finding_detail.js`) — ✅ v3.14.15.** **WebUI (находки) — ✅ проверено** (Reveal, смена статуса, фильтры, аудит). Unit **528 passed**, e2e — стенд `:18000/:18001`. **Следующий шаг — 53.5 (security_scan) → 55 (GitHub) → 56 (BUG-117) → 57 (релиз v3.0.0).**
 
 ---
 
@@ -13,44 +13,45 @@
 
 | Параметр | Значение |
 |----------|----------|
-| Текущий день | 53.4m (мультипроцессинг сканера) — **завершён** (v3.14.11) |
-| Статус дня | ✅ Выполнен (8 пунктов приёмки: 5 ✅, 2 ⚠️ железо, 1 ⛔ нет S3-стенда) |
-| Последний принятый отчёт | `day_53_4m_scanner_multiprocessing_report.md` (v3.14.11); `day_53_4l_scanner_perf_phase2_report.md` (v3.14.10) |
-| Следующий шаг | **53.4g (v3.14.5)** → **55 (GitHub) → 56 (BUG-117) → 57 (релиз v3.0.0)** |
-| Открытых BUG | ~15 (BUG-NEW-4…7, BUG-272, BUG-273 — ждут 53.4g) |
-| Открытых BACKLOG | ~50 (BACKLOG-156…326 — v3.1.0/бэклог) |
-| ТЗ собраны | 2 (`prompts/tz/day_53_4g_ui_hotfix.md` активно, `day_53_4m_scanner_multiprocessing.md` → архив) |
-| Открытые вопросы к архитектору | 1) порог 200 ф/мин недостижим на 4 ядрах (132.9; на 8 ядрах ≈ 250–290) — нужен ли доп. день на оптимизацию; 2) BUG-248/249/307 — v3.1.0 |
+| Текущий день | 53.4p/53.4o (завершены, v3.14.15) |
+| Следующий шаг | **53.5 (security_scan)** → 55 → 56 → 57 |
+| Открытых BUG | ~12 (🟢 low / v3.1.0) + BUG-293 (UX аудит, v3.0.1) |
+| Открытых BACKLOG | ~50 (BACKLOG-156…315 — v3.1.0/бэклог) + BACKLOG-339 (flaky s3) |
+| ТЗ собраны | 0 активных в `prompts/tz/` (53.4l–p — архив) |
+| Открытые вопросы к архитектору | 1) BUG-248/249 (Grafana, 🟢 low) — в бэклог; 2) BACKLOG-307 (RBAC Grafana) — v3.1.0; 3) BUG-236 вариант B (webhook) — v3.1.0; 4) Security Gateway (MTA + Squid + ICAP + AI) — **v4.0.0**, после Cython/Rust (v3.1.0) |
 
 ---
 
 ## ✅ Выполненные дни (v3.0.0)
 
-| День | Задача | Версия | Отчёт |
-|------|--------|--------|-------|
-| 28-40.4 | WebUI, AD, безопасность, Findings Refactor | до v3.12.0 | *(см. предыдущие STATE)* |
-| ... | ... | ... | ... |
-| **53.4c (BACKLOG-093, этап 3/5)** | **Страницы: `/catalog`, `/resources`, `/access`, `/audit`, `/scanners`, `/findings`** | **v3.14.1** | `day_53_4cde_webui_pages_2_5_report.md` |
-| **53.4d (BACKLOG-093, этап 4/5)** | **Роли/пользователи/настройки, футер, палитра Chart.js** | **v3.14.1** | `day_53_4cde_webui_pages_2_5_report.md` |
-| **53.4e (BACKLOG-093, этап 5/5)** | **Полировка: favicon, CSP, DESIGN.md, скриншоты, E2E-очистка** | **v3.14.1** | `day_53_4cde_webui_pages_2_5_report.md` |
-| **53.4e-grafana + hotfix** | **Grafana: тестирование (TEST-NOTE-8.1…8.6) + hotfix (BUG-245/246/247/236/241/243/239)** | **v3.14.2** | `day_53_4e_grafana_hotfix_report.md` |
-| **53.4e-rbac-hotfix** | **RBAC блоки 12–13 (Users, Roles): BUG-253/254/255/256/257/258 + BACKLOG-316** | **v3.14.3** | `day_53_4e_rbac_hotfix_report.md` |
-| **53.4f (тест-инфра)** | **BUG-259/260/261/263, BACKLOG-317, BUG-262 этап A** | **v3.14.3** | `day_53_4f_test_infra_report.md`, `day_53_4f_bug263_report.md` |
-| **53.4f (UI hotfix)** | **BUG-265/266/267 (dashboard RBAC/403), BUG-270/271 (users responsive), BACKLOG-320/321/324** | **v3.14.4** | `day_53_4f_ui_hotfix_report.md` |
-| **Блок 18 (Retention)** | **Полный цикл: status/policies/stats, dry-run, sync run, Celery (API + Beat), export** | **v3.14.4** | `day_53_4g_retention_report.md` |
-| **53.4l (перф сканера, фаза 2)** | **Дедуп в файле + `locations[]`, NER-off (666 136 → 598 находок), 65.8 ф/мин** | **v3.14.10** | `day_53_4l_scanner_perf_phase2_report.md` |
-| **53.4m (мультипроцессинг)** | **ProcessPoolExecutor (4 воркера), ленивая инициализация spaCy, `performance`-конфиг, graceful Ctrl+C — 132.9 ф/мин (×2.09)** | **v3.14.11** | `day_53_4m_scanner_multiprocessing_report.md` |
+| День | Задача | Версия |
+|------|--------|--------|
+| 53.4c/d/e | WebUI-редизайн (этапы 3–5) | v3.14.1 |
+| 53.4e-grafana + hotfix | Grafana: тесты + hotfix | v3.14.2 |
+| 53.4e-rbac-hotfix | Users/Roles (RBAC) | v3.14.3 |
+| 53.4f (тест-инфра) | BUG-259/260/261/263, BACKLOG-317, BUG-262 этап A | v3.14.3 |
+| 53.4f (UI hotfix) | Dashboard RBAC/403, users responsive | v3.14.4 |
+| **Блок 18 (Retention)** | status/policies/stats, dry-run, run, Celery (API + Beat), export | **v3.14.4** |
+| 53.4g (UI hotfix) | Settings, RBAC, Responsive (частично) | v3.14.5 |
+| 53.4h (Dashboard RBAC) | `checkAuditAccess()` → `Auth.me()` | v3.14.6 |
+| 53.4i (Scanners checkbox) | BUG-278 — чекбоксы неактивных | v3.14.7 |
+| 53.4j (scanner perf, ч.1) | os.scandir, lru_cache, префильтры | v3.14.8 |
+| 53.4k (scanner perf, ч.2) | singleton extractor, lru_cache | v3.14.9 |
+| **53.4l (finding-взрыв)** | дедуп + NER off | **v3.14.10** |
+| **53.4m (multiprocessing)** | ProcessPoolExecutor | **v3.14.11** |
+| **53.4n (resume/логи/reconnect)** | BUG-280/283/284 | **v3.14.12** |
+| **53.4o (pool reuse)** | BUG-286 | **v3.14.13** |
+| **53.4p (final/release/progress)** | BUG-287/288/289 | **v3.14.14** |
+| **BUG-292 (кодировка UI)** | `finding_detail.js` CP1251 → UTF-8 | **v3.14.15** |
 
 ---
 
-## 🔴 Открытые проблемы (накопительно, топ-35)
+## 🔴 Открытые проблемы (топ-35)
 
 ### 🔴🔴 Критичные (блокеры v3.0.0)
 
 | ID | Проблема | Статус | ТЗ |
 |----|----------|--------|-----|
-| **BUG-NEW-4** | Dashboard: фикс RBAC не работает (viewer → 403-спам) | 📋 | 53.4g (v3.14.5) |
-| **BUG-273** | Dashboard (393px): KPI-карточки вылезают за экран | 📋 | 53.4g (v3.14.5) |
 | **BUG-117** | Manager не маскирует контексты сам | 📋 | день 56 (hotfix) |
 | **BUG-172** | Нет `permissions` в RBAC | 📋 | архитектура v3.1.0 |
 | **BUG-118** | Auth middleware держит 2 соединения | 📋 | v3.1.0 |
@@ -62,138 +63,80 @@
 
 | ID | Проблема | ТЗ |
 |----|----------|-----|
-| **BUG-NEW-5** | Settings: редирект на /login при неверном пароле | 📋 53.4g (v3.14.5) |
-| **BUG-NEW-6** | Settings: не отображается last_run | 📋 53.4g (v3.14.5) |
-| **BUG-NEW-7** | Settings: CSS-баг (слипшийся текст счётчиков) | 📋 53.4g (v3.14.5) |
-| **BUG-272** | Dashboard: пустые графики при 0 находок | 📋 53.4g (v3.14.5, опц.) |
+| **BUG-293** | `/audit`: дублирование перевода (`finding_reveal — просмотр оригинала`) | **v3.0.1** |
+| **BACKLOG-339** | 1 flaky s3 (unit) | v3.0.1 |
 | BUG-248 | `Celery tasks (total)` → `No data` | 🟢 v3.1.0 |
 | BUG-249 | `PostgreSQL connections` — легенда | 🟢 v3.1.0 |
 | BACKLOG-101 | stroke-SVG иконки | v3.1.0 |
 | BACKLOG-102 | light-тема | v3.1.0 |
 | BACKLOG-103 | S3 fallback на config-секреты | v3.1.0 |
-| BACKLOG-315 | Alertmanager webhook → Manager (вариант B) | v3.1.0 |
+| BACKLOG-315 | Alertmanager webhook → Manager | v3.1.0 |
 | BUG-123 | Windows-агент: сбор прав | 52.2 |
 | BUG-125/130 | Linux-агент: env / retry | v3.1.0 |
 | BUG-221 | Reveal — странные email | v3.1.0 |
 | BUG-235 | SIEM-страницы 404 | v3.1.0 |
-| BUG-259 | `test_ad_permissions` — `ModuleNotFoundError` в combined-прогоне | ✅ v3.14.3 |
-| BUG-260 | Windows: `PermissionError` на `pytest-current` | ✅ v3.14.3 |
-| BUG-261 | `test_archiver_findings` — `TypeError` (устаревшая схема `Finding`) | ✅ v3.14.3 |
-| BUG-262 | E2E-эталон не воспроизводим без предусловий (51/16/2/0 vs 53/7) | 🟡 этап A ✅ (v3.14.3); этап B — до 55 |
-| BUG-263 | `test_webui_block5_v31322` — `X-Total-Count=0`, `loadFilterOptions` только в `audit.js` | ✅ v3.14.3 (`loadFilterOptions` — тест-инфра, не UI; `X-Total-Count` — BUG-262 этап B) |
-| BACKLOG-317 | `docker-compose.test.yml` — общее имя проекта сносит основной стек | ✅ v3.14.3 (`name: dcap-test`) |
-| BACKLOG-046 | Полный E2E-прогон на CI | день 55 |
+| BUG-259/260/261/263 | тест-инфра | ✅ v3.14.3 |
+| BUG-262 | E2E-эталон без предусловий | 🟡 этап A ✅; этап B — до 55 |
+| BACKLOG-317 | `docker-compose.test.yml` — project name | ✅ v3.14.3 (`name: dcap-test`) |
+| BACKLOG-046 | E2E-прогон на CI | день 55 |
 
 ---
 
-## 🎯 Ключевые решения (обновление)
+## 🎯 Ключевые решения (v3.14.10–15)
 
-**Закрыто в 53.4e-grafana hotfix (v3.14.2):**
-- BUG-245 — `scanner_id=""` (hardening, warning-лог, `+Inf` при `None`).
-- BUG-246 — `dcap_findings_total` → Gauge из БД; `dcap_findings_created_total` — Counter сессии.
-- BUG-247 — FP (авто-метрика `<counter>_created`).
-- BUG-236 — webhook убран из `alertmanager.yml`.
-- BUG-241 — `or vector(0)` в `dcap-overview.json`.
-- BUG-243 — `s3-agent` target закомментирован.
-- BUG-239 — 2 пустые панели удалены из `dcap-scanner.json`.
+**Закрыто в 53.4l (v3.14.10):**
+- **Дедуп** по `(category, match_text)` — finding-взрыв 609 → 0.6/файл.
+  `metadata["locations"]` = все вхождения; `line_number`/`context_*` — первого.
+- **NER off** — `PERSON/LOCATION/ORGANIZATION/DATE_TIME/NRP` (99.9% находок — FP;
+  `person` не маскируется по `ARCHITECTURE.md`). `ner_enabled=false`.
+- `Files/min` 24.0 → 65.8; ETA 22 500: 15.6 ч → 5.7 ч.
 
-**Закрыто в 53.4e-rbac-hotfix (v3.14.3):**
-- BUG-253 — нельзя снять роль `admin` с себя: чекбокс disabled + `PUT /users/{self}` без `admin` → 400.
-- BUG-254 — пользователь без ролей → 400 (backend + frontend-валидация).
-- BUG-255 — кнопка «Войти» в стиле Dovetail (8px, weight 500).
-- BUG-256 — 403 в WebUI: toast «Недостаточно прав» + редирект на главную.
-- BUG-257 — системные роли иммутабельны по `name`/`ad_group` (backend 400 + disabled).
-- BUG-258 — кастомные роли отключены до v3.1.0 (`POST /roles` → 403, кнопка disabled).
-- BACKLOG-316 — роль `scanner` скрыта в `/users` (в `/roles` остаётся).
-- BUG-252 (follow-up) — `base.css`: `input:not([type=checkbox]):not([type=radio])` — чекбоксы/радио выведены из глобального `input`-фона (`:checked`-галочка — `components.css`, `ae40933`; follow-up `eb7ee30`).
+**Закрыто в 53.4m (v3.14.11):**
+- `ProcessPoolExecutor` — ×2.09 на 4 ядрах (63.7 → 132.9 ф/мин).
+- Ленивая инициализация spaCy/OCR (память ×1.54, ≤ ×2).
+- `temp_dir` на процесс, graceful `Ctrl+C`, auto-fallback на thread.
+- ⚠️ Windows (spawn): ~500 МБ/процесс → `max_workers=2` (16 ГБ), 4 (32 ГБ), 8 (128 ГБ).
+  Linux (fork): `max_workers = nproc - 1`, память ×1.
 
-**Закрыто в тест-инфре (v3.14.3, 17.10.2026):**
-- BUG-259 — `manager/src/connectors/` стал regular-пакетом (`__init__.py`) + зачистка `sys.modules['connectors*']` в `test_ad_permissions`; combined `tests/unit + manager/tests` → 517 collected, 0 errors.
-- BUG-260 — корневой `conftest.py` переносит `basetemp` в `.pytest-tmp/` (Windows), добавлено в `.gitignore`.
-- BUG-261 — `test_archiver_findings` приведён к схеме `Finding` v3.9.0 (`finding_type`/`fragment_type`/`fingerprint`/`encryption_key_id`/`first_seen_at`).
-- BACKLOG-317 — `docker-compose.test.yml`: `name: dcap-test` (отдельный project name, больше не сносит основной стек).
-- BUG-262 этап A — документация стенда (`docs/testing.md`, реальные 48/12/5); этап B (seed + маркеры) — до 55.
-- BUG-263 — ✅ `test_webui_pages_with_filters` проверяет подключение `/static/js/audit.js` + наличие `loadFilterOptions` в JS (было — в серверном HTML, ложно-отрицательный). UI корректен, тест-инфра.
-- Unit-команда зафиксирована: `pytest tests/unit manager/tests -q` → **517 passed** (корневой `conftest.py`, без `--basetemp`).
+**Закрыто в 53.4n (v3.14.12):**
+- **Resume** (chunk-aware): `state.save` после каждого чанка; `Ctrl+C` → `executor.shutdown`
+  → `state.save` → `release_task` (pending, не failed); `[Resume] ... с чанка N+1/M`.
+- **Логи:** консоль DEBUG (всё), файл `logs/scanner.log` INFO (без спама),
+  `print` → `logger.debug`.
+- **Reconnect:** `[ManagerClient] [OK] Reconnected (was offline Xs)` — консоль + файл.
 
-**Закрыто в UI hotfix (v3.14.4, 18.10.2026):**
-- BUG-265/267 — `dashboard.js`: `checkAuditAccess()` (через `RBAC.isAuditor()` + `whenSessionReady()`, fallback `Auth.me()`) — viewer/scanner больше не вызывают `/api/audit/*`; KPI «—» + плашка «Нет прав на аудит» (`#auditCharts`, `#recentEvents`).
-- BUG-266 — `api.js`: `console.warn` только для `status !== 403` (RBAC-403 — ожидаемые, без спама); `e.status` заполняется.
-- BUG-270/271 — `/users`: `.table-responsive-users` (`overflow-x: auto`; `min-width: 760px` ≤900px, `900px` ≤480px).
-- BACKLOG-324 — `/findings`: мобильный collapse фильтров (кастомный тоггл `toggleFindingsFilters` + CSS, т.к. Bootstrap JS bundle не подключён).
-- BACKLOG-320/321 — a11y: скрытый `username` в `#passwordForm`, `autocomplete` на inputs (`users.html`, `findings.html`).
-- BACKLOG-325 — затемнение overlay уже в `main.css` (`rgba(0,0,0,.5)`), правок не требовалось.
-- Unit-команда: `pytest tests/unit manager/tests -q` → **521 passed** (было 517; +4 новых).
+**Закрыто в 53.4o (v3.14.13):**
+- `ProcessPoolExecutor` — **1 раз** на задачу (вне цикла чанков). Warmup 4 процесса (не 40).
+  `Files/min` 30–40 → **132.9**; ETA 22 500: 7–9 ч → ~3 ч.
 
-**Блок 18 (Retention) — закрыт (v3.14.4, 20.10.2026):**
-- Все 5 шагов пройдены: status/policies/stats, dry-run (0 изменений), sync run (findings 5→0, tasks 1→0), Celery (API + Beat: `16:01:00` — архивация 1 находки, удаление 1 задачи, **без Mapper-ошибок**), export (5 архивных находок → JSON).
-- На изолированном стенде Celery-воркер не запущен (особенность `docker-compose.test.yml`), поэтому Celery проверен на основном стенде.
-- **Celery Beat работает** (проверено временным изменением `crontab(minute='*')` + пересборка образа).
+**Закрыто в 53.4p (v3.14.14):**
+- `final=True` — только последний чанк (SubmitResults 200, не 400).
+- `release` для `completed`/`pending` — no-op (204), не 400.
+- `ScanProgress` — монотонный (`_total_scanned`).
 
-**53.4l (v3.14.10) — перф сканера, фаза 2:**
-- Дедуп в рамках файла по `(category, match_text)`: 666 136 → 598 находок, каждая с `metadata["locations"]` (100 повторов → 1 находка + 100 locations).
-- NER-категории (PERSON/LOCATION/ORGANIZATION/DATE_TIME/NRP) исключены из Presidio, `ner_enabled=false`, spaCy `parser`/`ner` off.
-- 1000 файлов: 24.0 → 65.8 ф/мин (×2.74), 0 потерянных значимых находок (598 = 598). Отчёт: `day_53_4l_scanner_perf_phase2_report.md`.
+**Закрыто в v3.14.15 (BUG-292):**
+- `webui/static/js/finding_detail.js` — CP1251 → UTF-8 (без BOM). Подписи/кнопки — RU,
+  Console — 0 ошибок.
 
-**53.4m (v3.14.11) — мультипроцессинг сканера:**
-- `ProcessPoolExecutor` (executor-режим из `performance`, `max_workers=4`, `chunk_size=100`, bounded submit + `FIRST_COMPLETED`, авто-откат на потоки).
-- Ленивая инициализация классификаторов в воркерах: `scanner/classifiers/factory.py` (spec `{name, config}` → экземпляр при первом файле, кеш на процесс); у PII в воркере `analyzer_pool_size=1`, `start_ocr_worker=False`.
-- `spacy.load` в проверке моделей → `importlib.util.find_spec` (минус ~450 МБ пика и секунды старта).
-- Замеры (1000 файлов, i5-7400 4 ядра): **63.7 → 132.9 ф/мин (×2.09)**, ETA 2 000 000: 21.8 → **10.4 дн**, пик RSS дерева 3025 → 4649 МБ (**×1.54**), 0 lost; Ctrl+C — graceful (`findings=5, children_after=0`).
-- ⚠️ Порог ТЗ 200 ф/мин требует 6–8 физических ядер (на 8 ядрах ≈ 250–290 ф/мин); на <300 файлах процесс-режим проигрывает потокам из-за старта воркеров. Отчёт: `day_53_4m_scanner_multiprocessing_report.md`.
-- Unit: **566 passed** (`tests/unit + manager/tests`).
-
-**Найдено в мастер-сессии (20.10.2026) — передано в 53.4g (v3.14.5):**
-- BUG-NEW-4 (критичный) — dashboard RBAC: `checkAuditAccess()` не блокирует запросы к `/api/audit/*` под viewer (403-спам, тосты).
-- BUG-NEW-5 — Settings: редирект на `/login` при неверном пароле (вместо тоста).
-- BUG-NEW-6 — Settings: не отображается `last_run`.
-- BUG-NEW-7 — Settings: CSS-баг (слипшийся текст счётчиков).
-- BUG-273 (критичный) — Dashboard (393px): KPI-карточки вылезают за экран.
-- BUG-272 (опц.) — Dashboard: пустые графики при 0 находок (нет плашки «Нет данных»).
-
-**Факт E2E (2026-10-20, стенд `:18000/:18001`, предусловия не выполнены):**
-- `51 passed, 16 skipped, 2 failed, 0 error` (собрано 69).
-- 2 failed — `test_webui_block5_v31322::test_proxy_forwards_total_count` и
-  `::test_findings_filters_csv_and_empty` (seed-findings, BUG-262 этап B).
-- 16 skipped: 4× сканер `:9101`, 3× `auditor/auditor123`, 3× MinIO, 5× seed-findings, 1× `test_webui_block5_v31322` (image_region).
-- Эталон `53/7` — при предусловиях (сканер `:9101`, MinIO `:9000`, seed, auditor).
-
-**Grafana (решения 17.10.2026):**
-- **RBAC:** подтверждён BACKLOG-307, реализация — **v3.1.0** (Auth Proxy, `X-WEBAUTH-USER`). Маппинг: admin→Admin, auditor→Editor, scanner/viewer→Viewer.
-- **Тестирование:** TEST-NOTE-8.1…8.6 — **✅**.
-- **BUG-236:** вариант A (webhook убран). Вариант B (полный эндпоинт) — BACKLOG-315 (v3.1.0).
-- **BUG-239:** вариант A (панели удалены). Вариант B (метрики per-file/OCR) — v3.1.0.
+**Открыто (v3.0.1):**
+- **BUG-293** — `/audit`: дублирование перевода (`finding_reveal — просмотр оригинала`).
+- **BACKLOG-339** — 1 flaky s3.
 
 ---
 
 ## 📌 Рекомендации архитектору
 
-1. **Следующий шаг — 53.4g (v3.14.5)** (хотфикс новых багов).
-2. **Затем — 55** (GitHub-пакет) → **56** (BUG-117 hotfix) → **57** (релиз v3.0.0).
-3. **`STATE_TEST_SESSION.md`** — обновлён до v3.14.4 (Блок 18 закрыт), новые баги переданы в 53.4g.
-4. **`ARCHITECTURE.md`** — v3.14.4 (ролевая модель + UI hotfix: RBAC-фронт дашборда, responsive).
-5. **BUG-248/249** — 🟢 low, в бэклог v3.1.0.
-6. **BACKLOG-307** — v3.1.0.
-7. **E2E-артефакты** — ✅ очищены (53.4e).
-8. **13 направлений v3.1.0** — зафиксированы (BACKLOG-156…314 + 315).
-9. **BUG-263** — ✅ закрыт (v3.14.3, 53.4f): тест проверяет `/static/js/audit.js` + `loadFilterOptions` в JS; UI корректен.
-10. **BUG-262** — этап A ✅; этап B (seed + маркеры `requires_minio`/`requires_seed`) — до 55; этап C (CI) — BACKLOG-046 (день 55).
-11. **BACKLOG-317** — ✅ `name: dcap-test`; перед `down` стенда убеждаться, что project name отличается от основного.
-12. **UI hotfix v3.14.4** — ✅ BUG-265/266/267/270/271, BACKLOG-320/321/324 (BACKLOG-325 — закрыт ранее); карточки users на 393px (BACKLOG-326) — v3.1.0.
-13. **Блок 18 (Retention)** — ✅ закрыт (все 5 шагов + Celery Beat).
-14. **53.4g (v3.14.5)** — активное ТЗ: `prompts/tz/day_53_4g_ui_hotfix.md`.
-15. **53.4l/53.4m** — ✅ закрыты (v3.14.10/v3.14.11): сканер 65.8 → 132.9 ф/мин, память ×1.54.
-16. **Сканер: порог 200 ф/мин** — на 4 ядрах не достижим (132.9); нужен хост с 6–8 физическими ядрами либо батчинг файлов (следующий шаг оптимизации, если приоритетно).
-17. **S3-скан после 53.4m** — не проверялся (нет MinIO-стенда в сессии); `S3LineConnector` наследует `scan_path` — прогнать `tests/e2e/test_s3_scan_v31341.py` при поднятом MinIO.
-
-**Последние использованные файлы:** `scanner/classifiers/factory.py`, `scanner/connectors/filesystem.py`,
-`scanner/classifiers/pii_classifier.py`, `scanner/src/config_loader.py`, `scanner/src/managed_scanner.py`,
-`scanner/config/scanner_config.json`, `tests/unit/test_multiprocessing_v31411.py`,
-`tests/unit/test_perf_regression_v31411.py`, `tests/e2e/test_multiprocessing_v31411.py`,
-`temp/phase3/measure_1000_mp.py`, `temp/phase3/run_with_mem.ps1`, `temp/phase3/test_ctrl_c.py`.
+1. **Следующий шаг — 53.5 (security_scan).** SAST/SCA/DAST/secrets/containers
+   (ТЗ `day_53_5_security_checks.md` + `scripts/security_scan.ps1`).
+2. **Затем — 55** (GitHub-пакет) → **56** (BUG-117) → **57** (релиз v3.0.0).
+3. **`STATE_TEST_SESSION.md`** — v3.14.15, WebUI (находки) ✅.
+4. **`ARCHITECTURE.md`** — v3.14.15 (scanner: multiprocessing, resume, pool reuse;
+   PII: NER off, дедуп; WebUI: UTF-8).
+5. **v3.1.0** — 13 направлений + Cython/Rust + Security Gateway (v4.0.0).
+6. **v4.0.0** — Security Gateway (MTA + Squid + ICAP + AI Gateway) — после v3.1.0.
 
 ---
 
-**Актуально на:** 22.10.2026
-**Версия:** v3.14.11
-**Следующий шаг:** 53.4g (v3.14.5) → 55 → 56 → 57
+**Актуально на:** 25.10.2026
+**Версия:** v3.14.15
+**Следующий шаг:** 53.5 (security_scan) → 55 → 56 → 57
