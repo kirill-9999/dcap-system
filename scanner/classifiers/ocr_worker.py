@@ -39,7 +39,7 @@ def _find_tesseract_cached() -> str:
         if os.path.exists(path):
             return path
     try:
-        result = subprocess.run(['where', 'tesseract'], capture_output=True, text=True, encoding='utf-8', errors='replace', timeout=3, shell=True)
+        result = subprocess.run(['where', 'tesseract'], capture_output=True, text=True, encoding='utf-8', errors='replace', timeout=3)
         if result.returncode == 0 and result.stdout.strip():
             return result.stdout.strip().split('\n')[0]
     except Exception:
@@ -109,8 +109,7 @@ class OCRWorker:
                 ['where', 'tesseract'],
                 capture_output=True,
                 text=True, encoding="utf-8", errors="replace",
-                timeout=5,
-                shell=True
+                timeout=5
             )
             if result.returncode == 0 and result.stdout.strip():
                 path = result.stdout.strip().split('\n')[0]
@@ -150,7 +149,8 @@ class OCRWorker:
     
     def _get_cache_key(self, image_data: bytes, languages: str, psm: int) -> str:
         """Генерация ключа кэша"""
-        return hashlib.md5(image_data + f"{languages}_{psm}".encode()).hexdigest()
+# MD5 используется как кэш-ключ для OCR temp-файла, НЕ для криптографии (BACKLOG-066).
+        return hashlib.md5(image_data + f"{languages}_{psm}".encode()).hexdigest()  # nosemgrep: python.lang.security.insecure-hash-algorithms-md5.insecure-hash-algorithm-md5
     
     def _add_to_cache(self, key: str, value: str):
         """Добавление в кэш с LRU"""

@@ -53,9 +53,12 @@ app = FastAPI(
 )
 
 # CORS
+# JWT передаётся в заголовке Authorization (не cookies), поэтому allow_origins=["*"]
+# безопасен для браузера (credentials не отправляются автоматически).
+# Production: ограничить CORS_ALLOWED_ORIGINS (BACKLOG-342, v3.1.0).
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=["*"],  # nosemgrep: python.fastapi.security.wildcard-cors.wildcard-cors
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

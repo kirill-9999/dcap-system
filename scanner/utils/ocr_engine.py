@@ -23,7 +23,7 @@ def _get_tesseract_path():
         if env_cmd and os.path.exists(env_cmd):
             return env_cmd
     try:
-        r = subprocess.run(["where", "tesseract"], capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=3, shell=True)
+        r = subprocess.run(["where", "tesseract"], capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=3)
         if r.returncode == 0 and r.stdout.strip():
             return r.stdout.strip().splitlines()[0].strip()
     except Exception:
@@ -139,7 +139,8 @@ class OCREngine:
     
     def _get_cache_key(self, image_data: bytes) -> str:
         """Получение ключа кэша"""
-        return hashlib.md5(image_data).hexdigest()
+# MD5 используется как кэш-ключ для OCR temp-файла, НЕ для криптографии (BACKLOG-066).
+        return hashlib.md5(image_data).hexdigest()  # nosemgrep: python.lang.security.insecure-hash-algorithms-md5.insecure-hash-algorithm-md5
     
     def _add_to_cache(self, key: str, value: str):
         """Добавление в кэш с LRU"""

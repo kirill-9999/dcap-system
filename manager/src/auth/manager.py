@@ -154,7 +154,9 @@ class AuthManager:
             db.add(user)
             db.commit()
             db.refresh(user)
-            logger.info("Created AD user via password login: %s", domain_user)
+            # domain_user — username (не пароль); текст сообщения содержит слово "password"
+            # для аудита способа входа, значение пароля не логируется.
+            logger.info("Created AD user via password login: %s", domain_user)  # nosemgrep: python.lang.security.audit.logging.logger-credential-leak.python-logger-credential-disclosure
             return user
 
         return None

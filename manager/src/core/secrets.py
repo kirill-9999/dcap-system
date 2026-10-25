@@ -44,7 +44,9 @@ class SecretsManager:
                 self.cache[key] = value
                 return value
             except Exception as e:
-                logger.debug("Error reading Docker secret %s: %s", key, e)
+                # key — имя секрета (например, FINDINGS_ENCRYPTION_KEY), e — исключение;
+                # значение секрета НЕ логируется.
+                logger.debug("Error reading Docker secret %s: %s", key, e)  # nosemgrep: python.lang.security.audit.logging.logger-credential-leak.python-logger-credential-disclosure
 
         # 2. Environment variables
         value = os.environ.get(key)

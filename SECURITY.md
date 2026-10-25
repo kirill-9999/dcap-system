@@ -451,3 +451,6 @@ docs/admin-guide/05-security.md — руководство администра�
 - Semgrep: не установлен локально — skip.
 - DAST (ZAP): тест-стенд :18000/:18001 не поднят — skip.
 - Контейнеры: manager работает от пользователя dcap (non-root), CapDrop пуст, ReadonlyRootfs=false; секреты передаются через env (план: Docker Secrets/Vault в v3.1.0).
+
+- CORS wildcard (*) — JWT в header, не cookies; production — CORS_ALLOWED_ORIGINS (BACKLOG-342).
+- MD5 в OCR — кэш-ключ temp-файла, не криптография (BACKLOG-066).

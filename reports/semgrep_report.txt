@@ -1,0 +1,117 @@
+                    
+                    
+┌──────────────────┐
+│ 12 Code Findings │
+└──────────────────┘
+                                    
+    /src/manager/src/auth/manager.py
+    ❯❱ python.lang.security.audit.logging.logger-credential-leak.python-logger-credential-disclosure
+          ❰❰ Blocking ❱❱
+          Detected a python logger call with a potential hardcoded secret "Created AD user via password login:
+          %s" being logged. This may lead to secret credentials being exposed. Make sure that the logger is   
+          not logging  sensitive information.                                                                 
+          Details: https://sg.run/ydNx                                                                        
+                                                                                                              
+          157┆ logger.info("Created AD user via password login: %s", domain_user)
+                                    
+    /src/manager/src/core/secrets.py
+    ❯❱ python.lang.security.audit.logging.logger-credential-leak.python-logger-credential-disclosure
+          ❰❰ Blocking ❱❱
+          Detected a python logger call with a potential hardcoded secret "Error reading Docker secret %s: %s"
+          being logged. This may lead to secret credentials being exposed. Make sure that the logger is not   
+          logging  sensitive information.                                                                     
+          Details: https://sg.run/ydNx                                                                        
+                                                                                                              
+           47┆ logger.debug("Error reading Docker secret %s: %s", key, e)
+                                                                   
+    /src/manager/src/db/migrations/versions/001_initial_postgres.py
+   ❯❯❱ python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text
+          ❰❰ Blocking ❱❱
+          sqlalchemy.text passes the constructed SQL statement to the database mostly unchanged. This means  
+          that the usual SQL injection protections are not applied and this function is vulnerable to SQL    
+          injection if user input can reach here. Use normal SQLAlchemy operators (such as `or_()`, `and_()`,
+          etc.) to construct SQL.                                                                            
+          Details: https://sg.run/yP1O                                                                       
+                                                                                                             
+           91┆ sa.text(
+           92┆     "CREATE TABLE IF NOT EXISTS %(name)s PARTITION OF audit_logs "
+           93┆     "FOR VALUES FROM ('%(start)s') TO ('%(end)s')"
+           94┆     % {"name": name, "start": start, "end": end}
+           95┆ )
+            ⋮┆----------------------------------------
+          108┆ bind.execute(sa.text(f'DROP TABLE IF EXISTS "{row.name}"'))
+                                 
+    /src/manager/src/db/models.py
+   ❯❯❱ python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text
+          ❰❰ Blocking ❱❱
+          sqlalchemy.text passes the constructed SQL statement to the database mostly unchanged. This means  
+          that the usual SQL injection protections are not applied and this function is vulnerable to SQL    
+          injection if user input can reach here. Use normal SQLAlchemy operators (such as `or_()`, `and_()`,
+          etc.) to construct SQL.                                                                            
+          Details: https://sg.run/yP1O                                                                       
+                                                                                                             
+          612┆ text(
+          613┆     f"""
+          614┆     CREATE TABLE IF NOT EXISTS {partition_name} PARTITION OF audit_logs
+          615┆     FOR VALUES FROM ('{start_date}') TO ('{end_date}')
+          616┆     """
+          617┆ )
+                            
+    /src/manager/src/main.py
+    ❯❱ python.fastapi.security.wildcard-cors.wildcard-cors
+          ❰❰ Blocking ❱❱
+          CORS policy allows any origin (using wildcard '*'). This is insecure and should be avoided.
+          Details: https://sg.run/KxApY                                                              
+                                                                                                     
+           58┆ allow_origins=["*"],
+                                          
+    /src/scanner/classifiers/ocr_worker.py
+   ❯❯❱ python.lang.security.audit.subprocess-shell-true.subprocess-shell-true
+          ❰❰ Blocking ❱❱
+          Found 'subprocess' function 'run' with 'shell=True'. This is dangerous because this call will spawn
+          the command using a shell process. Doing so propagates current shell settings and variables, which 
+          makes it much easier for a malicious actor to execute commands. Use 'shell=False' instead.         
+          Details: https://sg.run/J92w                                                                       
+                                                                                                             
+           ▶▶┆ Autofix ▶ False
+           42┆ result = subprocess.run(['where', 'tesseract'], capture_output=True, text=True,
+               encoding='utf-8', errors='replace', timeout=3, shell=True)                     
+            ⋮┆----------------------------------------
+           ▶▶┆ Autofix ▶ False
+          113┆ shell=True
+   
+    ❯❱ python.lang.security.insecure-hash-algorithms-md5.insecure-hash-algorithm-md5
+          ❰❰ Blocking ❱❱
+          Detected MD5 hash algorithm which is considered insecure. MD5 is not collision resistant and is
+          therefore not suitable as a cryptographic signature. Use SHA256 or SHA3 instead.               
+          Details: https://sg.run/vYrY                                                                   
+                                                                                                         
+          153┆ return hashlib.md5(image_data + f"{languages}_{psm}".encode()).hexdigest()
+                                    
+    /src/scanner/utils/ocr_engine.py
+   ❯❯❱ python.lang.security.audit.subprocess-shell-true.subprocess-shell-true
+          ❰❰ Blocking ❱❱
+          Found 'subprocess' function 'run' with 'shell=True'. This is dangerous because this call will spawn
+          the command using a shell process. Doing so propagates current shell settings and variables, which 
+          makes it much easier for a malicious actor to execute commands. Use 'shell=False' instead.         
+          Details: https://sg.run/J92w                                                                       
+                                                                                                             
+           ▶▶┆ Autofix ▶ False
+           26┆ r = subprocess.run(["where", "tesseract"], capture_output=True, text=True,
+               encoding="utf-8", errors="replace", timeout=3, shell=True)                
+   
+    ❯❱ python.lang.security.insecure-hash-algorithms-md5.insecure-hash-algorithm-md5
+          ❰❰ Blocking ❱❱
+          Detected MD5 hash algorithm which is considered insecure. MD5 is not collision resistant and is
+          therefore not suitable as a cryptographic signature. Use SHA256 or SHA3 instead.               
+          Details: https://sg.run/vYrY                                                                   
+                                                                                                         
+          142┆ return hashlib.md5(image_data).hexdigest()
+                      
+    /src/webui/main.py
+    ❯❱ python.fastapi.security.wildcard-cors.wildcard-cors
+          ❰❰ Blocking ❱❱
+          CORS policy allows any origin (using wildcard '*'). This is insecure and should be avoided.
+          Details: https://sg.run/KxApY                                                              
+                                                                                                     
+           48┆ allow_origins=["*"],

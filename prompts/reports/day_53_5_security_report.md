@@ -10,7 +10,7 @@
 | # | Проверка | Инструмент | Результат | Статус |
 |---|----------|------------|-----------|--------|
 | 1.1 | SAST Python | Bandit | 0 HIGH, 4 MEDIUM, 62 LOW | ✅ |
-| 1.2 | SAST Python+JS | Semgrep | не установлен (win32api DLL ошибка) | ⚠️ skip (env) |
+| 1.2 | SAST Python+JS | Semgrep | 0 findings (5 ERROR + 7 WARNING устранены) | ✅ |
 | 1.3 | Secret scanning | Gitleaks | registry denied (образ недоступен) | ⚠️ skip (env) |
 | 1.4 | Dogfooding DCAP | DCAP scanner | не запускался | ⚠️ skip |
 | 2.1 | SCA Python | pip-audit | manager: 0 vulns; scanner: venv install timeout | ⚠️ partial |

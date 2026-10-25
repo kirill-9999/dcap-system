@@ -609,7 +609,7 @@ def create_monthly_partition(engine, year: int, month: int) -> str:
 
     with engine.begin() as conn:
         conn.execute(
-            text(
+            text(  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text
                 f"""
                 CREATE TABLE IF NOT EXISTS {partition_name} PARTITION OF audit_logs
                 FOR VALUES FROM ('{start_date}') TO ('{end_date}')

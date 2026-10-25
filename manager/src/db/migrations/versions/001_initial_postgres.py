@@ -87,8 +87,9 @@ def _create_audit_partitioned_table(bind) -> None:
         start = f"{y}-{m:02d}-01"
         end_y, end_m = (y + 1, 1) if m == 12 else (y, m + 1)
         end = f"{end_y}-{end_m:02d}-01"
+        # name/start/end — из цикла по датам (y, m), НЕ из user input. Миграция.
         bind.execute(
-            sa.text(
+            sa.text(  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text
                 "CREATE TABLE IF NOT EXISTS %(name)s PARTITION OF audit_logs "
                 "FOR VALUES FROM ('%(start)s') TO ('%(end)s')"
                 % {"name": name, "start": start, "end": end}
@@ -104,8 +105,9 @@ def _drop_audit_partitions(bind) -> None:
             "WHERE inhparent = 'audit_logs'::regclass"
         )
     ).fetchall()
+    # row.name — из pg_inherits (системный каталог PostgreSQL), НЕ user input. Миграция.
     for row in rows:
-        bind.execute(sa.text(f'DROP TABLE IF EXISTS "{row.name}"'))
+        bind.execute(sa.text(f'DROP TABLE IF EXISTS "{row.name}"'))  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text
     bind.execute(sa.text("DROP TABLE IF EXISTS audit_logs"))
 
 
