@@ -3,7 +3,7 @@
 > План и бэклог — в `ROADMAP.md`. Архитектура — в `ARCHITECTURE.md`.
 
 **Обновлено:** 30.10.2026
-**Текущая версия:** v3.14.16
+**Текущая версия:** v3.14.17
 **Целевая версия:** v3.0.0 (релиз)
 **Статус:** 🟢 Блоки 1–9 закрыты. BACKLOG-097 (S3-коннектор) закрыт. WebUI-редизайн этапы 1–5 — **REDESIGN COMPLETE (v3.14.1)**. Grafana протестирована + hotfix (v3.14.2). RBAC hotfix (Users/Roles) — v3.14.3. UI hotfix v3.14.4. 53.4g/h/i (Settings/RBAC/Scanners) — v3.14.5–7. **Retention (Блок 18) — ✅ закрыт (v3.14.4).** **53.4l–p (scanner: дедуп/NER/multiprocessing/resume/pool/final) — ✅ v3.14.10–14.** **BUG-292 (кодировка UI) — ✅ v3.14.15.** **53.5 (security_scan) — ✅ закрыт (v3.14.16)**: Bandit 0 HIGH, Semgrep 0 findings, Gitleaks 0 leaks, pip-audit 0 vulns, Trivy 0 CRITICAL (manager+webui, Pillow 13.0.0, certifi 2026.10.19), ZAP WebUI 0 HIGH, ZAP API 0 HIGH, Trivy config 0 misconfig, docker inspect (CapDrop=[ALL], non-root), dogfooding (11718 файлов, 0 findings — маскирование отложено до 56.5). **Следующий шаг — 56 (BUG-117) → 56.5 (TEST-AUDIT-AGENTS) → 57 (релиз v3.0.0) → 55 (GitHub, open-source).**
 
