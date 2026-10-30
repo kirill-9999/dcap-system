@@ -65,6 +65,16 @@ def _mask_email(s: str) -> str:
     return re.sub(r"([\w.+-]+)@([\w.-]+)\.([A-Za-z]{2,})", repl, s)
 
 
+def _mask_database_url(s: str) -> str:
+    """Маскирует database_url (scheme://***@host)."""
+    return re.sub(
+        r"(?P<scheme>[a-z][a-z0-9+.-]*)://[^@]+@(?P<host>[^/]+)",
+        r"\g<scheme>://***@\g<host>",
+        s,
+        flags=re.IGNORECASE,
+    )
+
+
 MASK_RULES = {
     "phone": lambda s: _mask_phone(s),
     "email": _mask_email,
@@ -76,9 +86,17 @@ MASK_RULES = {
     "snils": lambda s: "***-***-*** **",
     "inn": lambda s: (s[:2] + "**********") if len(s) >= 2 else "***",
     "credit_card": lambda s: "**** **** **** " + s[-4:] if len(s) >= 4 else "***",
-    # Имена НЕ маскируются (по решению)
+    "jwt_token": lambda s: (s[:8] + "***") if len(s) > 8 else "***",
+    "ssh_key": lambda s: "***ssh-private-key***",
+    "github_token": lambda s: (s[:4] + "***") if len(s) > 4 else "***",
+    "slack_token": lambda s: (s[:4] + "***") if len(s) > 4 else "***",
+    "discord_token": lambda s: (s[:6] + "***") if len(s) > 6 else "***",
+    "database_url": lambda s: _mask_database_url(s),
+    "basic_auth": lambda s: "Basic ***",
+    "high_entropy": lambda s: (s[:6] + "***") if len(s) > 6 else "***",
     "person": lambda s: s,
 }
+
 
 
 def _mask_phone(s: str) -> str:
@@ -128,6 +146,55 @@ def mask_line(line: str, matches: list) -> str:
     return result
 
 
+_CONTEXT_PATTERNS = [
+    (re.compile(r"gh[pousr]_[A-Za-z0-9]{20,}"), "github_token"),
+    (re.compile(r"github_pat_[A-Za-z0-9_]{20,}"), "github_token"),
+    (re.compile(r"xox[baprs]-[A-Za-z0-9-]{10,}"), "slack_token"),
+    (re.compile(r"AKIA[0-9A-Z]{16}"), "aws_key"),
+    (re.compile(r"sk_(?:live_|test_)?[A-Za-z0-9]{16,}"), "api_key"),
+    (re.compile(r"[MN][A-Za-z\d]{23}\.[\w-]{6}\.[\w-]{27}"), "discord_token"),
+    (re.compile(r"eyJ[A-Za-z0-9_-]+\.eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+"), "jwt_token"),
+    (re.compile(r"-----BEGIN [A-Z ]+PRIVATE KEY-----[\s\S]+?-----END [A-Z ]+PRIVATE KEY-----"), "ssh_key"),
+    (re.compile(r"Basic [A-Za-z0-9+/=]{8,}"), "basic_auth"),
+    (re.compile(r"[a-z][a-z0-9+.-]*://[^@\s]+@[^/\s]+", re.IGNORECASE), "database_url"),
+    (re.compile(r"(?i)\b(password|passwd|pwd)\s*[=:]\s*(\S+)"), "password"),
+    (re.compile(r"(?i)\b(api[_-]?key)\s*[=:]\s*(\S+)"), "api_key"),
+    (re.compile(r"(?i)\b(token|secret|access[_-]?key)\s*[=:]\s*(\S+)"), "token"),
+    (re.compile(r"[\w.+-]+@[\w.-]+\.[A-Za-z]{2,}"), "email"),
+    (re.compile(r"\+7\d{10}"), "phone"),
+    (re.compile(r"\+1\d{10}"), "phone"),
+    (re.compile(r"\+\d{1,3}[\s-]?\d{6,14}"), "phone"),
+    (re.compile(r"\b\d{4}\s?\d{6}\b"), "passport"),
+    (re.compile(r"\b\d{3}-\d{3}-\d{3}\s?\d{2}\b"), "snils"),
+    (re.compile(r"\b\d{12}\b"), "inn"),
+    (re.compile(r"\b(?:\d[ -]*?){13,16}\b"), "credit_card"),
+]
+
+
+def mask_context(text: str) -> str:
+    """
+    BUG-117: Manager сам маскирует контекст (context_before/context_after).
+
+    Применяет _CONTEXT_PATTERNS (22 паттерна, specific → generic),
+    сохраняя маркер категории (GITHUB_TOKEN=ghp_***, а не GITHUB_TOKEN=***).
+    """
+    if not text:
+        return text
+    result = text
+    for pattern, category in _CONTEXT_PATTERNS:
+        def repl(m, cat=category):
+            if m.lastindex and m.lastindex >= 2:
+                marker = m.group(1)
+                value = m.group(2)
+                if "***" in value:
+                    return m.group(0)
+                return f"{marker}={mask(value, cat)}"
+            matched = m.group(0)
+            if "***" in matched:
+                return matched
+            return mask(matched, cat)
+        result = pattern.sub(repl, result)
+    return result
 # ========== ШИФРОВАНИЕ ==========
 
 class FindingEncryption:

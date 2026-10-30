@@ -24,7 +24,7 @@ from manager.src.auth.models import User
 from manager.src.auth.dependencies import (
     require_auth, require_auditor, require_admin, require_viewer
 )
-from manager.src.core.encryption import get_encryption
+from manager.src.core.encryption import get_encryption, mask_context
 from manager.src.core.image_fragment import crop_image
 from manager.src.core.hex_dump import format_hex_dump
 from manager.src.core.csv_utils import sanitize_csv_cell
@@ -127,10 +127,11 @@ def _finding_to_response(
         "severity": finding.severity,
         "fragment_type": finding.fragment_type,
         "line_number": finding.line_number,
+        # BUG-117: двойная маскировка на случай незамаскированных данных в БД.
         "match_text": finding.match_text_masked,
-        "line_text": finding.line_text_masked,
-        "context_before": finding.context_before_masked,
-        "context_after": finding.context_after_masked,
+        "line_text": mask_context(finding.line_text_masked or ""),
+        "context_before": mask_context(finding.context_before_masked or ""),
+        "context_after": mask_context(finding.context_after_masked or ""),
         "has_fragment": bool(finding.fragment_path or finding.fragment_data),
         "bounding_box": finding.bounding_box,
         "byte_offset": finding.byte_offset,

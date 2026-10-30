@@ -2,10 +2,10 @@
 > Единственный источник правды о текущем состоянии проекта.
 > План и бэклог — в `ROADMAP.md`. Архитектура — в `ARCHITECTURE.md`.
 
-**Обновлено:** 25.10.2026
-**Текущая версия:** v3.14.15
+**Обновлено:** 30.10.2026
+**Текущая версия:** v3.14.16
 **Целевая версия:** v3.0.0 (релиз)
-**Статус:** 🟢 Блоки 1–9 закрыты. BACKLOG-097 (S3-коннектор) закрыт. WebUI-редизайн этапы 1–5 — **REDESIGN COMPLETE (v3.14.1)**. Grafana протестирована + hotfix (v3.14.2). RBAC hotfix (Users/Roles) — v3.14.3. UI hotfix v3.14.4. 53.4g/h/i (Settings/RBAC/Scanners) — v3.14.5–7. **Retention (Блок 18) — ✅ закрыт (v3.14.4).** **53.4l (дедуп + NER off) — ✅ v3.14.10.** **53.4m (multiprocessing) — ✅ v3.14.11.** **53.4n (resume + логи + reconnect) — ✅ v3.14.12.** **53.4o (pool reuse) — ✅ v3.14.13.** **53.4p (final/release/progress) — ✅ v3.14.14.** **BUG-292 (кодировка `finding_detail.js`) — ✅ v3.14.15.** **WebUI (находки) — ✅ проверено** (Reveal, смена статуса, фильтры, аудит). Unit **528 passed**, e2e — стенд `:18000/:18001`. **Следующий шаг — 53.5 (security_scan) → 55 (GitHub) → 56 (BUG-117) → 57 (релиз v3.0.0).**
+**Статус:** 🟢 Блоки 1–9 закрыты. BACKLOG-097 (S3-коннектор) закрыт. WebUI-редизайн этапы 1–5 — **REDESIGN COMPLETE (v3.14.1)**. Grafana протестирована + hotfix (v3.14.2). RBAC hotfix (Users/Roles) — v3.14.3. UI hotfix v3.14.4. 53.4g/h/i (Settings/RBAC/Scanners) — v3.14.5–7. **Retention (Блок 18) — ✅ закрыт (v3.14.4).** **53.4l–p (scanner: дедуп/NER/multiprocessing/resume/pool/final) — ✅ v3.14.10–14.** **BUG-292 (кодировка UI) — ✅ v3.14.15.** **53.5 (security_scan) — ✅ закрыт (v3.14.16)**: Bandit 0 HIGH, Semgrep 0 findings, Gitleaks 0 leaks, pip-audit 0 vulns, Trivy 0 CRITICAL (manager+webui, Pillow 13.0.0, certifi 2026.10.19), ZAP WebUI 0 HIGH, ZAP API 0 HIGH, Trivy config 0 misconfig, docker inspect (CapDrop=[ALL], non-root), dogfooding (11718 файлов, 0 findings — маскирование отложено до 56.5). **Следующий шаг — 56 (BUG-117) → 56.5 (TEST-AUDIT-AGENTS) → 57 (релиз v3.0.0) → 55 (GitHub, open-source).**
 
 ---
 
@@ -13,11 +13,11 @@
 
 | Параметр | Значение |
 |----------|----------|
-| Текущий день | 53.4p/53.4o (завершены, v3.14.15) |
-| Следующий шаг | **53.5 (security_scan)** → 55 → 56 → 57 |
-| Открытых BUG | ~12 (🟢 low / v3.1.0) + BUG-293 (UX аудит, v3.0.1) |
-| Открытых BACKLOG | ~50 (BACKLOG-156…315 — v3.1.0/бэклог) + BACKLOG-339 (flaky s3) |
-| ТЗ собраны | 0 активных в `prompts/tz/` (53.4l–p — архив) |
+| Текущий день | 53.5 (завершён, v3.14.16) |
+| Следующий шаг | **56 (BUG-117)** → **56.5 (TEST-AUDIT-AGENTS)** → **57 (релиз v3.0.0)** → 55 (GitHub, open-source) |
+| Открытых BUG | ~12 (🟢 low / v3.1.0) + BUG-293 (UX, v3.0.1) + BUG-298 (low, v3.0.1) |
+| Открытых BACKLOG | ~50 (BACKLOG-156…315, 344, 346, 347 — v3.1.0/бэклог) + BACKLOG-339 (flaky s3) |
+| ТЗ собраны | 0 активных в `prompts/tz/` (53.5 — архив) |
 | Открытые вопросы к архитектору | 1) BUG-248/249 (Grafana, 🟢 low) — в бэклог; 2) BACKLOG-307 (RBAC Grafana) — v3.1.0; 3) BUG-236 вариант B (webhook) — v3.1.0; 4) Security Gateway (MTA + Squid + ICAP + AI) — **v4.0.0**, после Cython/Rust (v3.1.0) |
 
 ---
@@ -43,6 +43,7 @@
 | **53.4o (pool reuse)** | BUG-286 | **v3.14.13** |
 | **53.4p (final/release/progress)** | BUG-287/288/289 | **v3.14.14** |
 | **BUG-292 (кодировка UI)** | `finding_detail.js` CP1251 → UTF-8 | **v3.14.15** |
+| **53.5 (security_scan)** | Bandit/Semgrep/Gitleaks/pip-audit/Trivy/ZAP/dogfooding/inspect | **v3.14.16** |
 
 ---
 
@@ -52,7 +53,8 @@
 
 | ID | Проблема | Статус | ТЗ |
 |----|----------|--------|-----|
-| **BUG-117** | Manager не маскирует контексты сам | 📋 | день 56 (hotfix) |
+| **BUG-117** | Manager не маскирует контексты сам | 📋 | **день 56 (hotfix)** |
+| **TEST-AUDIT-AGENTS** | Приёмка событий аудита от агентов (Windows/Linux/S3) + WebUI /audit | 📋 | **день 56.5 (до 57)** |
 | **BUG-172** | Нет `permissions` в RBAC | 📋 | архитектура v3.1.0 |
 | **BUG-118** | Auth middleware держит 2 соединения | 📋 | v3.1.0 |
 | **BUG-135** | S3-агент: BOM | 📋 | v3.1.0 |
@@ -64,6 +66,10 @@
 | ID | Проблема | ТЗ |
 |----|----------|-----|
 | **BUG-293** | `/audit`: дублирование перевода (`finding_reveal — просмотр оригинала`) | **v3.0.1** |
+| **BUG-298** | 500 на `/api/audit/*` (ZAP-фаззинг; не воспроизвелось после пересоздания) | **v3.0.1** (low) |
+| **BACKLOG-344** | `username` в URL на `/settings` (информационный риск) | **v3.0.1** |
+| **BACKLOG-346** | `X-Content-Type-Options: nosniff` не установлен | **v3.0.1** |
+| **BACKLOG-347** | `Cross-Origin-Resource-Policy` не установлен | **v3.0.1** |
 | **BACKLOG-339** | 1 flaky s3 (unit) | v3.0.1 |
 | BUG-248 | `Celery tasks (total)` → `No data` | 🟢 v3.1.0 |
 | BUG-249 | `PostgreSQL connections` — легенда | 🟢 v3.1.0 |
@@ -76,13 +82,13 @@
 | BUG-221 | Reveal — странные email | v3.1.0 |
 | BUG-235 | SIEM-страницы 404 | v3.1.0 |
 | BUG-259/260/261/263 | тест-инфра | ✅ v3.14.3 |
-| BUG-262 | E2E-эталон без предусловий | 🟡 этап A ✅; этап B — до 55 |
+| BUG-262 | E2E-эталон без предусловий | 🟡 этап A ✅; этап B — до 57 |
 | BACKLOG-317 | `docker-compose.test.yml` — project name | ✅ v3.14.3 (`name: dcap-test`) |
-| BACKLOG-046 | E2E-прогон на CI | день 55 |
+| BACKLOG-046 | E2E-прогон на CI | 55 (после релиза) |
 
 ---
 
-## 🎯 Ключевые решения (v3.14.10–15)
+## 🎯 Ключевые решения (v3.14.10–16)
 
 **Закрыто в 53.4l (v3.14.10):**
 - **Дедуп** по `(category, match_text)` — finding-взрыв 609 → 0.6/файл.
@@ -118,25 +124,34 @@
 - `webui/static/js/finding_detail.js` — CP1251 → UTF-8 (без BOM). Подписи/кнопки — RU,
   Console — 0 ошибок.
 
-**Открыто (v3.0.1):**
-- **BUG-293** — `/audit`: дублирование перевода (`finding_reveal — просмотр оригинала`).
-- **BACKLOG-339** — 1 flaky s3.
+**Закрыто в v3.14.16 (53.5 security_scan):**
+- Bandit: 0 HIGH (убран `shell=True` в `local.py`, 9 `# nosemgrep` + комментарии).
+- Semgrep: 0 findings (3 `shell=True` убраны, 3 `sqlalchemy.text` + 2 CORS + 2 logger + 2 md5 → `# nosemgrep`).
+- Gitleaks: 0 leaks (190 commits, allowlist для tests/reports; `reports/` → `.gitignore`).
+- pip-audit: 0 vulns (manager + scanner; Docker для scanner — CP1251/UTF-8).
+- Trivy: 0 CRITICAL (manager + webui; Pillow 13.0.0, certifi 2026.10.19; `--scanners vuln`, `--timeout 30m`, docker.sock).
+- ZAP WebUI: 0 HIGH (7 WARN — триаж; `username` в URL → BACKLOG-344; XSS — ложное Jinja2).
+- ZAP API: 0 HIGH (5 WARN; 500-е → BUG-298 low; заголовки → BACKLOG-346/347).
+- Trivy config: 0 misconfig; `cap_drop: [ALL]` → `--force-recreate` → `CapDrop=[ALL]`.
+- docker inspect: non-root (dcap), `CapDrop=[ALL]`, `ReadonlyRootfs=false` (v3.1.0).
+- Dogfooding: 11718 файлов, 0 findings (gap=0, FP=0; маскирование — 56.5).
 
 ---
 
 ## 📌 Рекомендации архитектору
 
-1. **Следующий шаг — 53.5 (security_scan).** SAST/SCA/DAST/secrets/containers
-   (ТЗ `day_53_5_security_checks.md` + `scripts/security_scan.ps1`).
-2. **Затем — 55** (GitHub-пакет) → **56** (BUG-117) → **57** (релиз v3.0.0).
-3. **`STATE_TEST_SESSION.md`** — v3.14.15, WebUI (находки) ✅.
-4. **`ARCHITECTURE.md`** — v3.14.15 (scanner: multiprocessing, resume, pool reuse;
-   PII: NER off, дедуп; WebUI: UTF-8).
-5. **v3.1.0** — 13 направлений + Cython/Rust + Security Gateway (v4.0.0).
-6. **v4.0.0** — Security Gateway (MTA + Squid + ICAP + AI Gateway) — после v3.1.0.
+1. **Следующий шаг — 56 (BUG-117).** Manager маскирует контексты сам (hotfix).
+2. **Затем — 56.5** (TEST-AUDIT-AGENTS: реальные агенты Windows/Linux/S3, MinIO, WSL, WebUI `/audit`).
+3. **Затем — 57** (релиз v3.0.0: тег, CHANGELOG, **LICENSE Apache 2.0**, README, docs, smoke).
+4. **Затем — 55** (GitHub: `.github/workflows/` CI, публикация open-source).
+5. **`STATE_TEST_SESSION.md`** — v3.14.16, 53.5 ✅ (10/10, 1.4 с оговоркой).
+6. **`ARCHITECTURE.md`** — v3.14.16 (53.5: security-заголовки, cap_drop, Pillow/certifi).
+7. **v3.0.1** — BUG-293, BUG-298, BACKLOG-344/346/347, BACKLOG-339.
+8. **v3.1.0** — 13 направлений + Cython/Rust + Security Gateway (v4.0.0) + BACKLOG-307/315, BUG-248/249.
+9. **v4.0.0** — Security Gateway (MTA + Squid + ICAP + AI Gateway) — после v3.1.0.
 
 ---
 
-**Актуально на:** 25.10.2026
-**Версия:** v3.14.15
-**Следующий шаг:** 53.5 (security_scan) → 55 → 56 → 57
+**Актуально на:** 30.10.2026
+**Версия:** v3.14.16
+**Следующий шаг:** 56 (BUG-117) → 56.5 (TEST-AUDIT-AGENTS) → 57 (релиз v3.0.0) → 55 (GitHub, open-source)

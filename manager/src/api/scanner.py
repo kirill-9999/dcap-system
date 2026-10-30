@@ -407,7 +407,7 @@ async def submit_results(
         raise HTTPException(400, f"Task status is {task.status}, expected assigned/running")
     
     # === Сохраняем findings (день 40.2: новый формат + дедупликация по fingerprint) ===
-    from manager.src.core.encryption import get_encryption, mask, mask_line
+    from manager.src.core.encryption import get_encryption, mask, mask_line, mask_context
     _enc = None
     saved_findings = 0
     deduped_findings = 0
@@ -524,10 +524,12 @@ async def submit_results(
             line_number=line_number or 0,
             match_text_masked=match_masked,
             match_text_encrypted=match_enc,
-            line_text_masked=line_text_masked,
+            line_text_masked=mask_context(line_text_masked or ""),
             line_text_encrypted=line_enc,
-            context_before_masked=finding_data.get("context_before_masked") or context or None,
-            context_after_masked=finding_data.get("context_after_masked") or None,
+            # BUG-117: Manager маскирует контексты (на случай если сканер прислал незамаскированные).
+            context_before_masked=mask_context(finding_data.get("context_before_masked") or context or ""),
+            context_after_masked=mask_context(finding_data.get("context_after_masked") or ""),
+
             # BUG-077 (TASK-044, v3.13.18): сканер шлёт bounding_box=None для OCR
             # (координаты не вычисляются, Tesseract без tsv). Раньше здесь стоял
             # `or {...default {0,0,0,0}...}`, который перезаписывал None и вводил в
