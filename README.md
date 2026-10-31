@@ -29,6 +29,17 @@
 
 - Docker + Docker Compose v2 (`--wait`)
 - Python 3.10+ (для сканера на хосте)
+- **Зависимости сканера (PII/OCR):**
+  - **Tesseract OCR** (распознавание текста на картинках/PDF):
+    - **Linux (Ubuntu/Debian):** `sudo apt-get install tesseract-ocr tesseract-ocr-rus`
+    - **Windows:** [скачать установщик](https://github.com/UB-Mannheim/tesseract/wiki) и добавить в `PATH`.
+    - **macOS:** `brew install tesseract tesseract-lang`
+  - **Python-библиотеки (Presidio, spaCy):**
+    ```bash
+    pip install -r scanner/requirements.txt
+    python -m spacy download ru_core_news_sm en_core_web_sm
+    ```
+    (Presidio Analyzer и Anonymizer устанавливаются автоматически из scanner/requirements.txt).
 - 16 ГБ RAM (сканер: `max_workers=2`; 32 ГБ → 4; 128 ГБ → 8)
 
 ### 1. Клонировать и настроить
