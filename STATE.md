@@ -2,19 +2,17 @@
 > Единственный источник правды о текущем состоянии проекта.
 > План и бэклог — в `ROADMAP.md`. Архитектура — в `ARCHITECTURE.md`.
 
-**Обновлено:** 30.10.2026
-**Текущая версия:** v3.14.17
-**Целевая версия:** v3.0.0 (релиз)
-**Статус:** 🟢 Блоки 1–9 закрыты. BACKLOG-097 (S3-коннектор) закрыт. WebUI-редизайн этапы 1–5 — **REDESIGN COMPLETE (v3.14.1)**. Grafana протестирована + hotfix (v3.14.2). RBAC hotfix (Users/Roles) — v3.14.3. UI hotfix v3.14.4. 53.4g/h/i (Settings/RBAC/Scanners) — v3.14.5–7. **Retention (Блок 18) — ✅ закрыт (v3.14.4).** **53.4l–p (scanner: дедуп/NER/multiprocessing/resume/pool/final) — ✅ v3.14.10–14.** **BUG-292 (кодировка UI) — ✅ v3.14.15.** **53.5 (security_scan) — ✅ закрыт (v3.14.16)**: Bandit 0 HIGH, Semgrep 0 findings, Gitleaks 0 leaks, pip-audit 0 vulns, Trivy 0 CRITICAL (manager+webui, Pillow 13.0.0, certifi 2026.10.19), ZAP WebUI 0 HIGH, ZAP API 0 HIGH, Trivy config 0 misconfig, docker inspect (CapDrop=[ALL], non-root), dogfooding (11718 файлов, 0 findings — маскирование отложено до 56.5). **BUG-117 (Manager маскирует контексты) — ✅ v3.14.17.** **Следующий шаг — 56.5 (TEST-AUDIT-AGENTS) → 57 (релиз v3.0.0) → 55 (GitHub, open-source).**
-
+**Обновлено:** 31.10.2026
+**Текущая версия:** v3.0.0
+**Статус:** 🟢 Релиз v3.0.0 завершён. Тег v3.0.0 поставлен. Следующий шаг — 55 (GitHub, open-source).
 ---
 
 ## 📍 Где мы сейчас
 
 | Параметр | Значение |
 |----------|----------|
-| Текущий день | 53.5 (завершён, v3.14.16) |
-| Следующий шаг | **56.5 (TEST-AUDIT-AGENTS)** → **57 (релиз v3.0.0)** → 55 (GitHub, open-source) |
+| Текущий день | 57 (завершён, v3.0.0) |
+| Следующий шаг | **55 (GitHub, open-source)** |
 | Открытых BUG | ~12 (🟢 low / v3.1.0) + BUG-293 (UX, v3.0.1) + BUG-298 (low, v3.0.1) |
 | Открытых BACKLOG | ~50 (BACKLOG-156…315, 344, 346, 347 — v3.1.0/бэклог) + BACKLOG-339 (flaky s3) |
 | ТЗ собраны | 0 активных в `prompts/tz/` (53.5 — архив) |
@@ -45,6 +43,7 @@
 | **BUG-292 (кодировка UI)** | `finding_detail.js` CP1251 → UTF-8 | **v3.14.15** |
 | **53.5 (security_scan)** | Bandit/Semgrep/Gitleaks/pip-audit/Trivy/ZAP/dogfooding/inspect | **v3.14.16** |
 | **BUG-117 (Manager маскирует контексты)** | `mask_context` (22 паттерна), `MASK_RULES` 19 категорий, запись + чтение | **v3.14.17** |
+| **57 (релиз v3.0.0)** | CHANGELOG, LICENSE, README, тег v3.0.0, smoke (528 passed + 1 flaky / security 10/10) | **v3.0.0** |
 
 ---
 
@@ -141,18 +140,18 @@
 
 ## 📌 Рекомендации архитектору
 
-1. **Следующий шаг — 56.5 (TEST-AUDIT-AGENTS).** Реальные агенты (Windows/Linux/S3) + MinIO + WSL + WebUI `/audit`.
-2. **Затем — 56.5** (TEST-AUDIT-AGENTS: реальные агенты Windows/Linux/S3, MinIO, WSL, WebUI `/audit`).
-3. **Затем — 57** (релиз v3.0.0: тег, CHANGELOG, **LICENSE Apache 2.0**, README, docs, smoke).
-4. **Затем — 55** (GitHub: `.github/workflows/` CI, публикация open-source).
-5. **`STATE_TEST_SESSION.md`** — v3.14.16, 53.5 ✅ (10/10, 1.4 с оговоркой).
-6. **`ARCHITECTURE.md`** — v3.14.16 (53.5: security-заголовки, cap_drop, Pillow/certifi).
-7. **v3.0.1** — BUG-293, BUG-298, BACKLOG-344/346/347, BACKLOG-339.
-8. **v3.1.0** — 13 направлений + Cython/Rust + Security Gateway (v4.0.0) + BACKLOG-307/315, BUG-248/249.
+1. **Следующий шаг — 55 (GitHub, open-source).**
+   - Создать репозиторий `kirill-9999/dcap-system` на GitHub.
+   - `git remote add github https://github.com/kirill-9999/dcap-system.git`.
+   - `git push -u github master`, `git push github v3.0.0`.
+   - CI: `.github/workflows/ci.yml` (BACKLOG-046) — unit + security.
+   - Бейджи в README (GitHub Actions, Codecov).
+2. **v3.0.1** — BUG-293, BUG-298, BACKLOG-344/346/347, BACKLOG-339.
+3. **v3.1.0** — 13 направлений + Cython/Rust + SIEM 
 9. **v4.0.0** — Security Gateway (MTA + Squid + ICAP + AI Gateway) — после v3.1.0.
 
 ---
 
-**Актуально на:** 30.10.2026
-**Версия:** v3.14.16
-**Следующий шаг:** 56.5 (TEST-AUDIT-AGENTS) → 57 (релиз v3.0.0) → 55 (GitHub, open-source)
+**Актуально на:** 31.10.2026
+**Версия:** v3.0.0
+**Следующий шаг:** 55 (GitHub, open-source)
