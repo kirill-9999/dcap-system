@@ -1,0 +1,4 @@
+bucket,key,operation,requester,remote_ip,object_size,http_status,time
+dcap-audit-logs,backup/archive.zip,REST.GET.OBJECT,dave,10.0.0.11,1048576,200,2026-10-03T12:00:01Z
+dcap-audit-logs,reports/q3.csv,REST.PUT.OBJECT,eve,10.0.0.13,2048,200,2026-10-03T12:00:10Z
+dcap-audit-logs,old/temp.txt,REST.DELETE.OBJECT,alice,10.0.0.5,0,204,2026-10-03T12:00:20Z

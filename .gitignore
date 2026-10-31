@@ -9,6 +9,7 @@ dist/
 build/
 .eggs/
 .pytest_cache/
+.pytest-tmp/
 .mypy_cache/
 .coverage
 htmlcov/
@@ -52,5 +53,78 @@ docker-compose.override.yml
 # Project specific
 models/
 catalog/
-state.json
+test_files/
+state*.json
 *.jsonl
+
+# Отчеты могут содержать конфиденциальные данные (опционально)
+# prompts/reports/*
+
+# Копии БД
+manager/src/db/dcap.db
+
+# Агент аудита Windows (runtime)
+audit-agent-windows/data/
+audit-agent-windows/logs/
+audit-agent-windows/*.db
+audit-agent-windows/*.log
+audit-agent-windows/*.exe
+audit-agent-windows/build/
+audit-agent-windows/dist/
+audit-agent-windows/*.spec
+
+# Агент аудита Linux (runtime)
+audit-agent-linux/data/
+audit-agent-linux/logs/
+audit-agent-linux/*.db
+audit-agent-linux/*.log
+audit-agent-linux/agent.pid
+
+# Scanner (runtime)
+scanner/data/
+
+# S3/MinIO агент (runtime)
+audit-agent-s3/data/
+audit-agent-s3/logs/
+audit-agent-s3/*.db
+audit-agent-s3/*.log
+audit-agent-s3/agent.pid
+
+# Manager (runtime)
+manager/data/
+
+# WebUI (runtime)
+webui/data/
+
+# Session/testing docs (не коммитить)
+#STATE_TEST_SESSION*.md
+
+# Retention: экспорт архивов (День 35)
+data/archive/
+
+# Сертификаты (День 34)
+certs/
+*.crt
+*.key
+*.csr
+*.pem
+
+# Секреты (День 34)
+secrets/
+!secrets/.gitkeep
+
+
+# Scanner runtime state (53.4n resume)
+scanner/state/
+
+# Security scan artifacts (53.5)
+reports/
+dcap_sources_*.txt
+
+# scanner test artifacts
+scanner/state_test/
+scanner/config/scanner_config.test.json
+
+
+# prompts (ТЗ — архив, не в релиз)
+prompts/tz/

@@ -1,0 +1,25 @@
+# DCAP System — Alertmanager (День 39)
+route:
+  receiver: 'default'
+  group_by: ['alertname', 'severity']
+  group_wait: 10s
+  group_interval: 5m
+  repeat_interval: 1h
+
+receivers:
+  - name: 'default'
+    # BUG-236 (v3.14.2): webhook на Manager убран — эндпоинта
+    # /api/alerts/webhook нет, запросы падали 401 (AuthMiddleware) и
+    # засоряли логи. Алерты остаются в Alertmanager UI.
+    # Реализация эндпоинта — отдельная задача v3.1.0 (BACKLOG-307).
+    # webhook_configs:
+    #   - url: 'http://manager:8000/api/alerts/webhook'
+    #     send_resolved: true
+    # Опционально — email/Slack/Telegram (через env):
+    # slack_configs:
+    #   - api_url: 'https://hooks.slack.com/services/...'
+    #     channel: '#dcap-alerts'
+    # email_configs:
+    #   - to: 'ops@example.com'
+    #     from: 'dcap@example.com'
+    #     smarthost: 'smtp.example.com:587'

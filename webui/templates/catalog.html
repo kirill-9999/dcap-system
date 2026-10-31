@@ -1,0 +1,68 @@
+{% extends "base.html" %}
+{% block title %}Каталог — DCAP{% endblock %}
+{% block content %}
+<div class="container-fluid">
+  <h2 class="mb-3"><i class="fas fa-folder-tree text-primary me-2"></i>Каталог</h2>
+
+  <div class="filter-card mb-3">
+    <div class="row g-2 align-items-end">
+      <div class="col-md-4">
+        <label class="form-label small">Поиск по пути или значению</label>
+        <input type="text" class="form-control form-control-sm" id="catalog-search" placeholder="путь или значение...">
+      </div>
+      <div class="col-md-3">
+        <label class="form-label small">Категория / тип</label>
+        <select class="form-select form-select-sm" id="catalog-category">
+          <option value="">Все</option>
+        </select>
+      </div>
+      <div class="col-md-3">
+        <label class="form-label small">Статус</label>
+        <select class="form-select form-select-sm" id="catalog-status">
+          <option value="">Все</option>
+          <option value="new">Новое</option>
+          <option value="confirmed">Подтверждено</option>
+          <option value="false_positive">Ложное</option>
+          <option value="archived">Архив</option>
+          <option value="duplicate">Дубликат</option>
+        </select>
+      </div>
+      <div class="col-md-2">
+        <div class="form-check">
+          <input class="form-check-input" type="checkbox" id="catalog-show-fp">
+          <label class="form-check-label small" for="catalog-show-fp">Показывать ложные</label>
+        </div>
+        <button class="btn btn-outline-secondary btn-sm w-100 mt-1" onclick="CatalogPage.reset()">
+          <i class="fas fa-undo"></i> Сброс
+        </button>
+      </div>
+    </div>
+    <div class="d-flex justify-content-between align-items-center mt-2">
+      <span class="text-muted small" id="catalog-summary"></span>
+      <div class="btn-group btn-group-sm">
+        <button class="btn btn-outline-secondary" onclick="CatalogPage.expandAll()">Развернуть всё</button>
+        <button class="btn btn-outline-secondary" onclick="CatalogPage.collapseAll()">Свернуть всё</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="catalog-tree">
+    <div class="text-center py-5">
+      <div class="spinner-border" role="status"></div>
+      <p class="mt-2 text-muted">Загрузка...</p>
+    </div>
+  </div>
+
+  <div class="text-center my-3">
+    <button class="btn btn-outline-primary" id="catalog-more" style="display:none" onclick="CatalogPage.loadMore()">
+      <i class="fas fa-ellipsis-h"></i> Показать ещё
+    </button>
+  </div>
+</div>
+{% endblock %}
+{% block head %}
+<link rel="stylesheet" href="/static/css/findings.css">
+{% endblock %}
+{% block scripts %}
+<script src="/static/js/catalog.js"></script>
+{% endblock %}

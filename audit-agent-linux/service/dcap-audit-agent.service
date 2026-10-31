@@ -1,0 +1,22 @@
+[Unit]
+Description=DCAP Audit Agent (Linux)
+After=network.target
+Wants=network.target
+
+[Service]
+Type=simple
+# Подставляются install.sh (плейсхолдеры __DCAP_*__). Ручную правку не требует.
+User=__DCAP_USER__
+WorkingDirectory=__DCAP_HOME__
+Environment="PYTHONUNBUFFERED=1"
+# config.json обязателен: без аргумента агент завершается с кодом 1.
+ExecStart=__DCAP_PYTHON__ __DCAP_HOME__/main.py __DCAP_HOME__/config.json
+ExecReload=/bin/kill -HUP $MAINPID
+Restart=on-failure
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=dcap-audit-agent
+
+[Install]
+WantedBy=multi-user.target

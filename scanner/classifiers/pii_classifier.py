@@ -1,21 +1,21 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-DCAP Agent - PII Classifier (IPC версия)
+PII Classifier на основе Presidio
+Использует локальные модели spaCy: ru_core_news_sm, en_core_web_sm
 """
 
-import os
 import re
 import time
-import gc
+import bisect
 import threading
-import sys
-import ctypes
+import logging
 from pathlib import Path
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any, List, Optional, Tuple
 
-# Добавляем путь для импортов
-sys.path.insert(0, str(Path(__file__).parent.parent))
+from presidio_analyzer import AnalyzerEngine
+from presidio_analyzer import PatternRecognizer, Pattern
+from presidio_analyzer.nlp_engine import NlpEngineProvider
 
 from core.base import (
     IClassifier, DataCategory, FileContext,
@@ -23,24 +23,45 @@ from core.base import (
 )
 from utils.document_extractor import DocumentExtractor
 from classifiers.ocr_worker import start_ocr_worker, stop_ocr_worker
+from scanner.src.finding import Finding
+
+logger = logging.getLogger(__name__)
+
+
+# BUG-022.9: приоритет категорий при дублировании позиций.
+# Специфичные regex-категории (passport/snils/inn) точнее, чем встроенный
+# PhoneRecognizer Presidio, который ловит 1234 567890 / 123-456-789 00
+# как PHONE_NUMBER с теми же позициями (score 0.40).
+CATEGORY_PRIORITY: Dict[str, int] = {
+    "passport": 100,
+    "snils": 100,
+    "inn": 100,
+    "credit_card": 100,
+    "email": 90,
+    "api_key": 90,
+    "aws_key": 90,
+    "phone": 50,
+    "person": 10,
+    "url": 5,
+    "high_entropy": 5,
+    "unknown": 0,
+}
+
+# 53.4l (v3.14.10): entity-типы Presidio, которые приходят из spaCy NER.
+# Их категории (person/location/organization/date_time/nrp) НЕ маскируются
+# (ARCHITECTURE.md, MASK_RULES: person — «не маскируется (по решению)»),
+# но на синтетических PII-файлах давали 99.9% находок (666 136 из 666 136
+# на 1000 файлах) и удваивали время анализа.
+NER_ENTITY_TYPES = ("PERSON", "LOCATION", "ORGANIZATION", "DATE_TIME", "NRP")
 
 
 class PiiClassifier(IClassifier):
+    """PII классификатор на основе Presidio с локальными моделями"""
+    
     _instance = None
     _lock = threading.Lock()
     
-    # Для ModelWorker
-    _worker_process = None
-    _request_queue = None
-    _response_queue = None
-    _worker_started = False
-    _worker_ready = False
-    _response_thread = None
-    _pending_requests = {}
-    _next_request_id = 1
-    _pending_lock = threading.Lock()
-    
-    # Для OCRWorker
+    # OCRWorker (отдельный процесс для Tesseract)
     _ocr_process = None
     _ocr_request_queue = None
     _ocr_response_queue = None
@@ -60,9 +81,10 @@ class PiiClassifier(IClassifier):
                     cls._instance.enabled = True
         return cls._instance
     
-    def __init__(self, *args, **kwargs):
-        if hasattr(self, '_initialized') and self._initialized:
+    def __init__(self):
+        if self._initialized:
             return
+        
         self.config = {}
         self.extractor = None
         self.cache = {}
@@ -70,9 +92,102 @@ class PiiClassifier(IClassifier):
         self.ocr_count = 0
         self.ocr_errors = 0
         self.ocr_time = 0.0
-        self._initialized = True
+        self._initialized = False
         self._timeout = 60.0
         self.enabled = True
+        self._analyzer = None
+        # Пул AnalyzerEngine (день 40.2+): по движку на рабочий поток,
+        # чтобы Presidio-анализ файлов шёл параллельно, а не через один лок.
+        self._analyzers: List[AnalyzerEngine] = []
+        self._analyzer_next = 0
+        self._thread_analyzers = threading.local()
+        # Кастомные regex-паттерны для строчного сканирования (пустые по умолчанию)
+        self.custom_patterns: List = []
+        # Quick-паттерны компилируем один раз (день 42 — оптимизация)
+        self._quick_line_patterns: List = [
+            re.compile(p) for p in [
+                r'\d{1,2}[./-]\d{1,2}[./-]\d{2,4}',
+                r'[A-Za-z][A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}',
+                r'\+?7\s*\d{3}\s*\d{3}\s*\d{2}\s*\d{2}',
+                r'8\s*\d{3}\s*\d{3}\s*\d{2}\s*\d{2}',
+                r'[А-Я][а-я]+\s+[А-Я][а-я]+',
+                r'[A-Z][a-z]+\s+[A-Z][a-z]+',
+                r'\b\d{4}\s+\d{6}\b',
+                r'\b\d{3}-\d{3}-\d{3}\s+\d{2}\b',
+                r'\b\d{6,12}\b',
+                r'\b(?:\d[ -]?){13,19}\b',        # ← credit_card (BUG-063)
+            ]
+        ]
+        self._quick_file_regex = re.compile(
+            '|'.join(f'({p.pattern})' for p in self._quick_line_patterns)
+        )
+        # Presidio AnalyzerEngine не потокобезопасен — сериализуем analyze().
+        # В день 40.2 заменён пулом движков (_get_analyzer), лок оставлен
+        # как fallback для единичного движка (self._analyzers пуст).
+        self._analyzer_lock = threading.Lock()
+
+        # 53.4l (v3.14.10): NER-категории (PERSON/LOCATION/ORGANIZATION/
+        # DATE_TIME/NRP) — spaCy-шум, не маскируется (ARCHITECTURE.md: person
+        # «не маскируется (по решению)»), но давал 99.9% находок (finding-взрыв).
+        # При ner_enabled=False они исключаются из analyze() и отключаются
+        # компоненты spaCy parser/ner → анализ вдвое быстрее.
+        self._ner_enabled: bool = False
+        self._excluded_entities: List[str] = list(NER_ENTITY_TYPES)
+        self._analyze_entities: Optional[List[str]] = None
+
+    def _apply_entity_filter(self, analyzer: AnalyzerEngine) -> None:
+        """Вычислить список entity-типов для analyze() и подрезать spaCy-пайплайн.
+
+        53.4l (v3.14.10): при ner_enabled=False:
+        - из analyze() исключаются NER-entity (PERSON/LOCATION/ORGANIZATION/
+          DATE_TIME/NRP) — они не маскируются и составляли 99.9% находок;
+        - в spaCy отключаются компоненты parser и ner (результаты NER не нужны,
+          parser Presidio не использует) → анализ файла ~2.7 раза быстрее.
+        """
+        if self._ner_enabled:
+            self._analyze_entities = None
+            return
+
+        excluded = set(self._excluded_entities or [])
+        try:
+            supported = list(analyzer.get_supported_entities())
+        except Exception:
+            supported = []
+        if supported:
+            self._analyze_entities = [e for e in supported if e not in excluded]
+
+        # Подрезка spaCy-пайплайна (только для созданного движка).
+        try:
+            nlp_map = getattr(analyzer.nlp_engine, "nlp", None)
+            if isinstance(nlp_map, dict):
+                for _lang, _nlp in nlp_map.items():
+                    for _comp in ("parser", "ner"):
+                        try:
+                            _nlp.disable_pipe(_comp)
+                        except Exception:
+                            pass
+        except Exception as e:
+            logger.debug("[PII] не удалось подрезать spaCy-пайплайн: %s", e)
+
+    def _get_analyzer(self) -> Tuple[Optional[AnalyzerEngine], Optional[threading.Lock]]:
+        """Возвращает (движок Presidio, лок) для текущего потока.
+
+        При пуле движков (self._analyzers) каждый поток получает свой движок
+        по thread-local (round-robin при первом обращении) вместе с его локом —
+        анализ файлов в воркерах идёт параллельно, двига мения на общий лок нет.
+        Если же два потока делят один движок (пул меньше числа воркеров),
+        лок движка гарантирует безопасность analyze().
+        Если пул не создан (legacy) — возвращает (self._analyzer, self._analyzer_lock).
+        """
+        if self._analyzers:
+            entry = getattr(self._thread_analyzers, "entry", None)
+            if entry is None:
+                with self._analyzer_lock:
+                    entry = self._analyzers[self._analyzer_next % len(self._analyzers)]
+                    self._analyzer_next += 1
+                self._thread_analyzers.entry = entry
+            return entry[0], entry[1]
+        return self._analyzer, self._analyzer_lock
     
     @property
     def classifier_name(self) -> str:
@@ -84,16 +199,7 @@ class PiiClassifier(IClassifier):
     
     @property
     def version(self) -> str:
-        return "3.0-ipc"
-    
-    def _wait_for_worker_ready(self, timeout: float = 120.0) -> bool:
-        """Ожидание готовности ModelWorker"""
-        start_time = time.time()
-        while time.time() - start_time < timeout:
-            if self._worker_ready:
-                return True
-            time.sleep(0.5)
-        return False
+        return "4.0-presidio"
     
     def _wait_for_ocr_ready(self, timeout: float = 30.0) -> bool:
         """Ожидание готовности OCRWorker"""
@@ -104,134 +210,8 @@ class PiiClassifier(IClassifier):
             time.sleep(0.5)
         return False
     
-    def _start_worker(self):
-        """Запуск ModelWorker"""
-        if self._worker_started:
-            return
-        
-        with self._lock:
-            if self._worker_started:
-                return
-            
-            try:
-                print("[PII] Запуск ModelWorker...")
-                from classifiers.model_worker import start_model_worker
-                
-                models_cache = self.config.get("models_cache", "models")
-                use_bert = self.config.get("use_bert", True)
-                process, req_q, resp_q = start_model_worker(models_cache, use_bert)
-                
-                self._worker_process = process
-                self._request_queue = req_q
-                self._response_queue = resp_q
-                self._worker_started = True
-                self._worker_ready = False
-                
-                self._response_thread = threading.Thread(target=self._process_responses, daemon=True)
-                self._response_thread.start()
-                
-                print(f"[PII] ModelWorker запущен (PID: {self._worker_process.pid})")
-                
-                # Ожидаем готовности worker'а
-                if self._wait_for_worker_ready():
-                    print(f"[PII] ModelWorker готов к работе")
-                else:
-                    print(f"[PII] ⚠️ ModelWorker не ответил о готовности")
-                
-            except Exception as e:
-                print(f"[PII] Ошибка запуска ModelWorker: {e}")
-                import traceback
-                traceback.print_exc()
-                self._worker_started = False
-    
-    def _process_responses(self):
-        """Обработка ответов от ModelWorker"""
-        while self._worker_started and self._response_queue is not None:
-            try:
-                response = self._response_queue.get(timeout=0.5)
-                request_id = response.get("id")
-                if request_id is not None:
-                    if request_id == 0 and response.get("ready"):
-                        self._worker_ready = True
-                    else:
-                        with self._pending_lock:
-                            self._pending_requests[request_id] = response
-            except:
-                pass
-    
-    def _call_model_worker(self, text: str) -> Dict:
-        """Вызов ModelWorker для NLP"""
-        if not self._worker_started:
-            self._start_worker()
-        
-        if not self._worker_started:
-            return {"persons": [], "locations": []}
-        
-        if not self._worker_ready:
-            if not self._wait_for_worker_ready():
-                return {"persons": [], "locations": []}
-        
-        with self._pending_lock:
-            request_id = self._next_request_id
-            self._next_request_id += 1
-            self._pending_requests[request_id] = None
-        
-        try:
-            self._request_queue.put({
-                "id": request_id,
-                "text": text[:10000]
-            }, timeout=5)
-        except Exception as e:
-            print(f"[PII] Ошибка отправки: {e}")
-            return {"persons": [], "locations": []}
-        
-        start_time = time.time()
-        while time.time() - start_time < self._timeout:
-            with self._pending_lock:
-                response = self._pending_requests.get(request_id)
-                if response is not None:
-                    del self._pending_requests[request_id]
-                    return response.get("result", {"persons": [], "locations": []})
-            time.sleep(0.01)
-        
-        print(f"[PII] Timeout ожидания ответа от ModelWorker (request {request_id})")
-        
-        with self._pending_lock:
-            if request_id in self._pending_requests:
-                del self._pending_requests[request_id]
-        
-        return {"persons": [], "locations": []}
-    
-    def _stop_worker(self):
-        """Остановка ModelWorker"""
-        if not self._worker_started:
-            return
-        
-        print("[PII] Остановка ModelWorker...")
-        
-        try:
-            from classifiers.model_worker import stop_model_worker
-            stop_model_worker(self._worker_process, self._request_queue, self._response_queue)
-        except:
-            if self._worker_process and self._worker_process.is_alive():
-                self._worker_process.terminate()
-                self._worker_process.join(timeout=5)
-                if self._worker_process.is_alive():
-                    self._worker_process.kill()
-        
-        self._worker_started = False
-        self._worker_ready = False
-        self._worker_process = None
-        self._request_queue = None
-        self._response_queue = None
-        
-        with self._pending_lock:
-            self._pending_requests.clear()
-        
-        print(f"[PII] ModelWorker остановлен")
-    
     def _start_ocr_worker(self):
-        """Запуск OCR процесса"""
+        """Запуск OCR процесса (для изоляции Tesseract)"""
         if self._ocr_started:
             return
         
@@ -240,7 +220,7 @@ class PiiClassifier(IClassifier):
                 return
             
             try:
-                print("[PII] Запуск OCRWorker...")
+                logger.info("[PII] Запуск OCRWorker (изоляция Tesseract)...")
                 from classifiers.ocr_worker import start_ocr_worker
                 
                 models_cache = self.config.get("models_cache", "models")
@@ -257,12 +237,10 @@ class PiiClassifier(IClassifier):
                 self._ocr_response_thread = threading.Thread(target=self._process_ocr_responses, daemon=True)
                 self._ocr_response_thread.start()
                 
-                print(f"[PII] OCRWorker запущен (PID: {self._ocr_process.pid})")
+                logger.info(f"[PII] OCRWorker запущен (PID: {self._ocr_process.pid})")
                 
             except Exception as e:
-                print(f"[PII] Ошибка запуска OCRWorker: {e}")
-                import traceback
-                traceback.print_exc()
+                logger.error(f"[PII] Ошибка запуска OCRWorker: {e}")
                 self._ocr_started = False
     
     def _process_ocr_responses(self):
@@ -278,7 +256,7 @@ class PiiClassifier(IClassifier):
                 pass
     
     def _call_ocr_worker(self, image_data: bytes) -> Optional[str]:
-        """Отправка изображения в OCR процесс"""
+        """Отправка изображения в OCR процесс (изолированный)"""
         if not self._ocr_started:
             self._start_ocr_worker()
         
@@ -299,7 +277,7 @@ class PiiClassifier(IClassifier):
                 "timeout": self.config.get("ocr_timeout", 60)
             }, timeout=5)
         except Exception as e:
-            print(f"[PII] Ошибка отправки в OCRWorker: {e}")
+            logger.warning(f"[PII] Ошибка отправки в OCRWorker: {e}")
             return None
         
         start_time = time.time()
@@ -313,10 +291,20 @@ class PiiClassifier(IClassifier):
                     if response.get("success"):
                         return response.get("text")
                     else:
+                        # BUG-137 (v3.13.36): не молчим — OCRWorker вернул неуспех
+                        logger.warning(
+                            "OCR потерян: request %s вернул success=False (%s)",
+                            request_id, response.get("error", "unknown"),
+                        )
                         return None
             time.sleep(0.01)
         
-        print(f"[PII] Timeout ожидания ответа от OCRWorker (request {request_id})")
+        # BUG-137 (v3.13.36): таймаут ожидания OCRWorker — WARNING вместо print
+        logger.warning(
+            "OCR потерян: таймаут ожидания ответа от OCRWorker "
+            "(request %s, timeout=%ss, pending=%d)",
+            request_id, timeout, len(self._ocr_pending_requests),
+        )
         
         with self._ocr_pending_lock:
             if request_id in self._ocr_pending_requests:
@@ -329,7 +317,7 @@ class PiiClassifier(IClassifier):
         if not self._ocr_started:
             return
         
-        print("[PII] Остановка OCRWorker...")
+        logger.info("[PII] Остановка OCRWorker...")
         
         try:
             from classifiers.ocr_worker import stop_ocr_worker
@@ -350,45 +338,667 @@ class PiiClassifier(IClassifier):
         with self._ocr_pending_lock:
             self._ocr_pending_requests.clear()
         
-        print(f"[PII] OCRWorker остановлен")
+        logger.info("[PII] OCRWorker остановлен")
     
-    def _trim_memory_windows(self):
-        """Сброс рабочего набора памяти Windows"""
-        if sys.platform == 'win32':
-            try:
-                kernel32 = ctypes.windll.kernel32
-                process = kernel32.GetCurrentProcess()
-                kernel32.SetProcessWorkingSetSize(process, -1, -1)
-            except:
-                pass
+    def _get_nlp_engine(self):
+        """
+        Создание NLP движка с локальными моделями.
+        Использует NlpEngineProvider с конфигом.
+        """
+        # Конфиг для NlpEngineProvider
+        configuration = {
+            "nlp_engine_name": "spacy",
+            "models": [
+                {"lang_code": "en", "model_name": "en_core_web_sm"},
+                {"lang_code": "ru", "model_name": "ru_core_news_sm"},
+            ]
+        }
+        
+        try:
+            # Проверяем наличие моделей. 53.4m (v3.14.11): через find_spec, а не
+            # spacy.load — иначе модели грузятся дважды (+~450 МБ RSS и секунды
+            # старта в каждом процессе-воркере).
+            import importlib.util
+
+            import spacy
+
+            for _model in ("ru_core_news_sm", "en_core_web_sm"):
+                if importlib.util.find_spec(_model) is None:
+                    logger.warning(f"[PII] [WARN] Модель {_model} не найдена")
+                    logger.info("[PII]    Скачиваем...")
+                    spacy.cli.download(_model)
+                    logger.info(f"[PII] [OK] Модель {_model} скачана")
+                else:
+                    logger.info(f"[PII] [OK] Модель {_model} найдена")
+            
+            # Создаём провайдер
+            provider = NlpEngineProvider(nlp_configuration=configuration)
+            nlp_engine = provider.create_engine()
+            
+            logger.info("[PII] [OK] NLP движок создан с моделями: en_core_web_sm, ru_core_news_sm")
+            return nlp_engine
+            
+        except Exception as e:
+            logger.error(f"[PII] [ERROR] Ошибка создания NLP движка: {e}")
+            raise
     
     def configure(self, config: Dict[str, Any]) -> None:
-        if self.config:
+        if self._initialized:
             return
-            
+        
         self.config = config
         self._timeout = config.get("worker_timeout", 60.0)
+
+        # 53.4l (v3.14.10): NER-категории (person/location/organization/
+        # date_time/nrp) — не маскируются (ARCHITECTURE.md) и давали 99.9%
+        # находок. ner_enabled=true — вернуть прежнее поведение.
+        self._ner_enabled = bool(config.get("ner_enabled", False))
+        excluded = config.get("excluded_entities")
+        if excluded:
+            self._excluded_entities = [str(e).upper() for e in excluded]
+        else:
+            self._excluded_entities = list(NER_ENTITY_TYPES)
         
-        models_cache = config.get("models_cache")
-        if models_cache:
-            os.environ['HF_HOME'] = models_cache
-            os.environ['HF_HUB_CACHE'] = os.path.join(models_cache, 'hub')
-            os.environ['TRANSFORMERS_CACHE'] = os.path.join(models_cache, 'transformers')
-            os.environ['HF_HUB_DISABLE_SYMLINKS_WARNING'] = '1'
+        # Инициализация Presidio с локальными моделями
+        try:
+            # Пул движков (день 40.2+): размер — число параллельных воркеров
+            # коннектора (или analyzer_pool_size), но не более 4 по умолчанию,
+            # чтобы ограничить расход RAM на модели spaCy.
+            pool_size = int(config.get(
+                "analyzer_pool_size",
+                max(1, min(config.get("max_parallel_files", 2), 4)),
+            ) or 1)
+            pool_size = max(1, min(pool_size, 8))
+
+            self._analyzers = []
+            for _ in range(pool_size):
+                # Создаём NLP движок с локальными моделями
+                nlp_engine = self._get_nlp_engine()
+                # Создаём анализатор с указанием языков
+                analyzer = AnalyzerEngine(
+                    nlp_engine=nlp_engine,
+                    supported_languages=["ru", "en"]
+                )
+                # Добавляем кастомные распознаватели для РФ
+                self._add_custom_recognizers(analyzer)
+                # 53.4l (v3.14.10): фильтр NER-entity + подрезка spaCy-пайплайна
+                self._apply_entity_filter(analyzer)
+                # (движок, лок) — движок может использоваться несколькими
+                # потоками при пуле меньше числа воркеров, лок страхует.
+                self._analyzers.append((analyzer, threading.Lock()))
+
+            # совместимость: единичный движок используется как self._analyzer
+            self._analyzer = self._analyzers[0][0]
+
+            logger.info(f"[PII] [OK] Presidio инициализирован с локальными моделями (пул: {pool_size})")
+            if self._analyze_entities is not None:
+                logger.info(
+                    "[PII] [OK] NER-категории отключены (исключены: %s), "
+                    "spaCy parser/ner off",
+                    ", ".join(self._excluded_entities),
+                )
+            else:
+                logger.info("[PII] [OK] NER-категории включены (ner_enabled=true)")
             
-            for d in [models_cache, os.environ['HF_HUB_CACHE'], os.environ['TRANSFORMERS_CACHE']]:
-                os.makedirs(d, exist_ok=True)
-            print(f"[PII] Кэш моделей: {models_cache}")
+        except Exception as e:
+            logger.error(f"[PII] [ERROR] Ошибка инициализации Presidio: {e}")
+            logger.info("[PII]    Установите модели вручную:")
+            logger.info("[PII]    python -m spacy download ru_core_news_sm")
+            logger.info("[PII]    python -m spacy download en_core_web_sm")
+            raise
         
+        # Настройка DocumentExtractor с OCR
         temp_dir = Path(self.config.get("temp_dir", "temp"))
-        
-        # ИСПРАВЛЕНО: берём ocr_enabled из конфига
         ocr_enabled = self.config.get("ocr_enabled", True)
         self.extractor = DocumentExtractor(temp_dir, ocr_enabled, 1)
         
-        self._start_worker()
-        if self.config.get("ocr_enabled", True):
+        # Запускаем OCRWorker (для изоляции Tesseract).
+        # 53.4m (v3.14.11): в воркерах процесс-пула OCRWorker не нужен
+        # (start_ocr_worker=False) — OCR изображений идёт через extractor.
+        if self.config.get("ocr_enabled", True) and self.config.get("start_ocr_worker", True):
             self._start_ocr_worker()
+        
+        self._initialized = True
+
+    def scan_line(self, line: str, line_num: int) -> List[Finding]:
+        """
+        Сканирует одну строку, возвращает список Finding с позициями.
+        (День 40.2 — построчное сканирование.)
+        """
+        findings = []
+
+        # Быстрый негативный фильтр (не гоняем Presidio на пустых/мусорных строках)
+        if not self._quick_line_check(line):
+            return []
+
+        # 1. Presidio (если доступен) — движок из пула, с локом движка
+        analyzer, analyzer_lock = self._get_analyzer()
+        if analyzer is not None:
+            try:
+                with analyzer_lock:
+                    # TASK-030 (BUG-063): двухпроходный ru+en — Presidio регистрирует
+                    # CREDIT_CARD и US-паттерны только для en; кредитки в ru-тексте
+                    # без en-пасса не детектируются.
+                    results_ru = analyzer.analyze(
+                        text=line, language="ru", entities=self._analyze_entities)
+                    results_en = analyzer.analyze(
+                        text=line, language="en", entities=self._analyze_entities)
+                    results = list({
+                        (r.entity_type, r.start, r.end): r
+                        for r in (results_ru + results_en)
+                    }.values())
+                min_confidence = self.config.get("min_confidence", 0.5)
+                for r in results:
+                    if r.score < min_confidence:
+                        continue
+                    match_text = line[r.start:r.end]
+                    if not match_text:
+                        continue
+                    findings.append(Finding(
+                        line_number=line_num,
+                        line_text=line,
+                        match_text=match_text,
+                        start_pos=r.start,
+                        end_pos=r.end,
+                        finding_type="pii",
+                        category=self._map_presidio_entity(r.entity_type),
+                        severity=self._severity(r.entity_type),
+                        confidence=float(r.score),
+                        detector="presidio",
+                    ))
+            except Exception as e:
+                logger.warning("Presidio failed on line %d: %s", line_num, e)
+        else:
+            logger.debug("Presidio analyzer not initialized, skip line %d", line_num)
+
+        # 2. Regex-паттерны (кастомные)
+        for pattern, category, severity in self.custom_patterns:
+            for m in pattern.finditer(line):
+                findings.append(Finding(
+                    line_number=line_num,
+                    line_text=line,
+                    match_text=m.group(),
+                    start_pos=m.start(),
+                    end_pos=m.end(),
+                    finding_type="pii",
+                    category=category,
+                    severity=severity,
+                    confidence=0.85,
+                    detector="regex",
+                ))
+
+        # BUG-066b (TASK-033): url с email-доменом отбрасываем (Finding-модель)
+        findings = self._filter_url_over_email_finding(findings)
+
+        # BUG-069/070 (TASK-035): фильтр spaCy noise (person/org/date_time)
+        findings = self._filter_spacy_noise(findings)
+
+        # BUG-073 (TASK-039): uk_nhs при наличии phone в той же строке
+        findings = self._filter_uk_nhs_with_phone(findings)
+
+        # Дедупликация внутри строки (по позиции)
+        return self._deduplicate(findings)
+
+    def scan_text(self, text: str) -> List[Finding]:
+        """Файловый PII-анализ (день 42.5+): один вызов Presidio на весь текст.
+
+        Номера строк находок вычисляются из offset'ов через предвычисленные
+        начала строк (bisect) — построчный вызов analyze() не нужен.
+        """
+        findings: List[Finding] = []
+
+        # Быстрый негативный фильтр уровня файла (объединённый regex)
+        if not text or len(text.strip()) < 5:
+            return findings
+        if not self._quick_file_regex.search(text):
+            return findings
+
+        starts = self._line_starts(text)
+
+        def _line_index(offset: int) -> int:
+            i = bisect.bisect_right(starts, offset) - 1
+            return i if 0 <= i < len(starts) else 0
+
+        def _line_text(idx: int) -> str:
+            s = starts[idx]
+            e = starts[idx + 1] if idx + 1 < len(starts) else len(text)
+            if e and text[e - 1] == '\n':
+                e -= 1
+            return text[s:e]
+
+        # 1. Presidio — один вызов на весь текст (движок из пула текущего потока)
+        analyzer, analyzer_lock = self._get_analyzer()
+        if analyzer is not None:
+            try:
+                with analyzer_lock:
+                    # TASK-030 (BUG-063): двухпроходный ru+en — CREDIT_CARD и
+                    # US-сущности Presidio живут только в en-проходе.
+                    results_ru = analyzer.analyze(
+                        text=text, language="ru", entities=self._analyze_entities)
+                    results_en = analyzer.analyze(
+                        text=text, language="en", entities=self._analyze_entities)
+                    results = list({
+                        (r.entity_type, r.start, r.end): r
+                        for r in (results_ru + results_en)
+                    }.values())
+                min_confidence = self.config.get("min_confidence", 0.5)
+                for r in results:
+                    if r.score < min_confidence:
+                        continue
+                    match_text = text[r.start:r.end]
+                    if not match_text:
+                        continue
+                    idx = _line_index(r.start)
+                    findings.append(Finding(
+                        line_number=idx + 1,
+                        line_text=_line_text(idx),
+                        match_text=match_text,
+                        start_pos=max(0, r.start - starts[idx]),
+                        end_pos=max(0, r.end - starts[idx]),
+                        finding_type="pii",
+                        category=self._map_presidio_entity(r.entity_type),
+                        severity=self._severity(r.entity_type),
+                        confidence=float(r.score),
+                        detector="presidio",
+                    ))
+            except Exception as e:
+                logger.warning("Presidio failed on file-level scan: %s", e)
+        else:
+            logger.debug("Presidio analyzer not initialized, skip file-level scan")
+
+        # 2. Regex-паттерны (кастомные) — по всему тексту, строки из offset
+        for pattern, category, severity in self.custom_patterns:
+            for m in pattern.finditer(text):
+                idx = _line_index(m.start())
+                findings.append(Finding(
+                    line_number=idx + 1,
+                    line_text=_line_text(idx),
+                    match_text=m.group(),
+                    start_pos=max(0, m.start() - starts[idx]),
+                    end_pos=max(0, m.end() - starts[idx]),
+                    finding_type="pii",
+                    category=category,
+                    severity=severity,
+                    confidence=0.85,
+                    detector="regex",
+                ))
+
+        # BUG-066b (TASK-033): url с email-доменом отбрасываем (Finding-модель)
+        findings = self._filter_url_over_email_finding(findings)
+
+        # BUG-069/070 (TASK-035): фильтр spaCy noise (person/org/date_time)
+        findings = self._filter_spacy_noise(findings)
+
+        # BUG-073 (TASK-039): uk_nhs при наличии phone в той же строке
+        findings = self._filter_uk_nhs_with_phone(findings)
+
+        # BUG-022.9: дедупликация по позиции с приоритетом категорий
+        by_pos = {}
+        for f in findings:
+            key = (f.line_number, f.start_pos, f.end_pos)
+            existing = by_pos.get(key)
+            if existing is None:
+                by_pos[key] = f
+            else:
+                if CATEGORY_PRIORITY.get(f.category, 0) > CATEGORY_PRIORITY.get(existing.category, 0):
+                    by_pos[key] = f
+        return list(by_pos.values())
+
+    @staticmethod
+    def _line_starts(text: str) -> List[int]:
+        """Offset'ы начала каждой строки (0 — первая строка)."""
+        starts = [0]
+        for i, ch in enumerate(text):
+            if ch == '\n':
+                starts.append(i + 1)
+        return starts
+
+    def _quick_line_check(self, line: str) -> bool:
+        """Быстрая проверка строки на наличие PII-признаков (до Presidio)."""
+        stripped = line.strip()
+        if len(stripped) < 5:
+            return False
+        for pattern in self._quick_line_patterns:
+            if pattern.search(stripped):
+                return True
+        return False
+
+    def file_prefilter(self, content: str) -> bool:
+        """Быстрая проверка уровня файла: есть ли хоть один PII-признак во всём файле.
+
+        Используется FilesystemConnector для пропуска файла целиком (день 42).
+        Объединённый regex ищется по всему содержимому — безопасный суперсет
+        построчной проверки _quick_line_check (может пропустить меньше, но не больше).
+        """
+        if len(content) < 5:
+            return False
+        return bool(self._quick_file_regex.search(content))
+
+    def _map_presidio_entity(self, entity_type: str) -> str:
+        """PHONE_NUMBER → phone, EMAIL_ADDRESS → email, и т.д."""
+        mapping = {
+            "PHONE_NUMBER": "phone",
+            "EMAIL_ADDRESS": "email",
+            "PERSON": "person",
+            "CREDIT_CARD": "credit_card",
+            "PASSPORT": "passport",
+            "RU_PASSPORT": "passport",
+            "SNILS": "snils",
+            "RU_SNILS": "snils",
+            "INN": "inn",
+            "RU_INN": "inn",
+        }
+        return mapping.get(entity_type, entity_type.lower())
+
+    def _severity(self, entity_type: str) -> str:
+        high = {"CREDIT_CARD", "PASSPORT", "RU_PASSPORT", "SNILS", "RU_SNILS", "INN", "RU_INN"}
+        return "high" if entity_type in high else "medium"
+
+    def _deduplicate(self, findings: List[Finding]) -> List[Finding]:
+        """Убирает дубликаты (одинаковые позиции).
+
+        BUG-022.9: при одинаковых (start_pos, end_pos) — оставляем
+        категорию с ВЫСШИМ приоритетом (passport > phone).
+        """
+        by_pos = {}
+        for f in findings:
+            key = (f.start_pos, f.end_pos)
+            existing = by_pos.get(key)
+            if existing is None:
+                by_pos[key] = f
+            else:
+                # BUG-022.9: приоритет
+                if CATEGORY_PRIORITY.get(f.category, 0) > CATEGORY_PRIORITY.get(existing.category, 0):
+                    by_pos[key] = f
+        return list(by_pos.values())
+    
+    def _filter_url_over_email(self, findings: List[ClassificationFinding]) -> List[ClassificationFinding]:
+        """BUG-066 (день 46.3): url с email-доменом — отбрасываем url.
+
+        Presidio распознаёт в адресе `user@example.com` и EMAIL_ADDRESS,
+        и URL (домен `example.com`). URL-находка — дубликат email-домена:
+        отбрасываем её, чтобы не плодить ложные дубли.
+        """
+        email_spans = {
+            (f.start_pos, f.end_pos)
+            for f in findings
+            if f.subcategory in ("PII_EMAIL", "email")
+        }
+        if not email_spans:
+            return findings
+        
+        filtered = []
+        for f in findings:
+            if f.subcategory in ("PII_URL", "url"):
+                # url, полностью внутри email (домен) — выкидываем
+                if any(
+                    email_start <= f.start_pos < f.end_pos <= email_end
+                    for email_start, email_end in email_spans
+                ):
+                    continue
+            filtered.append(f)
+        return filtered
+
+    def _filter_url_over_email_finding(self, findings: List[Finding]) -> List[Finding]:
+        """BUG-066b + BUG-071 + BUG-074 + BUG-075 (TASK-033/037/040, v3.13.16).
+
+        Покрывает 3 случая:
+
+        1. url-over-email: 'http://user@host/path'
+           → Presidio обрезает url по '@', спаны url/email не пересекаются.
+           Работаем по line_text: если строка содержит '://' И email-признак
+           ('@' или email-паттерн) — отбрасываем все url/email этой строки.
+
+        2. credentials-URL: 'postgresql://user:pass@host:port/db'
+           → Presidio находит email в user:pass@host. Отбрасываем email
+           из строк с '://' (уже покрыто п.1).
+
+        3. BUG-075: Presidio URL recognizer ловит доменную часть email
+           ('company.example' для 'carol.new@company.example'). В таких
+           строках НЕТ '://', поэтому п.1 не срабатывает. Отбрасываем url,
+           чей match_text целиком входит в какой-либо email (по match_text
+           email-finding'ов или по email-паттернам из line_text).
+        """
+        EMAIL_RE = re.compile(r"[\w.+-]+@[\w.-]+\.\w+")
+
+        # 1. Строки с URL-схемой + email-признаком → все url/email отбросить
+        skip_lines: set = set()
+        for f in findings:
+            line = f.line_text or ""
+            if "://" in line and ("@" in line or EMAIL_RE.search(line)):
+                skip_lines.add((f.line_number, f.fragment_path))
+
+        # 2. Собрать все email-значения (match_text email-finding'ов
+        #    + email-паттерны из line_text) — для BUG-075
+        email_values: set = set()
+        for f in findings:
+            if f.category in ("email", "PII_EMAIL"):
+                v = (f.match_text or "").strip().lower()
+                if v:
+                    email_values.add(v)
+            line = f.line_text or ""
+            for m in EMAIL_RE.finditer(line):
+                email_values.add(m.group(0).strip().lower())
+
+        # 3. Фильтрация
+        filtered: List[Finding] = []
+        for f in findings:
+            cat = f.category
+            if cat in ("url", "PII_URL", "email", "PII_EMAIL"):
+                # 3a. Строка с :// и email → пропустить (BUG-071/074)
+                if (f.line_number, f.fragment_path) in skip_lines:
+                    continue
+                # 3b. url, входящий в email → пропустить (BUG-075)
+                if cat in ("url", "PII_URL"):
+                    url_val = (f.match_text or "").strip().lower()
+                    if url_val and any(url_val in em for em in email_values):
+                        continue
+            filtered.append(f)
+        return filtered
+
+    def _filter_spacy_noise(self, findings: List[Finding]) -> List[Finding]:
+        """BUG-069/070 (TASK-035, день 46.8): фильтр ложных PERSON/ORG/DATE_TIME.
+
+        spaCy en_core_web_sm из en-прохода агрессивно классифицирует
+        капитализированные токены ('Card 1:', 'GITHUB_TOKEN=...',
+        'DATABASE_URL=...') как PERSON/ORG/DATE_TIME. Отбрасываем шум.
+        """
+        NOISY_CATEGORIES = {"person", "organization", "date_time"}
+
+        filtered = []
+        for f in findings:
+            if f.category in NOISY_CATEGORIES:
+                val = f.match_text or ""
+                # Пропускаем, если значение:
+                # - содержит '_', '=', ':', '://'
+                # - >50% цифр
+                # - длина < 3
+                # - содержит 'card ' (case-insensitive)
+                if (any(c in val for c in "_:=")
+                        or "://" in val
+                        or sum(c.isdigit() for c in val) > len(val) / 2
+                        or len(val) < 3
+                        or "card " in val.lower()
+                        # BUG-072 (TASK-038, v3.13.15): аббревиатуры INN/SSN/DOB/URL/API
+                        or (len(val) <= 5 and val.isupper() and val.isascii() and val.isalpha())):
+                    continue
+            filtered.append(f)
+        return filtered
+
+    def _filter_spacy_noise_classification(
+        self, findings: List[ClassificationFinding]
+    ) -> List[ClassificationFinding]:
+        """BUG-069/070 (TASK-035): spaCy-noise для model ClassificationFinding.
+
+        В old-пути classify() findings используют subcategory (PII_PER, PII_ORG,
+        PII_DATE) и value вместо категории/match_text. Логика та же, что в
+        _filter_spacy_noise — отбрасываем шумные PERSON/ORG/DATE_TIME.
+        """
+        NOISY_SUBCATEGORIES = ("PII_PER", "PII_ORG", "PII_DATE")
+
+        filtered = []
+        for f in findings:
+            if f.subcategory in NOISY_SUBCATEGORIES:
+                val = f.value or ""
+                if (any(c in val for c in "_:=")
+                        or "://" in val
+                        or sum(c.isdigit() for c in val) > len(val) / 2
+                        or len(val) < 3
+                        or "card " in val.lower()
+                        # BUG-072 (TASK-038, v3.13.15)
+                        or (len(val) <= 5 and val.isupper() and val.isascii() and val.isalpha())):
+                    continue
+            filtered.append(f)
+        return filtered
+
+    def _filter_uk_nhs_with_phone(self, findings: List[Finding]) -> List[Finding]:
+        """BUG-073 (TASK-039, v3.13.15): UK NHS — ложное срабатывание
+        на US-телефонах.
+
+        Presidio's UkNhsRecognizer ловит 10 цифр — US-телефон
+        '+1 415 555 0199' проходит как UK NHS. Отбрасываем uk_nhs,
+        если в той же строке уже есть phone.
+        """
+        phone_lines = {
+            (f.line_number, f.fragment_path)
+            for f in findings
+            if f.category in ("phone", "PII_PHONE")
+        }
+        if not phone_lines:
+            return findings
+
+        filtered = []
+        for f in findings:
+            if f.category in ("uk_nhs", "UK_NHS"):
+                if (f.line_number, f.fragment_path) in phone_lines:
+                    continue
+            filtered.append(f)
+        return filtered
+
+    @staticmethod
+    def _is_valid_luhn(value: str) -> bool:
+        """TASK-024 (BUG-063, день 46.4): проверка Luhn для платёжных карт."""
+        digits = [int(ch) for ch in value if ch.isdigit()]
+        if len(digits) < 13 or len(digits) > 19:
+            return False
+        total = 0
+        for i, d in enumerate(reversed(digits)):
+            if i % 2 == 1:
+                d *= 2
+                if d > 9:
+                    d -= 9
+            total += d
+        return total % 10 == 0
+
+    def _filter_credit_cards_by_luhn(self, findings: List[ClassificationFinding]) -> List[ClassificationFinding]:
+        """TASK-024 (BUG-063, день 46.4): credit_card-finding без валидной
+        Luhn-суммы.
+
+        Presidio определяет `CREDIT_CARD` структурно (13-19 цифр) без проверки
+        Luhn — из-за этого даёт ложные кредитные карты на случайных
+        длинных цифровых строках (номера СНИЛС, телефоны и т.п.). Отбрасываем
+        карту, если она не проходит Luhn.
+        """
+        filtered = []
+        for f in findings:
+            if f.subcategory in ("credit_card", "PII_CREDIT_CARD", "CREDIT_CARD"):
+                if not self._is_valid_luhn(f.value):
+                    continue
+            filtered.append(f)
+        return filtered
+
+    def _add_custom_recognizers(self, analyzer: Optional[AnalyzerEngine] = None):
+
+        """Добавление кастомных распознавателей для РФ"""
+        analyzer = analyzer or self._analyzer
+        
+        # 1. Телефоны РФ
+        phone_patterns = [
+            Pattern(
+                name="phone_ru_full",
+                regex=r"\+7\s*[\(\)]?\s*\d{3}\s*[\)]?\s*\d{3}\s*[-]?\s*\d{2}\s*[-]?\s*\d{2}",
+                score=0.9
+            ),
+            Pattern(
+                name="phone_ru_short",
+                regex=r"8\s*[\(\)]?\s*\d{3}\s*[\)]?\s*\d{3}\s*[-]?\s*\d{2}\s*[-]?\s*\d{2}",
+                score=0.85
+            ),
+        ]
+        
+        phone_recognizer = PatternRecognizer(
+            supported_entity="PHONE_NUMBER",
+            name="PhoneRU",
+            patterns=phone_patterns,
+            supported_language="ru"
+        )
+        analyzer.registry.add_recognizer(phone_recognizer)
+        
+        # 2. Паспорт
+        passport_patterns = [
+            Pattern(
+                name="passport_ru",
+                regex=r"\b\d{4}\s+\d{6}\b",
+                score=0.85
+            )
+        ]
+        passport_recognizer = PatternRecognizer(
+            supported_entity="PASSPORT",
+            name="PassportRU",
+            patterns=passport_patterns,
+            supported_language="ru"
+        )
+        analyzer.registry.add_recognizer(passport_recognizer)
+        
+        # 3. СНИЛС
+        snils_patterns = [
+            Pattern(
+                name="snils_ru",
+                regex=r"\b\d{3}-\d{3}-\d{3}\s+\d{2}\b",
+                score=0.9
+            )
+        ]
+        snils_recognizer = PatternRecognizer(
+            supported_entity="SNILS",
+            name="SnilsRU",
+            patterns=snils_patterns,
+            supported_language="ru"
+        )
+        analyzer.registry.add_recognizer(snils_recognizer)
+        
+        # 4. ИНН
+        inn_patterns = [
+            Pattern(
+                name="inn_ru",
+                regex=r"\b\d{10}\b|\b\d{12}\b",
+                score=0.7
+            )
+        ]
+        inn_recognizer = PatternRecognizer(
+            supported_entity="INN",
+            name="InnRU",
+            patterns=inn_patterns,
+            supported_language="ru"
+        )
+        analyzer.registry.add_recognizer(inn_recognizer)
+        
+        # 5. Email
+        email_patterns = [
+            Pattern(
+                name="email_ru",
+                regex=r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}",
+                score=0.95
+            )
+        ]
+        email_recognizer = PatternRecognizer(
+            supported_entity="EMAIL_ADDRESS",
+            name="EmailRU",
+            patterns=email_patterns,
+            supported_language="ru"
+        )
+        analyzer.registry.add_recognizer(email_recognizer)
+        
+        logger.info("[PII]   Добавлены кастомные распознаватели: PhoneRU, PassportRU, SnilsRU, InnRU, EmailRU")
     
     def can_classify(self, file_context: FileContext) -> bool:
         max_size = self.config.get("max_file_size_mb", 100) * 1024 * 1024
@@ -398,9 +1008,10 @@ class PiiClassifier(IClassifier):
         start_time = time.perf_counter()
         findings = []
         file_context = context.file_context
+        
         text = self._get_text(file_context)
         
-        if not text:
+        if not text or len(text.strip()) < 10:
             return ClassificationResult(
                 classifier_name=self.classifier_name,
                 category=self.category,
@@ -408,6 +1019,7 @@ class PiiClassifier(IClassifier):
                 processing_time=time.perf_counter() - start_time
             )
         
+        # Быстрый фильтр
         if not self._quick_check(text):
             return ClassificationResult(
                 classifier_name=self.classifier_name,
@@ -416,33 +1028,83 @@ class PiiClassifier(IClassifier):
                 processing_time=time.perf_counter() - start_time
             )
         
-        model_result = self._call_model_worker(text)
-        
-        for name, source, confidence in model_result.get("persons", []):
-            if not any(f.value == name for f in findings):
+        try:
+            # Двухпроходный анализ (TASK-030, BUG-063): Presidio регистрирует
+            # CREDIT_CARD и US-паттерны (банки, водит. права, SSN) только для
+            # language="en", а телефон/паспорт/СНИЛС/ИНН — для "ru".
+            # Один проход (ru) теряет кредитки — делаем оба и дедуплицируем.
+            results = {}
+            for lang in ("ru", "en"):
+                with analyzer_lock:
+                    pass_results = self._analyzer.analyze(
+                        text=text,
+                        language=lang,
+                        entities=self._analyze_entities,
+                    )
+                for r in pass_results:
+                    key = (r.entity_type, r.start, r.end)
+                    if key not in results or r.score > results[key].score:
+                        results[key] = r
+            
+            for result in results.values():
+                entity_type = result.entity_type
+                confidence = result.score
+                value = text[result.start:result.end]
+                position = result.start
+                context_str = self._get_context(text, value)
+                
+                # Маппинг типов Presidio → DCAP
+                category_map = {
+                    "PERSON": "PII_PER",
+                    "LOCATION": "PII_LOC", 
+                    "DATE_TIME": "PII_DATE",
+                    "EMAIL_ADDRESS": "PII_EMAIL",
+                    "PHONE_NUMBER": "PII_PHONE",
+                    "CREDIT_CARD": "PII_CC",
+                    "IP_ADDRESS": "PII_IP",
+                    "URL": "PII_URL",
+                    "IBAN_CODE": "PII_IBAN",
+                    "PhoneRU": "PII_PHONE",
+                    "PassportRU": "PII_PASSPORT",
+                    "SnilsRU": "PII_SNILS",
+                    "InnRU": "PII_INN",
+                    "EmailRU": "PII_EMAIL",
+                }
+                
+                subcategory = category_map.get(entity_type, f"PII_{entity_type.upper()}")
+                
+                min_confidence = self.config.get("min_confidence", 0.5)
+                if confidence < min_confidence:
+                    continue
+                
                 findings.append(ClassificationFinding(
                     category=DataCategory.PII,
-                    subcategory="PII_PER",
-                    value=name,
-                    position=text.find(name) if name in text else 0,
-                    context=self._get_context(text, name),
+                    subcategory=subcategory,
+                    value=value,
+                    position=position,
+                    context=context_str,
                     confidence=confidence,
-                    detection_method=f"ml_{source}"
+                    detection_method="presidio",
+                    metadata={"entity_type": entity_type}
                 ))
+                
+        except Exception as e:
+            logger.warning(f"[PII] Ошибка анализа: {e}")
         
-        for loc, source, confidence in model_result.get("locations", []):
-            if not any(f.value == loc for f in findings):
-                findings.append(ClassificationFinding(
-                    category=DataCategory.PII,
-                    subcategory="PII_LOC",
-                    value=loc,
-                    position=text.find(loc) if loc in text else 0,
-                    context=self._get_context(text, loc),
-                    confidence=confidence,
-                    detection_method=f"ml_{source}"
-                ))
-        
-        findings.extend(self._find_dates(text))
+        # BUG-066 (день 46.3): url-finding, перекрывающий email-finding —
+        # отбрасываем url (это домен внутри адреса, а не самостоятельный URL).
+        findings = self._filter_url_over_email(findings)
+        findings = self._filter_credit_cards_by_luhn(findings)
+        # BUG-069/070 (TASK-035): фильтр spaCy noise для ClassificationFinding
+        findings = self._filter_spacy_noise_classification(findings)
+
+        # Дедупликация
+        unique_findings = {}
+        for f in findings:
+            key = f"{f.subcategory}:{f.value}"
+            if key not in unique_findings or f.confidence > unique_findings[key].confidence:
+                unique_findings[key] = f
+        findings = list(unique_findings.values())
         
         self.stats["files"] += 1
         self.stats["findings"] += len(findings)
@@ -461,69 +1123,41 @@ class PiiClassifier(IClassifier):
             return self.cache[cache_key]
         
         ext = Path(file_context.path).suffix.lower().lstrip('.')
+        text = None
         
+        # Изображения -> OCR (через изолированный процесс)
         image_exts = ['png', 'jpg', 'jpeg', 'gif', 'bmp', 'tiff', 'tif', 'webp']
         if ext in image_exts and self.config.get("ocr_enabled", True):
             text = self._call_ocr_worker(file_context.content)
             if text:
-                max_cache = self.config.get("cache_size", 500)
-                if len(self.cache) >= max_cache:
-                    items = list(self.cache.items())[:max_cache//5]
-                    for k, _ in items:
-                        del self.cache[k]
-                    gc.collect()
-                self.cache[cache_key] = text
                 self.ocr_count += 1
+                self.cache[cache_key] = text
                 return text
             else:
                 self.ocr_errors += 1
                 return None
         
+        # Документы -> через DocumentExtractor
         if self.extractor:
             text, error = self.extractor.extract_text(file_context.content, ext, file_context.path)
-            
             if error:
-                # Сохраняем ошибку для логирования в оркестраторе
-                if not hasattr(file_context, '_extract_error'):
-                    file_context._extract_error = error
-                print(f"[PII] Ошибка извлечения текста из {file_context.path}: {error}")
                 return None
-            
             if text:
-                max_cache = self.config.get("cache_size", 500)
-                if len(self.cache) >= max_cache:
-                    items = list(self.cache.items())[:max_cache//5]
-                    for k, _ in items:
-                        del self.cache[k]
-                    gc.collect()
                 self.cache[cache_key] = text
                 return text
-            
-            return None
         
+        # Простые тексты
         text_exts = ['txt', 'csv', 'log', 'json', 'md', 'ini', 'cfg', 'conf', 'yaml', 'yml', 'xml', 'html']
         if ext in text_exts:
             try:
-                text = file_context.content.decode('utf-8', errors='ignore')[:5000]
+                text = file_context.content.decode('utf-8', errors='ignore')[:100000]
                 if text:
-                    max_cache = self.config.get("cache_size", 500)
-                    if len(self.cache) >= max_cache:
-                        items = list(self.cache.items())[:max_cache//5]
-                        for k, _ in items:
-                            del self.cache[k]
-                        gc.collect()
                     self.cache[cache_key] = text
                 return text
             except:
                 try:
-                    text = file_context.content.decode('cp1251', errors='ignore')[:5000]
+                    text = file_context.content.decode('cp1251', errors='ignore')[:100000]
                     if text:
-                        max_cache = self.config.get("cache_size", 500)
-                        if len(self.cache) >= max_cache:
-                            items = list(self.cache.items())[:max_cache//5]
-                            for k, _ in items:
-                                del self.cache[k]
-                            gc.collect()
                         self.cache[cache_key] = text
                     return text
                 except:
@@ -538,40 +1172,21 @@ class PiiClassifier(IClassifier):
         if len(text) < 30:
             return False
         
-        has_date = re.search(r'\d{1,2}[./-]\d{1,2}[./-]\d{2,4}', text) is not None
-        has_names = re.search(r'[А-Я][а-я]+\s+[А-Я][а-я]+|[A-Z][a-z]+\s+[A-Z][a-z]+', text) is not None
-        
-        return has_date or has_names
-    
-    def _find_dates(self, text: str) -> List[ClassificationFinding]:
-        findings = []
-        date_set = set()
-        
         patterns = [
-            r'\b\d{1,2}\.\d{1,2}\.\d{2,4}\b',
-            r'\b\d{1,2}\s+(?:января|февраля|марта|апреля|мая|июня|июля|августа|сентября|октября|ноября|декабря)\s+\d{4}\b',
-            r'\b(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\s+\d{1,2},?\s+\d{4}\b',
-            r'\b\d{4}-\d{1,2}-\d{1,2}\b',
-            r'\b\d{4}/\d{1,2}/\d{1,2}\b',
-            r'\b\d{1,2}/\d{1,2}/\d{4}\b',
+            r'\d{1,2}[./-]\d{1,2}[./-]\d{2,4}',
+            r'[A-Za-z][A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}',
+            r'\+7\s*\d{3}\s*\d{3}\s*\d{2}\s*\d{2}',
+            r'8\s*\d{3}\s*\d{3}\s*\d{2}\s*\d{2}',
+            r'[А-Я][а-я]+\s+[А-Я][а-я]+',
+            r'[A-Z][a-z]+\s+[A-Z][a-z]+',
+            r'\b\d{4}\s+\d{6}\b',
+            r'\b\d{3}-\d{3}-\d{3}\s+\d{2}\b',
         ]
         
         for pattern in patterns:
-            for match in re.findall(pattern, text, re.IGNORECASE):
-                date_set.add(match)
-        
-        for date in date_set:
-            findings.append(ClassificationFinding(
-                category=DataCategory.PII,
-                subcategory="PII_DATE",
-                value=date,
-                position=text.find(date),
-                context=self._get_context(text, date),
-                confidence=0.95,
-                detection_method="regex"
-            ))
-        
-        return findings
+            if re.search(pattern, text):
+                return True
+        return False
     
     def _get_context(self, text: str, value: str, window: int = 50) -> str:
         pos = text.find(value)
@@ -584,80 +1199,25 @@ class PiiClassifier(IClassifier):
             context = context[:117] + "..."
         return context
     
-    def reset_ocr_engine(self):
-        if self.config.get("ocr_enabled", True):
-            print("[PII] Перезапуск OCRWorker по запросу...")
-            self._stop_ocr_worker()
-            time.sleep(1)
-            self._start_ocr_worker()
-            print(f"[PII] OCRWorker перезапущен")
-    
     def reload_models(self) -> None:
-        """Перезагрузка моделей и OCR процесса"""
-        print(f"[PII] Перезапуск ModelWorker и OCRWorker для освобождения памяти...")
-        
-        cache_size_before = len(self.cache)
-        if cache_size_before > 0:
-            self.cache.clear()
-            print(f"[PII] Очищен кэш текста: {cache_size_before} -> 0")
-        
-        if self.extractor and hasattr(self.extractor, '_ocr_engine'):
-            if self.extractor._ocr_engine and hasattr(self.extractor._ocr_engine, '_cache'):
-                cache_size = len(self.extractor._ocr_engine._cache)
-                if cache_size > 0:
-                    self.extractor._ocr_engine._cache.clear()
-                    print(f"[PII] Очищен кэш OCR: {cache_size} -> 0")
-        
-        self.stats = {"files": 0, "findings": 0, "time": 0.0}
-        self.ocr_count = 0
-        self.ocr_errors = 0
-        self.ocr_time = 0.0
-        
-        for _ in range(3):
-            gc.collect()
-        
-        self._stop_worker()
-        if self.config.get("ocr_enabled", True):
-            self._stop_ocr_worker()
-        
-        for _ in range(3):
-            gc.collect()
-        time.sleep(2)
-        
-        self._start_worker()
-        if self.config.get("ocr_enabled", True):
-            self._start_ocr_worker()
-        
-        for _ in range(3):
-            gc.collect()
-        
-        self._trim_memory_windows()
-        
-        try:
-            import psutil
-            mem = psutil.Process().memory_info().rss / 1024 / 1024
-            print(f"[PII] ModelWorker и OCRWorker перезапущены, память основного процесса: {mem:.0f} MB")
-        except:
-            pass
-        
-        print(f"[PII] ModelWorker и OCRWorker перезапущены")
+        """Перезагрузка (для Presidio не требуется)"""
+        self.cache.clear()
+        logger.debug("[PII] Кэш очищен")
+    
+    def shutdown(self):
+        """Завершение работы"""
+        logger.info("[PII] Завершение...")
+        self._stop_ocr_worker()
+        logger.info("[PII] Завершено")
     
     def get_requirements(self) -> Dict[str, Any]:
         return {
-            "memory_mb": 100,
-            "models": ["natasha", "transformers"],
-            "dependencies": ["pypdf", "pillow", "python-docx", "openpyxl"]
+            "memory_mb": 256,
+            "models": ["presidio-analyzer", "spacy"],
+            "dependencies": ["presidio-analyzer", "spacy"]
         }
-    
-    def shutdown(self):
-        print("[PII] Завершение всех рабочих процессов...")
-        self._stop_worker()
-        self._stop_ocr_worker()
-        gc.collect()
-        print("[PII] Завершение выполнено")
 
 
 PIIClassifier = PiiClassifier
-
 
 __all__ = ['PiiClassifier', 'PIIClassifier']

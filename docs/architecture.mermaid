@@ -1,0 +1,111 @@
+---
+title: DCAP System — Архитектура (v3.11.0)
+---
+graph TB
+    subgraph clients["👥 Клиенты"]
+        USER["👤 Пользователь<br/>(Viewer)"]
+        AUDITOR["👤 Аудитор<br/>(Auditor)"]
+        ADMIN["👤 Администратор<br/>(Admin)"]
+    end
+
+    subgraph dcap["🛡️ DCAP System"]
+        direction TB
+
+        WEBUI["🖥️ WebUI<br/>Jinja2 + прокси<br/>:8001"]
+        MANAGER["⚙️ Manager<br/>FastAPI control-plane<br/>:8000"]
+
+        subgraph dataplane["🔍 Data Plane"]
+            direction LR
+            SCANNER["🔍 Scanner<br/>PII + OCR + Credentials<br/>на хосте :9101"]
+            WIN["🪟 Windows Agent<br/>wevtutil Security Log"]
+            LINUX["🐧 Linux Agent<br/>inotify + SSH<br/>:9102"]
+            S3AG["☁️ S3/MinIO Agent<br/>Access Logs + webhook<br/>:9103"]
+        end
+
+        subgraph asyncplane["⏱️ Асинхронные задачи"]
+            CELERY_W["Celery Worker<br/>audit/scanner/retention"]
+            CELERY_B["Celery Beat<br/>расписание"]
+            FLOWER["Flower<br/>:5555"]
+        end
+
+        subgraph storage["💾 Хранение"]
+            PG[("🐘 PostgreSQL 16<br/>партиционирование<br/>findings: masked + AES-256-GCM")]
+            REDIS[("⚡ Redis<br/>кэш / брокер / rate-limit")]
+        end
+
+        subgraph observability["📊 Мониторинг"]
+            PROM["Prometheus<br/>:9090"]
+            GRAF["Grafana<br/>:3000"]
+            ALERT["Alertmanager<br/>:9093"]
+        end
+    end
+
+    subgraph sources["📂 Внешние ресурсы"]
+        FS["📁 Файловые ресурсы<br/>Windows / Linux"]
+        S3SRC["☁️ S3 / MinIO"]
+        AD["🗂️ Active Directory"]
+    end
+
+    %% === Клиенты → WebUI ===
+    USER --> WEBUI
+    AUDITOR --> WEBUI
+    ADMIN --> WEBUI
+
+    %% === WebUI → Manager ===
+    WEBUI -->|"REST API (прокси)<br/>JWT Bearer"| MANAGER
+
+    %% === Manager → Storage ===
+    MANAGER -->|"SQL<br/>(TLS)"| PG
+    MANAGER -->|"cache / broker<br/>rate-limit"| REDIS
+
+    %% === Manager → Celery ===
+    MANAGER -->|"tasks"| CELERY_W
+    CELERY_B -->|"расписание"| CELERY_W
+    CELERY_W -.->|"статус"| FLOWER
+
+    %% === Scanner → Manager ===
+    SCANNER -->|"задания + heartbeat<br/>+ progress"| MANAGER
+    SCANNER -.->|"check-fingerprints<br/>(FP-фильтр)"| MANAGER
+
+    %% === Scanner → Sources ===
+    SCANNER -->|"чтение файлов<br/>(построчно)"| FS
+
+    %% === Agents → Manager ===
+    WIN -->|"события аудита"| MANAGER
+    LINUX -->|"события аудита"| MANAGER
+    S3AG -->|"события аудита"| MANAGER
+
+    %% === Agents → Sources (аудит) ===
+    WIN -.->|"аудит"| FS
+    LINUX -.->|"аудит"| FS
+    S3AG -.->|"аудит"| S3SRC
+
+    %% === Manager → AD ===
+    MANAGER -.->|"LDAP"| AD
+
+    %% === Monitoring ===
+    PROM -->|"scrape /metrics"| MANAGER
+    PROM -->|"scrape :9101"| SCANNER
+    PROM -->|"scrape :9102"| LINUX
+    PROM -->|"scrape :9103"| S3AG
+    GRAF -->|"datasource"| PROM
+    PROM -->|"алерты"| ALERT
+
+    %% === Стили ===
+    classDef client fill:#e1f5ff,stroke:#0288d1,stroke-width:2px,color:#000
+    classDef ui fill:#bbdefb,stroke:#0288d1,stroke-width:2px,color:#000
+    classDef core fill:#ffe0b2,stroke:#f57c00,stroke-width:2px,color:#000
+    classDef scanner fill:#b2dfdb,stroke:#00897b,stroke-width:2px,color:#000
+    classDef agent fill:#e1bee7,stroke:#7b1fa2,stroke-width:2px,color:#000
+    classDef storage fill:#c8e6c9,stroke:#388e3c,stroke-width:2px,color:#000
+    classDef monitor fill:#f8bbd0,stroke:#c2185b,stroke-width:2px,color:#000
+    classDef source fill:#eeeeee,stroke:#616161,stroke-width:2px,color:#000
+
+    class USER,AUDITOR,ADMIN client
+    class WEBUI ui
+    class MANAGER,CELERY_W,CELERY_B,FLOWER core
+    class SCANNER scanner
+    class WIN,LINUX,S3AG agent
+    class PG,REDIS storage
+    class PROM,GRAF,ALERT monitor
+    class FS,S3SRC,AD source

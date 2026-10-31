@@ -1,0 +1,111 @@
+# DCAP System — production overrides (День 38)
+# Использование:
+#   docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+#
+# Лимиты ресурсов, mTLS, репликация celery worker.
+
+services:
+  manager:
+    environment:
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      MTLS_ENABLED: "true"
+    volumes:
+      - ./certs/manager:/app/certs/manager:ro
+      - ./certs/ca:/app/certs/ca:ro
+      - ./certs/crl:/app/certs/crl:ro
+    deploy:
+      resources:
+        limits:
+          cpus: '2'
+          memory: 2G
+        reservations:
+          cpus: '1'
+          memory: 1G
+
+  webui:
+    deploy:
+      resources:
+        limits:
+          cpus: '1'
+          memory: 512M
+
+  postgres:
+    deploy:
+      resources:
+        limits:
+          cpus: '4'
+          memory: 4G
+    environment:
+      POSTGRES_INITDB_ARGS: "--data-checksums"
+
+  redis:
+    deploy:
+      resources:
+        limits:
+          cpus: '1'
+          memory: 1G
+    command: redis-server --requirepass ${REDIS_PASSWORD} --appendonly yes --maxmemory 512mb --maxmemory-policy allkeys-lru
+
+  celery_worker:
+    deploy:
+      replicas: 2
+      resources:
+        limits:
+          cpus: '2'
+          memory: 2G
+
+  prometheus:
+    deploy:
+      resources:
+        limits:
+          cpus: '1'
+          memory: 512M
+
+  grafana:
+    deploy:
+      resources:
+        limits:
+          cpus: '1'
+          memory: 512M
+
+  alertmanager:
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 256M
+
+  postgres_exporter:
+    deploy:
+      resources:
+        limits:
+          cpus: '0.25'
+          memory: 128M
+
+  redis_exporter:
+    deploy:
+      resources:
+        limits:
+          cpus: '0.25'
+          memory: 128M
+
+  celery_exporter:
+    deploy:
+      resources:
+        limits:
+          cpus: '0.25'
+          memory: 128M
+
+  s3_agent:
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 256M
+
+  audit_agent_linux:
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 256M

@@ -1,0 +1,60 @@
+# DCAP System — корневой .dockerignore.
+# Применяется при сборке с контекстом «корень репо» (manager/webui/s3-агент).
+
+# Git и IDE
+.git/
+.gitignore
+.vscode/
+.idea/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+*.egg-info/
+
+# Окружение и секреты
+.env
+.env.*
+!.env.example
+venv/
+.venv/
+secrets/
+*.pem
+*.crt
+*.key
+*.csr
+
+# БД, данные, логи, состояние (тома монтируются из compose)
+*.db
+*.sqlite
+*.sqlite3
+data/
+logs/
+*.log
+temp/
+*.pid
+state*.json
+*.jsonl
+
+# Тесты и документация (не входят в образ)
+tests/
+prompts/
+docs/
+*.md
+!README.md
+!docs/deployment.md
+
+# Runtime-каталоги агентов
+audit-agent-windows/data/
+audit-agent-linux/data/
+audit-agent-s3/data/
+manager/data/
+webui/data/
+scanner/data/
+test_files/

@@ -1,0 +1,46 @@
+{% extends "base.html" %}
+{% block title %}DCAP — Роли{% endblock %}
+{% block content %}
+<h2 class="mb-4"><i class="fas fa-lock text-primary"></i> Роли</h2>
+<p class="text-muted small mb-3">Роли определяют доступ к разделам WebUI. Системные роли изменить или удалить нельзя.</p>
+<button class="btn btn-primary mb-3" disabled title="Доступно в v3.1.0 (BACKLOG-258)"><i class="fas fa-plus"></i> Создать роль</button>
+
+<div class="table-wrapper">
+    <div class="table-responsive">
+        <table class="table table-sm">
+            <thead><tr><th>Название</th><th>Описание</th><th>AD-группа</th><th>Активных пользователей</th><th></th></tr></thead>
+            <tbody id="rolesTableBody"><tr><td colspan="5" class="text-center text-muted">Загрузка...</td></tr></tbody>
+        </table>
+    </div>
+</div>
+
+<div class="modal" id="roleModal">
+    <div class="modal-content">
+        <div class="modal-header"><h3 id="roleModalTitle">Создание роли</h3><button class="btn btn-sm" onclick="closeModal('roleModal')">&times;</button></div>
+        <form id="roleForm" onsubmit="event.preventDefault(); saveRole();">
+            <div class="modal-body">
+                <input type="hidden" id="roleId">
+                <div class="mb-3"><label class="form-label">Название *</label><input type="text" id="roleName" class="form-control" required maxlength="50" placeholder="Например: security_operator"></div>
+                <div class="mb-3"><label class="form-label">Описание</label><input type="text" id="roleDescription" class="form-control" maxlength="200" placeholder="Кратко о назначении роли"></div>
+                <div class="mb-3">
+                    <label class="form-label">Связь с AD-группой</label>
+                    <input type="text" id="roleAdGroup" class="form-control" placeholder="Например: DCAP_Operators">
+                    <small class="text-muted" id="roleAdGroupHint">Пользователи этой AD-группы получат роль при входе через Windows Integrated Auth.</small>
+                </div>
+                <div id="roleSystemNote" class="alert alert-info small" style="display:none;">
+                    Системная роль: название и AD-группу изменить нельзя, доступно только описание.
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-outline-danger me-auto" id="roleDeleteBtn" style="display:none" onclick="deleteRoleFromModal()"><i class="fas fa-trash me-1"></i>Удалить</button>
+                <button type="button" class="btn btn-outline-secondary" onclick="closeModal('roleModal')">Отмена</button>
+                <button type="submit" class="btn btn-primary">Сохранить</button>
+            </div>
+        </form>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="/static/js/roles.js"></script>
+{% endblock %}

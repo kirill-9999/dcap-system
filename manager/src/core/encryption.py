@@ -1,0 +1,300 @@
+"""Шифрование и маскирование находок.
+
+- AES-256-GCM для зашифрованного хранения.
+- HMAC-SHA256 для fingerprint (защита от brute-force).
+- Маскирование по категориям.
+"""
+import os
+import re
+import hmac
+import hashlib
+import base64
+import logging
+from typing import Optional
+
+from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+
+logger = logging.getLogger(__name__)
+
+
+# ========== КЛЮЧИ ==========
+
+def _maybe_b64decode(data: bytes) -> bytes:
+    """Декодирует base64-ключ (скрипт generate_findings_keys.py) или оставляет raw."""
+    stripped = data.strip()
+    if len(stripped) == 32:
+        return stripped
+    try:
+        decoded = base64.b64decode(stripped, validate=True)
+        if decoded:
+            return decoded
+    except Exception:
+        pass
+    return stripped
+
+
+def _read_env(name: str, default: Optional[bytes] = None) -> bytes:
+    """Читает секрет из ENV (только)."""
+    env_val = os.getenv(name)
+    if env_val:
+        return env_val.encode()
+    if default is not None:
+        return default
+    raise RuntimeError(
+        f"ENV '{name}' not set. See docs/admin-guide/05-security.md."
+    )
+
+
+# ========== МАСКИРОВАНИЕ ==========
+
+def _mask_email(s: str) -> str:
+    """Маскирует email целиком (BUG-044): local и domain.
+
+    us***@ex***.com — первые 2 символа local-part и первого label домена,
+    остальное — маска; TLD остаётся видимым.
+    """
+
+    def repl(m):
+        local = m.group(1)
+        domain = m.group(2)
+        tld = m.group(3)
+        local_out = (local[:2] + "***") if len(local) >= 2 else "***"
+        domain_out = (domain[:2] + "***") if len(domain) >= 2 else "***"
+        return f"{local_out}@{domain_out}.{tld}"
+
+    return re.sub(r"([\w.+-]+)@([\w.-]+)\.([A-Za-z]{2,})", repl, s)
+
+
+def _mask_database_url(s: str) -> str:
+    """Маскирует database_url (scheme://***@host)."""
+    return re.sub(
+        r"(?P<scheme>[a-z][a-z0-9+.-]*)://[^@]+@(?P<host>[^/]+)",
+        r"\g<scheme>://***@\g<host>",
+        s,
+        flags=re.IGNORECASE,
+    )
+
+
+MASK_RULES = {
+    "phone": lambda s: _mask_phone(s),
+    "email": _mask_email,
+    "api_key": lambda s: (s[:4] + "***") if len(s) > 4 else "***",
+    "aws_key": lambda s: (s[:4] + "***") if len(s) > 4 else "***",
+    "password": lambda s: "***",
+    "token": lambda s: (s[:6] + "***") if len(s) > 6 else "***",
+    "passport": lambda s: (s[:2] + "** ******") if len(s) >= 2 else "***",
+    "snils": lambda s: "***-***-*** **",
+    "inn": lambda s: (s[:2] + "**********") if len(s) >= 2 else "***",
+    "credit_card": lambda s: "**** **** **** " + s[-4:] if len(s) >= 4 else "***",
+    "jwt_token": lambda s: (s[:8] + "***") if len(s) > 8 else "***",
+    "ssh_key": lambda s: "***ssh-private-key***",
+    "github_token": lambda s: (s[:4] + "***") if len(s) > 4 else "***",
+    "slack_token": lambda s: (s[:4] + "***") if len(s) > 4 else "***",
+    "discord_token": lambda s: (s[:6] + "***") if len(s) > 6 else "***",
+    "database_url": lambda s: _mask_database_url(s),
+    "basic_auth": lambda s: "Basic ***",
+    "high_entropy": lambda s: (s[:6] + "***") if len(s) > 6 else "***",
+    "person": lambda s: s,
+}
+
+
+
+def _mask_phone(s: str) -> str:
+    """Маскирует телефон (11 цифр: +7XXXXXXXXXX → +7***XXX-XX-XX)."""
+    digits = re.sub(r"\D", "", s)
+    if len(digits) == 11 and digits.startswith("7"):
+        return "+7***" + digits[4:7] + "-" + digits[7:9] + "-" + digits[9:11]
+    if len(digits) >= 10:
+        # Возвращаем первые 2 и последние 3, остальное — маска
+        return digits[:2] + "***" + digits[-3:]
+    return "***"
+
+
+def mask(value: str, category: str) -> str:
+    """Маскирует значение по категории."""
+    if not value:
+        return value
+    fn = MASK_RULES.get(category)
+    if fn is None:
+        # По умолчанию — полная маска
+        return "***"
+    try:
+        return fn(value)
+    except Exception as e:
+        logger.warning("Mask failed for category=%s: %s", category, e)
+        return "***"
+
+
+def mask_line(line: str, matches: list) -> str:
+    """
+    Маскирует строку по списку совпадений.
+
+    matches: [(start, end, category), ...]
+    """
+    if not matches:
+        return line
+
+    # Сортируем по убыванию start (чтобы не сбить индексы)
+    sorted_matches = sorted(matches, key=lambda m: m[0], reverse=True)
+
+    result = line
+    for start, end, category in sorted_matches:
+        original = result[start:end]
+        masked = mask(original, category)
+        result = result[:start] + masked + result[end:]
+
+    return result
+
+
+_CONTEXT_PATTERNS = [
+    (re.compile(r"gh[pousr]_[A-Za-z0-9]{20,}"), "github_token"),
+    (re.compile(r"github_pat_[A-Za-z0-9_]{20,}"), "github_token"),
+    (re.compile(r"xox[baprs]-[A-Za-z0-9-]{10,}"), "slack_token"),
+    (re.compile(r"AKIA[0-9A-Z]{16}"), "aws_key"),
+    (re.compile(r"sk_(?:live_|test_)?[A-Za-z0-9]{16,}"), "api_key"),
+    (re.compile(r"[MN][A-Za-z\d]{23}\.[\w-]{6}\.[\w-]{27}"), "discord_token"),
+    (re.compile(r"eyJ[A-Za-z0-9_-]+\.eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+"), "jwt_token"),
+    (re.compile(r"-----BEGIN [A-Z ]+PRIVATE KEY-----[\s\S]+?-----END [A-Z ]+PRIVATE KEY-----"), "ssh_key"),
+    (re.compile(r"Basic [A-Za-z0-9+/=]{8,}"), "basic_auth"),
+    (re.compile(r"[a-z][a-z0-9+.-]*://[^@\s]+@[^/\s]+", re.IGNORECASE), "database_url"),
+    (re.compile(r"(?i)\b(password|passwd|pwd)\s*[=:]\s*(\S+)"), "password"),
+    (re.compile(r"(?i)\b(api[_-]?key)\s*[=:]\s*(\S+)"), "api_key"),
+    (re.compile(r"(?i)\b(token|secret|access[_-]?key)\s*[=:]\s*(\S+)"), "token"),
+    (re.compile(r"[\w.+-]+@[\w.-]+\.[A-Za-z]{2,}"), "email"),
+    (re.compile(r"\+7\d{10}"), "phone"),
+    (re.compile(r"\+1\d{10}"), "phone"),
+    (re.compile(r"\+\d{1,3}[\s-]?\d{6,14}"), "phone"),
+    (re.compile(r"\b\d{4}\s?\d{6}\b"), "passport"),
+    (re.compile(r"\b\d{3}-\d{3}-\d{3}\s?\d{2}\b"), "snils"),
+    (re.compile(r"\b\d{12}\b"), "inn"),
+    (re.compile(r"\b(?:\d[ -]*?){13,16}\b"), "credit_card"),
+]
+
+
+def mask_context(text: str) -> str:
+    """
+    BUG-117: Manager сам маскирует контекст (context_before/context_after).
+
+    Применяет _CONTEXT_PATTERNS (22 паттерна, specific → generic),
+    сохраняя маркер категории (GITHUB_TOKEN=ghp_***, а не GITHUB_TOKEN=***).
+    """
+    if not text:
+        return text
+    result = text
+    for pattern, category in _CONTEXT_PATTERNS:
+        def repl(m, cat=category):
+            if m.lastindex and m.lastindex >= 2:
+                marker = m.group(1)
+                value = m.group(2)
+                if "***" in value:
+                    return m.group(0)
+                return f"{marker}={mask(value, cat)}"
+            matched = m.group(0)
+            if "***" in matched:
+                return matched
+            return mask(matched, cat)
+        result = pattern.sub(repl, result)
+    return result
+# ========== ШИФРОВАНИЕ ==========
+
+class FindingEncryption:
+    """
+    AES-256-GCM для находок + HMAC-fingerprint.
+
+    Ключи — только ENV (base64, генерируются scripts/generate_findings_keys.py):
+      FINDINGS_ENCRYPTION_KEY (32 байта)
+      FINDINGS_HMAC_KEY       (32 байта)
+      FINDINGS_KEY_ID         (строка, напр. "key-2026-09")
+    """
+
+    def __init__(self, key: bytes, hmac_key: bytes, key_id: str):
+        if len(key) != 32:
+            raise ValueError(f"Encryption key must be 32 bytes, got {len(key)}")
+        if len(hmac_key) < 32:
+            raise ValueError(f"HMAC key must be >= 32 bytes, got {len(hmac_key)}")
+
+        self.aes = AESGCM(key)
+        self.hmac_key = hmac_key
+        self.key_id = key_id
+
+    @classmethod
+    def from_env(cls) -> "FindingEncryption":
+        key = _read_env("FINDINGS_ENCRYPTION_KEY")
+        hmac_key = _read_env("FINDINGS_HMAC_KEY")
+        key_id_bytes = _read_env("FINDINGS_KEY_ID", default=b"key-2026-09")
+        key_id = key_id_bytes.decode() if isinstance(key_id_bytes, bytes) else key_id_bytes
+
+        # Ключи, сгенерированные scripts/generate_findings_keys.py, — base64.
+        # Поддерживаем оба формата (raw 32 байта и base64).
+        key = _maybe_b64decode(key)
+        hmac_key = _maybe_b64decode(hmac_key)
+
+        return cls(key=key, hmac_key=hmac_key, key_id=key_id)
+
+    @classmethod
+    def from_env_or_default(cls) -> "FindingEncryption":
+        """
+        Fallback для dev: генерирует ephemeral ключи, если не заданы.
+        В production — ENV обязательны.
+        """
+        if os.getenv("FINDINGS_ENCRYPTION_KEY"):
+            return cls.from_env()
+
+        # Dev: генерируем ephemeral (предупреждение!)
+        logger.warning(
+            "Findings keys not configured! Using ephemeral keys. "
+            "Data encrypted with them will be LOST on restart. "
+            "Set FINDINGS_ENCRYPTION_KEY / FINDINGS_HMAC_KEY env."
+        )
+        return cls(
+            key=os.urandom(32),
+            hmac_key=os.urandom(32),
+            key_id="key-ephemeral",
+        )
+
+    def encrypt(self, plaintext: str) -> str:
+        """Шифрует строку → base64(nonce + ciphertext)."""
+        if not plaintext:
+            return ""
+        nonce = os.urandom(12)
+        ct = self.aes.encrypt(nonce, plaintext.encode("utf-8"), None)
+        return base64.b64encode(nonce + ct).decode("ascii")
+
+    def decrypt(self, ciphertext: str) -> str:
+        """Расшифровывает base64(nonce + ciphertext) → строка."""
+        if not ciphertext:
+            return ""
+        try:
+            data = base64.b64decode(ciphertext)
+            nonce, ct = data[:12], data[12:]
+            return self.aes.decrypt(nonce, ct, None).decode("utf-8")
+        except Exception as e:
+            logger.error("Decryption failed: %s", e)
+            raise ValueError("Decryption failed") from e
+
+    def fingerprint(self, file_path: str, line: int, match: str, category: str) -> str:
+        """
+        HMAC-SHA256 от (file_path, line, match, category).
+        Защита от brute-force по fingerprint.
+        """
+        msg = f"{file_path}|{line}|{match}|{category}".encode("utf-8")
+        return hmac.new(self.hmac_key, msg, hashlib.sha256).hexdigest()
+
+
+# ========== СИНГЛТОН ==========
+
+_encryption_instance: Optional[FindingEncryption] = None
+
+
+def get_encryption() -> FindingEncryption:
+    """Синглтон для доступа к шифрованию."""
+    global _encryption_instance
+    if _encryption_instance is None:
+        _encryption_instance = FindingEncryption.from_env_or_default()
+    return _encryption_instance
+
+
+def reset_encryption():
+    """Сброс синглтона (для тестов)."""
+    global _encryption_instance
+    _encryption_instance = None

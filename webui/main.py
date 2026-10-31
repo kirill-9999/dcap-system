@@ -1,351 +1,151 @@
-from fastapi import FastAPI
+# webui/main.py
+from fastapi import FastAPI, Request
 from fastapi.responses import HTMLResponse, FileResponse
 from fastapi.staticfiles import StaticFiles
+from fastapi.templating import Jinja2Templates
 from fastapi.middleware.cors import CORSMiddleware
 import uvicorn
 import os
 import sys
-import sqlite3
-import traceback
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
-app = FastAPI(title="DCAP WebUI", version="3.0.0")
+from webui.api.routes import router
+from webui.config import WEBUI_HOST, WEBUI_PORT, DEBUG, VERSION
 
+app = FastAPI(title="DCAP WebUI", version=VERSION)
+
+# BUG-126 (53.4e): Content-Security-Policy и базовые security-заголовки.
+# Прагматичный CSP: 'unsafe-inline' для script/style (в шаблонах остаются
+# inline-обработчики onclick/onchange); сами <script>-блоки вынесены в файлы.
+# Строгий CSP без 'unsafe-inline' — в бэклоге.
+CSP_POLICY = (
+    "default-src 'self'; "
+    "script-src 'self' 'unsafe-inline'; "
+    "style-src 'self' 'unsafe-inline'; "
+    "img-src 'self' data:; "
+    "font-src 'self'; "
+    "connect-src 'self'; "
+    "object-src 'none'; "
+    "base-uri 'self'; "
+    "form-action 'self'; "
+    "frame-ancestors 'none'"
+)
+
+
+@app.middleware("http")
+async def security_headers(request: Request, call_next):
+    response = await call_next(request)
+    response.headers["Content-Security-Policy"] = CSP_POLICY
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["X-Frame-Options"] = "DENY"
+    response.headers["Referrer-Policy"] = "same-origin"
+    return response
+
+
+# WebUI проксирует запросы в Manager; JWT в localStorage (не cookies).
+# Production: ограничить CORS_ALLOWED_ORIGINS (BACKLOG-342, v3.1.0).
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=["*"],  # nosemgrep: python.fastapi.security.wildcard-cors.wildcard-cors
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# Путь к БД
-DB_PATH = os.path.join(os.path.dirname(os.path.dirname(__file__)), "manager", "src", "db", "dcap.db")
-print(f"🔍 Путь к БД: {DB_PATH}")
-print(f"✅ БД существует: {os.path.exists(DB_PATH)}")
+BASE_DIR = os.path.dirname(__file__)
+STATIC_DIR = os.path.join(BASE_DIR, "static")
+TEMPLATES_DIR = os.path.join(BASE_DIR, "templates")
 
-# Статические файлы
-static_dir = os.path.join(os.path.dirname(__file__), "static")
-os.makedirs(static_dir, exist_ok=True)
-app.mount("/static", StaticFiles(directory=static_dir), name="static")
+os.makedirs(STATIC_DIR, exist_ok=True)
+app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 
-def get_db():
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
-    return conn
+templates = Jinja2Templates(directory=TEMPLATES_DIR)
 
-# === API ЭНДПОИНТЫ ===
+app.include_router(router)
 
-@app.get("/api/stats")
-async def get_stats():
-    try:
-        conn = get_db()
-        cursor = conn.cursor()
-        
-        total_findings = cursor.execute("SELECT COUNT(*) FROM findings").fetchone()[0] or 0
-        active_scanners = cursor.execute(
-            "SELECT COUNT(*) FROM scanners WHERE last_heartbeat > datetime('now', '-60 seconds')"
-        ).fetchone()[0] or 0
-        pending_tasks = cursor.execute("SELECT COUNT(*) FROM scan_tasks WHERE status = 'PENDING'").fetchone()[0] or 0
-        completed_tasks = cursor.execute("SELECT COUNT(*) FROM scan_tasks WHERE status = 'COMPLETED'").fetchone()[0] or 0
-        failed_tasks = cursor.execute("SELECT COUNT(*) FROM scan_tasks WHERE status = 'FAILED'").fetchone()[0] or 0
-        total_files = cursor.execute("SELECT COALESCE(SUM(files_scanned), 0) FROM scan_tasks").fetchone()[0] or 0
-        
-        findings_by_category = {}
-        rows = cursor.execute("SELECT category, COUNT(*) FROM findings GROUP BY category").fetchall()
-        for row in rows:
-            findings_by_category[row[0]] = row[1]
-        
-        findings_by_scanner = {}
-        rows = cursor.execute(
-            "SELECT scanners.name, COUNT(findings.id) FROM findings LEFT JOIN scanners ON scanners.id = findings.scanner_id GROUP BY scanners.name"
-        ).fetchall()
-        for row in rows:
-            if row[0]:
-                findings_by_scanner[row[0]] = row[1]
-        
-        conn.close()
-        
-        return {
-            "total_findings": total_findings,
-            "active_scanners": active_scanners,
-            "pending_tasks": pending_tasks,
-            "completed_tasks": completed_tasks,
-            "failed_tasks": failed_tasks,
-            "total_files_scanned": total_files,
-            "findings_by_category": findings_by_category,
-            "findings_by_scanner": findings_by_scanner
-        }
-    except Exception as e:
-        return {"error": str(e), "traceback": traceback.format_exc()}
 
-@app.get("/api/findings")
-async def get_findings(limit: int = 50, offset: int = 0, category: str = None, file_path: str = None):
-    try:
-        conn = get_db()
-        cursor = conn.cursor()
-        
-        query = "SELECT * FROM findings"
-        params = []
-        conditions = []
-        
-        if category:
-            conditions.append("category = ?")
-            params.append(category)
-        if file_path:
-            conditions.append("file_path LIKE ?")
-            params.append(f"%{file_path}%")
-        
-        if conditions:
-            query += " WHERE " + " AND ".join(conditions)
-        
-        query += " ORDER BY id DESC LIMIT ? OFFSET ?"
-        params.append(limit)
-        params.append(offset)
-        
-        cursor.execute(query, params)
-        rows = cursor.fetchall()
-        
-        findings = []
-        for row in rows:
-            row_dict = dict(row)
-            findings.append({
-                "id": row_dict.get("id"),
-                "file_path": row_dict.get("file_path") or row_dict.get("path") or "",
-                "classifier_name": row_dict.get("classifier_name") or row_dict.get("classifier") or "",
-                "category": row_dict.get("category") or "",
-                "subcategory": row_dict.get("subcategory") or "",
-                "value": row_dict.get("value") or "",
-                "confidence": float(row_dict.get("confidence") or 0.0),
-                "task_id": row_dict.get("task_id"),
-                "scanner_id": row_dict.get("scanner_id")
-            })
-        
-        conn.close()
-        return findings
-    except Exception as e:
-        return {"error": str(e), "traceback": traceback.format_exc()}
+def render(request: Request, name: str, page: str):
+    return templates.TemplateResponse(request, name, {"page": page})
 
-@app.get("/api/findings/count")
-async def get_findings_count(category: str = None, file_path: str = None):
-    try:
-        conn = get_db()
-        cursor = conn.cursor()
-        
-        query = "SELECT COUNT(*) FROM findings"
-        params = []
-        conditions = []
-        
-        if category:
-            conditions.append("category = ?")
-            params.append(category)
-        if file_path:
-            conditions.append("file_path LIKE ?")
-            params.append(f"%{file_path}%")
-        
-        if conditions:
-            query += " WHERE " + " AND ".join(conditions)
-        
-        count = cursor.execute(query, params).fetchone()[0] or 0
-        conn.close()
-        return {"count": count}
-    except Exception as e:
-        return {"error": str(e)}
 
-@app.get("/api/findings/{finding_id}")
-async def get_finding(finding_id: int):
-    try:
-        conn = get_db()
-        cursor = conn.cursor()
-        
-        cursor.execute("SELECT * FROM findings WHERE id = ?", (finding_id,))
-        row = cursor.fetchone()
-        
-        conn.close()
-        
-        if not row:
-            return {"error": "Finding not found"}
-        
-        row_dict = dict(row)
-        return {
-            "finding": {
-                "id": row_dict.get("id"),
-                "file_path": row_dict.get("file_path") or row_dict.get("path") or "",
-                "classifier_name": row_dict.get("classifier_name") or row_dict.get("classifier") or "",
-                "category": row_dict.get("category") or "",
-                "subcategory": row_dict.get("subcategory") or "",
-                "value": row_dict.get("value") or "",
-                "confidence": float(row_dict.get("confidence") or 0.0),
-                "task_id": row_dict.get("task_id"),
-                "scanner_id": row_dict.get("scanner_id")
-            }
-        }
-    except Exception as e:
-        return {"error": str(e)}
+@app.get("/", response_class=HTMLResponse)
+async def page_dashboard(request: Request):
+    return render(request, "dashboard.html", "Дашборд")
 
-@app.get("/api/tasks")
-async def get_tasks(limit: int = 50, status: str = None):
-    try:
-        conn = get_db()
-        cursor = conn.cursor()
-        
-        query = "SELECT * FROM scan_tasks"
-        params = []
-        
-        if status:
-            query += " WHERE status = ?"
-            params.append(status)
-        
-        query += " ORDER BY created_at DESC LIMIT ?"
-        params.append(limit)
-        
-        cursor.execute(query, params)
-        rows = cursor.fetchall()
-        
-        tasks = []
-        for row in rows:
-            row_dict = dict(row)
-            tasks.append({
-                "id": row_dict.get("id"),
-                "resource_id": row_dict.get("resource_id"),
-                "scanner_id": row_dict.get("scanner_id"),
-                "status": row_dict.get("status") or "",
-                "files_scanned": row_dict.get("files_scanned") or 0,
-                "findings_count": row_dict.get("findings_count") or 0,
-                "created_at": row_dict.get("created_at"),
-                "started_at": row_dict.get("started_at"),
-                "completed_at": row_dict.get("completed_at")
-            })
-        
-        conn.close()
-        return tasks
-    except Exception as e:
-        return {"error": str(e), "traceback": traceback.format_exc()}
 
-@app.get("/api/tasks/{task_id}")
-async def get_task(task_id: int):
-    try:
-        conn = get_db()
-        cursor = conn.cursor()
-        
-        cursor.execute("SELECT * FROM scan_tasks WHERE id = ?", (task_id,))
-        row = cursor.fetchone()
-        
-        if not row:
-            conn.close()
-            return {"error": "Task not found"}
-        
-        row_dict = dict(row)
-        task = {
-            "task": {
-                "id": row_dict.get("id"),
-                "resource_id": row_dict.get("resource_id"),
-                "scanner_id": row_dict.get("scanner_id"),
-                "status": row_dict.get("status") or "",
-                "files_scanned": row_dict.get("files_scanned") or 0,
-                "findings_count": row_dict.get("findings_count") or 0,
-                "created_at": row_dict.get("created_at"),
-                "started_at": row_dict.get("started_at"),
-                "completed_at": row_dict.get("completed_at")
-            }
-        }
-        
-        cursor.execute("SELECT * FROM findings WHERE task_id = ? LIMIT 100", (task_id,))
-        findings_rows = cursor.fetchall()
-        
-        findings = []
-        for row in findings_rows:
-            row_dict = dict(row)
-            findings.append({
-                "id": row_dict.get("id"),
-                "file_path": row_dict.get("file_path") or row_dict.get("path") or "",
-                "classifier_name": row_dict.get("classifier_name") or row_dict.get("classifier") or "",
-                "category": row_dict.get("category") or "",
-                "subcategory": row_dict.get("subcategory") or "",
-                "value": row_dict.get("value") or "",
-                "confidence": float(row_dict.get("confidence") or 0.0),
-                "task_id": row_dict.get("task_id"),
-                "scanner_id": row_dict.get("scanner_id")
-            })
-        task["findings"] = findings
-        
-        conn.close()
-        return task
-    except Exception as e:
-        return {"error": str(e)}
+@app.get("/catalog", response_class=HTMLResponse)
+async def page_catalog(request: Request):
+    return render(request, "catalog.html", "Каталог")
 
-@app.get("/api/scanners")
-async def get_scanners():
-    try:
-        conn = get_db()
-        cursor = conn.cursor()
-        
-        cursor.execute("SELECT * FROM scanners ORDER BY id")
-        rows = cursor.fetchall()
-        
-        scanners = []
-        for row in rows:
-            row_dict = dict(row)
-            scanners.append({
-                "id": row_dict.get("id"),
-                "name": row_dict.get("name") or "",
-                "endpoint": row_dict.get("endpoint") or "",
-                "status": row_dict.get("status") or "",
-                "last_heartbeat": row_dict.get("last_heartbeat"),
-                "total_files_scanned": row_dict.get("total_files_scanned") or 0,
-                "total_findings": row_dict.get("total_findings") or 0
-            })
-        
-        conn.close()
-        return scanners
-    except Exception as e:
-        return {"error": str(e)}
 
-@app.get("/api/categories")
-async def get_categories():
-    try:
-        conn = get_db()
-        cursor = conn.cursor()
-        
-        rows = cursor.execute("SELECT DISTINCT category FROM findings ORDER BY category").fetchall()
-        categories = [row[0] for row in rows]
-        
-        conn.close()
-        return categories
-    except Exception as e:
-        return {"error": str(e)}
+@app.get("/findings", response_class=HTMLResponse)
+async def page_findings(request: Request):
+    return render(request, "findings.html", "Находки")
 
-# === СТРАНИЦЫ ===
 
-@app.get("/")
-async def index():
-    return FileResponse(os.path.join(static_dir, "index.html"))
+@app.get("/findings/{finding_id}", response_class=HTMLResponse)
+async def finding_detail_page(request: Request, finding_id: int):
+    return templates.TemplateResponse(
+        request, "finding_detail.html", {"page": "Находки", "finding_id": finding_id}
+    )
 
-@app.get("/findings")
-async def findings():
-    return FileResponse(os.path.join(static_dir, "index.html"))
 
-@app.get("/tasks")
-async def tasks():
-    return FileResponse(os.path.join(static_dir, "index.html"))
+@app.get("/false-positives", response_class=HTMLResponse)
+async def page_false_positives(request: Request):
+    return render(request, "false_positives.html", "Ложные срабатывания")
 
-@app.get("/scanners")
-async def scanners():
-    return FileResponse(os.path.join(static_dir, "index.html"))
+
+@app.get("/resources", response_class=HTMLResponse)
+async def page_resources(request: Request):
+    return render(request, "resources.html", "Ресурсы")
+
+
+@app.get("/audit", response_class=HTMLResponse)
+async def page_audit(request: Request):
+    return render(request, "audit.html", "Аудит")
+
+
+@app.get("/access", response_class=HTMLResponse)
+async def page_access(request: Request):
+    return render(request, "access.html", "Доступ")
+
+
+@app.get("/scanners", response_class=HTMLResponse)
+async def page_scanners(request: Request):
+    return render(request, "scanners.html", "Сканеры")
+
+
+@app.get("/users", response_class=HTMLResponse)
+async def page_users(request: Request):
+    return render(request, "users.html", "Пользователи")
+
+
+@app.get("/roles", response_class=HTMLResponse)
+async def page_roles(request: Request):
+    return render(request, "roles.html", "Роли")
+
+
+@app.get("/settings", response_class=HTMLResponse)
+async def page_settings(request: Request):
+    return render(request, "settings.html", "Настройки")
+
+
+@app.get("/login", response_class=HTMLResponse)
+async def page_login(request: Request):
+    return templates.TemplateResponse(request, "login.html", {"page": "Вход"})
+
+
+@app.get("/health")
+async def health():
+    return {"status": "ok", "version": VERSION}
+
+
+@app.get("/favicon.ico", include_in_schema=False)
+async def favicon():
+    # BUG-104: браузеры по умолчанию запрашивают /favicon.ico с корня.
+    return FileResponse(os.path.join(STATIC_DIR, "favicon", "favicon.ico"))
+
 
 if __name__ == "__main__":
-    print("""
-    ╔══════════════════════════════════════════════╗
-    ║   DCAP WebUI v3.0                          ║
-    ║   http://localhost:8001                    ║
-    ║   Вкладки: Дашборд | Находки | Задания | Сканеры ║
-    ╚══════════════════════════════════════════════╝
-    """)
-    uvicorn.run(
-        "webui.main:app",
-        host="0.0.0.0",
-        port=8001,
-        reload=True,
-        log_level="info"
-    )
+    uvicorn.run(app, host=WEBUI_HOST, port=WEBUI_PORT, reload=DEBUG)

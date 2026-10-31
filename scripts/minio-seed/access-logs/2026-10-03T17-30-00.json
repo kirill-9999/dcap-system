@@ -1,0 +1,3 @@
+﻿[
+  {"eventTime": "2026-10-03T17:30:01Z", "eventName": "GetObject", "userIdentity": {"type": "IAMUser", "principalId": "final-test-user"}, "bucket": {"name": "dcap-audit-logs"}, "object": {"key": "e2e/test-final.txt"}, "source": {"host": "10.0.0.100"}}
+]

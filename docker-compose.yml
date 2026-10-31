@@ -1,53 +1,461 @@
-version: '3.8'
+﻿# DCAP System РІР‚вЂќ Р С—Р С•Р В»Р Р…РЎвЂ№Р в„– РЎРѓРЎвЂљР ВµР С” (Р вЂќР ВµР Р…РЎРЉ 38)
+# Р вЂќР ВµР С—Р В»Р С•Р в„– Р С•Р Т‘Р Р…Р С•Р в„– Р С”Р С•Р СР В°Р Р…Р Т‘Р С•Р в„–: docker compose up -d
+# Production overrides: docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+#
+# Р С’Р С–Р ВµР Р…РЎвЂљРЎвЂ№ (S3/MinIO) Р В·Р В°Р С—РЎС“РЎРѓР С”Р В°РЎР‹РЎвЂљРЎРѓРЎРЏ РЎвЂЎР ВµРЎР‚Р ВµР В· profile: agents
+#   docker compose --profile agents up -d
+#
+# Р РЋР С”Р В°Р Р…Р ВµРЎР‚ Р СњР вЂў Р Р† Docker (Р вЂќР ВµР Р…РЎРЉ 38.5+) РІР‚вЂќ Р С•Р Р… Р В·Р В°Р С—РЎС“РЎРѓР С”Р В°Р ВµРЎвЂљРЎРѓРЎРЏ Р Р…Р В° РЎвЂ¦Р С•РЎРѓРЎвЂљР Вµ РЎвЂЎР ВµРЎР‚Р ВµР В· run_scanner.py:
+#   python run_scanner.py scanner/config/scanner_config.json
+# Р СџРЎР‚Р С‘РЎвЂЎР С‘Р Р…Р В°: Р В·Р В°Р Т‘Р В°Р Р…Р С‘РЎРЏ Р С—РЎР‚Р С‘РЎвЂ¦Р С•Р Т‘РЎРЏРЎвЂљ РЎРѓ Р С—РЎС“РЎвЂљРЎРЏР СР С‘ РЎвЂ¦Р С•РЎРѓРЎвЂљР В° (E:\..., /mnt/...). Docker-Р С”Р С•Р Р…РЎвЂљР ВµР в„–Р Р…Р ВµРЎР‚
+# Р СР С•Р В¶Р ВµРЎвЂљ Р Р†Р С‘Р Т‘Р ВµРЎвЂљРЎРЉ РЎвЂљР С•Р В»РЎРЉР С”Р С• Р В·Р В°РЎР‚Р В°Р Р…Р ВµР Вµ РЎРѓР СР С•Р Р…РЎвЂљР С‘РЎР‚Р С•Р Р†Р В°Р Р…Р Р…РЎвЂ№Р Вµ РЎвЂљР С•Р СР В° Р С‘ Р Р…Р Вµ Р СР С•Р В¶Р ВµРЎвЂљ РЎРѓР В°Р С Р С—РЎР‚Р С‘Р СР С•Р Р…РЎвЂљР С‘РЎР‚Р С•Р Р†Р В°РЎвЂљРЎРЉ
+# Р С—Р В°Р С—Р С”РЎС“ Р С‘Р В· Р В·Р В°Р Т‘Р В°Р Р…Р С‘РЎРЏ. Р СњР В° РЎвЂ¦Р С•РЎРѓРЎвЂљР Вµ РЎРѓР С”Р В°Р Р…Р ВµРЎР‚ Р Р†Р С‘Р Т‘Р С‘РЎвЂљ Р В»РЎР‹Р В±РЎвЂ№Р Вµ Р С—РЎС“РЎвЂљР С‘ Р Р…Р В°Р С—РЎР‚РЎРЏР СРЎС“РЎР‹.
+#
+# Build-Р С”Р С•Р Р…РЎвЂљР ВµР С”РЎРѓРЎвЂљ manager/worker/beat/s3 РІР‚вЂќ Р С™Р С›Р В Р вЂўР СњР В¬ РЎР‚Р ВµР С—Р С• (Р С—Р В°Р С”Р ВµРЎвЂљ shared/ + root requirements.txt).
+
+x-logging: &default-logging
+  driver: "json-file"
+  options:
+    max-size: "100m"
+    max-file: "3"
+
+x-restart: &default-restart
+  restart: unless-stopped
 
 services:
+  # ===== Р вЂР С’Р вЂ”Р С’ Р вЂќР С’Р СњР СњР В«Р Тђ =====
   postgres:
-    image: postgres:15-alpine
+    image: postgres:16-alpine
     container_name: dcap-postgres
     environment:
-      POSTGRES_DB: dcap
-      POSTGRES_USER: dcap
-      POSTGRES_PASSWORD: dcap_dev_2026
-    ports:
-      - "5432:5432"
+      POSTGRES_DB: ${POSTGRES_DB:-dcap}
+      POSTGRES_USER: ${POSTGRES_USER:-dcap}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-dcap123}
     volumes:
       - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U dcap -d dcap"]
-      interval: 5s
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-dcap}"]
+      interval: 10s
       timeout: 5s
       retries: 5
+    <<: *default-restart
+    logging: *default-logging
     networks:
       - dcap-network
-    restart: unless-stopped
 
+  # ===== REDIS =====
+  redis:
+    image: redis:7-alpine
+    container_name: dcap-redis
+    command: redis-server --requirepass ${REDIS_PASSWORD:-redis123} --appendonly yes
+    volumes:
+      - redis_data:/data
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "--raw", "incr", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    <<: *default-restart
+    logging: *default-logging
+    networks:
+      - dcap-network
+
+  # ===== MANAGER =====
   manager:
     build:
       context: .
       dockerfile: manager/Dockerfile
+    image: dcap/manager:${VERSION:-3.0.0}
+    cap_drop:
+      - ALL
     container_name: dcap-manager
     environment:
-      DATABASE_URL: postgresql://dcap:dcap_dev_2026@postgres:5432/dcap
-      GRPC_PORT: 50051
-      LOG_LEVEL: DEBUG
-      PYTHONUNBUFFERED: 1
-    ports:
-      - "50051:50051"
+      DATABASE_URL: postgresql://${POSTGRES_USER:-dcap}:${POSTGRES_PASSWORD:-dcap123}@postgres:5432/${POSTGRES_DB:-dcap}
+      REDIS_URL: redis://:${REDIS_PASSWORD:-redis123}@redis:6379/0
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-redis123}
+      JWT_SECRET_KEY: ${JWT_SECRET_KEY:-change-me-in-production}
+      # Р РµР¶РёРј Р°СѓС‚РµРЅС‚РёС„РёРєР°С†РёРё: local | windows | hybrid. Р’ hybrid Manager РѕС‚РґР°С‘С‚
+      # 401 СЃ WWW-Authenticate: Negotiate в†’ Р±СЂР°СѓР·РµСЂ РїРѕРєР°Р·С‹РІР°РµС‚ СЃРёСЃС‚РµРјРЅРѕРµ РѕРєРЅРѕ
+      # Р»РѕРіРёРЅР° Windows. Р‘РµСЂС‘Рј Р·РЅР°С‡РµРЅРёРµ РёР· .env (РїРѕ СѓРјРѕР»С‡Р°РЅРёСЋ local).
+      AUTH_MODE: ${AUTH_MODE:-local}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      VERSION: ${VERSION:-3.0.0}
+      # РљР»СЋС‡Рё Findings вЂ” С‚РѕР»СЊРєРѕ ENV (TASK-018; РґР»СЏ dev fallback РѕС‚РєР»СЋС‡С‘РЅ)
+      FINDINGS_ENCRYPTION_KEY: ${FINDINGS_ENCRYPTION_KEY}
+      FINDINGS_HMAC_KEY: ${FINDINGS_HMAC_KEY}
+      FINDINGS_KEY_ID: ${FINDINGS_KEY_ID:-key-2026-09}
+      # BACKLOG-086 (TASK-046/050, v3.13.19): РІСЃС‚СЂР°РёРІР°РЅРёРµ OCR-С„СЂР°РіРјРµРЅС‚РѕРІ
+      MAX_FRAGMENT_EMBED_SIZE: ${MAX_FRAGMENT_EMBED_SIZE:-2097152}
+      MAX_BATCH_SIZE_BYTES: ${MAX_BATCH_SIZE_BYTES:-20971520}
     volumes:
-      # Windows пути: ./manager → /app, ./shared → /shared
-      - ./manager:/app
-      - ./shared:/shared
+      - ./manager/config:/app/config:ro
+      # BUG-105 (v3.13.28): PKI Р»РµР¶РёС‚ РІ ./certs (РіРµРЅРµСЂРёСЂСѓРµС‚СЃСЏ scripts/generate_certs.py).
+      # Р Р°РЅСЊС€Рµ РјРѕРЅС‚РёСЂРѕРІР°Р»СЃСЏ РїСѓСЃС‚РѕР№ ./manager/certs вЂ” CertificateManager РЅРµ РЅР°С…РѕРґРёР»
+      # СЃРµСЂС‚РёС„РёРєР°С‚С‹, mTLS С‚РёС…Рѕ РІС‹РєР»СЋС‡Р°Р»СЃСЏ РґР°Р¶Рµ РїСЂРё mtls_enabled=true.
+      - ./certs:/app/certs:ro
+      - manager_data:/app/data
+      - manager_logs:/app/logs
+    ports:
+      - "${MANAGER_PORT:-8000}:8000"
     depends_on:
       postgres:
         condition: service_healthy
+      redis:
+        condition: service_healthy
+    <<: *default-restart
+    logging: *default-logging
     networks:
       - dcap-network
-    restart: unless-stopped
+
+  # ===== CELERY WORKER =====
+  celery_worker:
+    build:
+      context: .
+      dockerfile: manager/Dockerfile
+    image: dcap/manager:${VERSION:-3.0.0}
+    cap_drop:
+      - ALL
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-dcap}:${POSTGRES_PASSWORD:-dcap123}@postgres:5432/${POSTGRES_DB:-dcap}
+      REDIS_URL: redis://:${REDIS_PASSWORD:-redis123}@redis:6379/0
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-redis123}
+      JWT_SECRET_KEY: ${JWT_SECRET_KEY:-change-me-in-production}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      VERSION: ${VERSION:-3.0.0}
+    command: celery -A manager.src.workers.celery_app:app worker -Q audit_events,scanner_tasks,retention,reports -c 4 --loglevel=info
+    healthcheck: # celery-worker: Р Р…Р Вµ HTTP-РЎРѓР ВµРЎР‚Р Р†Р ВµРЎР‚, Р С—Р С•РЎРЊРЎвЂљР С•Р СРЎС“ Р СњР вЂў Р Р…Р В°РЎРѓР В»Р ВµР Т‘РЎС“Р ВµР С HEALTHCHECK manager/Dockerfile (curl :8000/api/health)
+      test: ["CMD-SHELL", "celery -A manager.src.workers.celery_app:app inspect ping --timeout=10 || exit 1"]
+      interval: 30s
+      timeout: 15s
+      start_period: 20s
+      retries: 3
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    <<: *default-restart
+    logging: *default-logging
+    networks:
+      - dcap-network
+
+  # ===== CELERY BEAT =====
+  celery_beat:
+    build:
+      context: .
+      dockerfile: manager/Dockerfile
+    image: dcap/manager:${VERSION:-3.0.0}
+    cap_drop:
+      - ALL
+    container_name: dcap-celery-beat
+    environment:
+      REDIS_URL: redis://:${REDIS_PASSWORD:-redis123}@redis:6379/0
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-redis123}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      VERSION: ${VERSION:-3.0.0}
+    command: celery -A manager.src.workers.celery_app:app beat --loglevel=info
+    healthcheck:
+      # celery beat РІР‚вЂќ Р С—Р В»Р В°Р Р…Р С‘РЎР‚Р С•Р Р†РЎвЂ°Р С‘Р С”, Р В° Р Р…Р Вµ HTTP-РЎРѓР ВµРЎР‚Р Р†Р ВµРЎР‚: Р С—РЎР‚Р С•Р Р†Р ВµРЎР‚РЎРЏР ВµР С Р В±РЎР‚Р С•Р С”Р ВµРЎР‚ (redis) РЎвЂЎР ВµРЎР‚Р ВµР В· python socket.
+      test:
+        - "CMD-SHELL"
+        - python3 -c "import socket;s=socket.create_connection(('redis',6379),timeout=5);s.sendall(b'PING\r\n');print(s.recv(1024).decode());s.close()" | grep -qE "PONG|NOAUTH" || exit 1
+      interval: 30s
+      timeout: 10s
+      start_period: 15s
+      retries: 3
+    depends_on:
+      - redis
+    <<: *default-restart
+    logging: *default-logging
+    networks:
+      - dcap-network
+
+  # ===== FLOWER =====
+  celery_flower:
+    image: mher/flower:latest
+    container_name: dcap-flower
+    environment:
+      CELERY_BROKER_URL: redis://:${REDIS_PASSWORD:-redis123}@redis:6379/0
+      FLOWER_PORT: 5555
+    ports:
+      - "${FLOWER_PORT:-5555}:5555"
+    depends_on:
+      - redis
+    <<: *default-restart
+    logging: *default-logging
+    networks:
+      - dcap-network
+
+  # ===== WEBUI =====
+  webui:
+    build:
+      context: ./webui
+      dockerfile: Dockerfile
+    image: dcap/webui:${VERSION:-3.0.0}
+    cap_drop:
+      - ALL
+    container_name: dcap-webui
+    environment:
+      MANAGER_URL: http://manager:8000
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      VERSION: ${VERSION:-3.0.0}
+    ports:
+      - "${WEBUI_PORT:-8001}:8001"
+    depends_on:
+      manager:
+        condition: service_healthy
+    <<: *default-restart
+    logging: *default-logging
+    networks:
+      - dcap-network
+
+  # ===== S3 AGENT (MinIO/S3) =====
+  s3_agent:
+    build:
+      context: .
+      dockerfile: audit-agent-s3/Dockerfile
+    image: dcap/s3-agent:${VERSION:-3.0.0}
+    container_name: dcap-s3-agent
+    environment:
+      S3_ENDPOINT: ${S3_ENDPOINT:-https://s3.amazonaws.com}
+      S3_BUCKET: ${S3_BUCKET:-dcap-logs}
+      S3_PREFIX: ${S3_PREFIX:-access-logs/}
+      S3_ACCESS_KEY: ${S3_ACCESS_KEY}
+      S3_SECRET_KEY: ${S3_SECRET_KEY}
+      S3_POLL_INTERVAL: ${S3_POLL_INTERVAL:-60}
+      S3_MAX_FILES_PER_POLL: ${S3_MAX_FILES_PER_POLL:-100}
+      # РџР°СЂР°РјРµС‚СЂС‹, РЅР° РєРѕС‚РѕСЂС‹Рµ СЃСЃС‹Р»Р°РµС‚СЃСЏ config/config.json: Р±РµР· РїСЂРѕР±СЂРѕСЃР° Р°РіРµРЅС‚
+      # РјРѕР»С‡Р° Р±СЂР°Р» РґРµС„РѕР»С‚С‹ (S3_VERIFY_SSL=true, MAX_ERROR_DELAY=300) Рё Р·РЅР°С‡РµРЅРёСЏ
+      # РёР· .env РЅРµ РІР»РёСЏР»Рё РЅР° РїРѕРІРµРґРµРЅРёРµ. РЎРј. Р‘Р»РѕРє 6.3, С„РёРєСЃ BUG-120.
+      S3_VERIFY_SSL: ${S3_VERIFY_SSL:-true}
+      S3_SOURCE_TYPE: ${S3_SOURCE_TYPE:-s3}
+      MAX_ERROR_DELAY: ${MAX_ERROR_DELAY:-300}
+      MANAGER_URL: http://manager:8000
+      MANAGER_TIMEOUT: ${MANAGER_TIMEOUT:-30}
+      MANAGER_MAX_RETRIES: ${MANAGER_MAX_RETRIES:-3}
+      MANAGER_RETRY_DELAY: ${MANAGER_RETRY_DELAY:-5}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      VERSION: ${VERSION:-3.0.0}
+    volumes:
+      - s3_agent_data:/app/audit-agent-s3/data
+      - s3_agent_logs:/app/audit-agent-s3/logs
+    depends_on:
+      manager:
+        condition: service_healthy
+    profiles:
+      - agents
+    <<: *default-restart
+    logging: *default-logging
+    networks:
+      - dcap-network
+
+  # ===== LINUX AGENT (Р С—РЎР‚Р С•РЎвЂћР С‘Р В»РЎРЉ agents) =====
+  audit_agent_linux:
+    build:
+      context: audit-agent-linux
+      dockerfile: Dockerfile
+    image: dcap/linux-agent:${VERSION:-3.0.0}
+    container_name: dcap-linux-agent
+    environment:
+      MANAGER_URL: http://manager:8000
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      VERSION: ${VERSION:-3.0.0}
+    volumes:
+      - linux_agent_data:/app/audit-agent-linux/data
+      - linux_agent_logs:/app/audit-agent-linux/logs
+    depends_on:
+      manager:
+        condition: service_healthy
+    profiles:
+      - agents
+    <<: *default-restart
+    logging: *default-logging
+    networks:
+      - dcap-network
+
+  # ===== SAMBA AD DC (РїСЂРѕС„РёР»СЊ ad, Р”РµРЅСЊ 33 + v3.13.8) =====
+  # Р’РєР»СЋС‡Р°РµС‚СЃСЏ РўРћР›Р¬РљРћ СЃ РїСЂРѕС„РёР»РµРј ad:
+  #   docker compose --profile ad up -d
+  # Р‘РµР· РїСЂРѕС„РёР»СЏ РѕСЃРЅРѕРІРЅРѕР№ СЃС‚РµРє РЅРµ Р·Р°С‚СЂРѕРЅСѓС‚ (redis, manager, s3-Р°РіРµРЅС‚ РѕСЃС‚Р°СЋС‚СЃСЏ).
+  samba-ad-dc:
+    image: diegogslomp/samba-ad-dc
+    container_name: dcap-ad-dc
+    privileged: true
+    profiles:
+      - ad
+    environment:
+      REALM: 'SAMDOM.EXAMPLE.COM'
+      DOMAIN: 'SAMDOM'
+      ADMIN_PASS: 'Passw0rd'
+      DNS_FORWARDER: '8.8.8.8'
+    hostname: DC1
+    # РџСЂРѕР±Р»РµРјР° samba-domain-provision: РєРѕРЅС‚РµР№РЅРµСЂ СЃС‚Р°СЂС‚СѓРµС‚ РІ docker-СЃРµС‚Рё, Рё `ip a`
+    # РІ РґРѕРєРµСЂ-РєРѕРЅС‚РµР№РЅРµСЂРµ РѕС‚РґР°С‘С‚ @ifN (РЅР°РїСЂРёРјРµСЂ eth0@if7) РІ smb.conf,
+    # РёР·-Р·Р° С‡РµРіРѕ samba СЃС‚Р°СЂС‚СѓРµС‚ РЅР° loopback (РЅРµРґРѕСЃС‚СѓРїРµРЅ LDAP СЃРЅР°СЂСѓР¶Рё).
+    # Р¤РёРєСЃ: Р·Р°РјРµРЅРёС‚СЊ interfaces РЅР° eth0 РїРѕСЃР»Рµ provisioning.
+    command: ["/bin/bash", "-c", "samba-domain-provision && sed -i 's/eth0@if[0-9]*/eth0/' /usr/local/samba/etc/smb.conf 2>/dev/null || true && samba -F"]
+    ports:
+      # host-С‡Р°СЃС‚СЊ 53/135/139/445 вЂ” РёР·-Р·Р° Windows-РјР°С€РёРЅС‹ СЃ Р·Р°РЅСЏС‚С‹РјРё СЌС‚РёРјРё РїРѕСЂС‚Р°РјРё
+      # (DNS/SMB), РїРѕСЌС‚РѕРјСѓ РёСЃРїРѕР»СЊР·СѓРµРј Р°Р»СЊС‚РµСЂРЅР°С‚РёРІРЅС‹Рµ host-РїРѕСЂС‚С‹.
+      - "1353:53"
+      - "1353:53/udp"
+      - "88:88"
+      - "464:464"
+      - "1135:135"
+      - "1139:139"
+      - "389:389"
+      - "1445:445"
+      - "636:636"
+      - "3268:3268"
+      - "3269:3269"
+    volumes:
+      - samba_data:/var/lib/samba
+      - samba_logs:/var/log/samba
+    networks:
+      dcap-network:
+        aliases:
+          - dcap.local
+          - dc1.dcap.local
+    <<: *default-restart
+    logging: *default-logging
+
+  # ===== MONITORING (Р вЂќР ВµР Р…РЎРЉ 39) =====
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: dcap-prometheus
+    volumes:
+      - ./monitoring/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./monitoring/prometheus/alerts.yml:/etc/prometheus/alerts.yml:ro
+      - prometheus_data:/prometheus
+    ports:
+      - "${PROMETHEUS_PORT:-9090}:9090"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    depends_on:
+      - manager
+    networks:
+      - dcap-network
+    <<: *default-restart
+    logging: *default-logging
+
+  grafana:
+    image: grafana/grafana:latest
+    container_name: dcap-grafana
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_PASSWORD:-admin}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
+    ports:
+      - "${GRAFANA_PORT:-3000}:3000"
+    depends_on:
+      - prometheus
+    networks:
+      - dcap-network
+    <<: *default-restart
+    logging: *default-logging
+
+  alertmanager:
+    image: prom/alertmanager:latest
+    container_name: dcap-alertmanager
+    volumes:
+      - ./monitoring/alertmanager/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
+    ports:
+      - "${ALERTMANAGER_PORT:-9093}:9093"
+    networks:
+      - dcap-network
+    <<: *default-restart
+    logging: *default-logging
+
+  postgres_exporter:
+    image: prometheuscommunity/postgres-exporter:latest
+    container_name: dcap-postgres-exporter
+    environment:
+      DATA_SOURCE_NAME: "postgresql://${POSTGRES_USER:-dcap}:${POSTGRES_PASSWORD:-dcap123}@postgres:5432/${POSTGRES_DB:-dcap}?sslmode=disable"
+    ports:
+      - "${PG_EXPORTER_PORT:-9187}:9187"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - dcap-network
+    # BUG-017.1: healthcheck Р Р€Р вЂќР С’Р вЂєР РѓР Сњ РІР‚вЂќ Р С•Р В±РЎР‚Р В°Р В· prometheuscommunity/postgres-exporter
+    # (distroless: Р Р…Р ВµРЎвЂљ celery/sh/curl), Р В»РЎР‹Р В±Р С•Р в„– healthcheck Р С—Р В°Р Т‘Р В°Р ВµРЎвЂљ РІвЂ вЂ™ Р С”Р С•Р Р…РЎвЂљР ВµР в„–Р Р…Р ВµРЎР‚ unhealthy.
+    <<: *default-restart
+    logging: *default-logging
+
+  redis_exporter:
+    image: oliver006/redis_exporter:latest
+    container_name: dcap-redis-exporter
+    environment:
+      REDIS_ADDR: "redis://redis:6379"
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-redis123}
+    ports:
+      - "${REDIS_EXPORTER_PORT:-9121}:9121"
+    depends_on:
+      redis:
+        condition: service_healthy
+    networks:
+      - dcap-network
+    <<: *default-restart
+    logging: *default-logging
+
+  celery_exporter:
+    image: danihodovic/celery-exporter:latest
+    container_name: dcap-celery-exporter
+    environment:
+      CELERY_BROKER_URL: "redis://:${REDIS_PASSWORD:-redis123}@redis:6379/0"
+    # Р С•Р В±РЎР‚Р В°Р В· danihodovic/celery-exporter Р С—РЎР‚Р С‘Р Р…Р С‘Р СР В°Р ВµРЎвЂљ Р В±РЎР‚Р С•Р С”Р ВµРЎР‚ Р СћР С›Р вЂєР В¬Р С™Р С› CLI-РЎвЂћР В»Р В°Р С–Р С•Р С --broker-url (env Р Р…Р ВµР Т‘Р С•РЎРѓРЎвЂљР В°РЎвЂљР С•РЎвЂЎР Р…Р С•)
+    # ENTRYPOINT Р С•Р В±РЎР‚Р В°Р В·Р В° danihodovic/celery-exporter = "python /app/cli.py" (docker image inspect),
+    # Р С—Р С•РЎРЊРЎвЂљР С•Р СРЎС“ Р С‘Р СРЎРЏ Р В±Р С‘Р Р…Р В°РЎР‚Р Р…Р С‘Р С”Р В° Р Р† command Р СњР вЂў Р С—Р ВµРЎР‚Р ВµР Т‘Р В°РЎвЂР С РІР‚вЂќ РЎвЂљР С•Р В»РЎРЉР С”Р С• РЎвЂћР В»Р В°Р С–Р С‘ (--broker-url).
+    command:
+      - "--broker-url"
+      - "redis://:${REDIS_PASSWORD:-redis123}@redis:6379/0"
+    ports:
+      - "${CELERY_EXPORTER_PORT:-9808}:9808"
+    depends_on:
+      redis:
+        condition: service_healthy
+    networks:
+      - dcap-network
+    <<: *default-restart
+    logging: *default-logging
 
 networks:
   dcap-network:
     driver: bridge
+    name: dcap-network
 
 volumes:
   postgres_data:
-    driver: local
+    name: dcap-postgres-data
+  redis_data:
+    name: dcap-redis-data
+  manager_data:
+    name: dcap-manager-data
+  manager_logs:
+    name: dcap-manager-logs
+  s3_agent_data:
+    name: dcap-s3-agent-data
+  s3_agent_logs:
+    name: dcap-s3-agent-logs
+  linux_agent_data:
+    name: dcap-linux-agent-data
+  linux_agent_logs:
+    name: dcap-linux-agent-logs
+  prometheus_data:
+    name: dcap-prometheus-data
+  grafana_data:
+    name: dcap-grafana-data
+  samba_data:
+    name: dcap-samba-data
+  samba_logs:
+    name: dcap-samba-logs
+

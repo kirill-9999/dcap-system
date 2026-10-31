@@ -1,20 +1,67 @@
-#!/usr/bin/env python3
+﻿#!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
 OCR Worker - отдельный процесс для Tesseract OCR
 """
 
+import logging
 import os
+
+logger = logging.getLogger(__name__)
 import gc
 import time
 import tempfile
 import subprocess
 import hashlib
 from queue import Empty
+import multiprocessing as mp
 from multiprocessing import Queue, Process
+from typing import Dict, Any, Optional
 from pathlib import Path
 from typing import Dict, Optional, Tuple
 from collections import OrderedDict
+from functools import lru_cache
+
+
+@lru_cache(maxsize=1)
+def _find_tesseract_cached() -> str:
+    for env_var in ("TESSERACT_PATH", "TESSERACT_CMD"):
+        env_cmd = os.environ.get(env_var, "")
+        if env_cmd and os.path.exists(env_cmd):
+            return env_cmd
+    possible_paths = [
+        r"D:\dev\Tesseract-OCR\tesseract.exe",
+        r"E:\Program Files\Tesseract-OCR\tesseract.exe",
+        r"C:\Program Files\Tesseract-OCR\tesseract.exe",
+        r"C:\Program Files (x86)\Tesseract-OCR\tesseract.exe",
+    ]
+    for path in possible_paths:
+        if os.path.exists(path):
+            return path
+    try:
+        result = subprocess.run(['where', 'tesseract'], capture_output=True, text=True, encoding='utf-8', errors='replace', timeout=3)
+        if result.returncode == 0 and result.stdout.strip():
+            return result.stdout.strip().split('\n')[0]
+    except Exception:
+        pass
+    return 'tesseract'
+
+
+@lru_cache(maxsize=1)
+def _detect_langs_cached(tesseract_cmd: str) -> str:
+    try:
+        result = subprocess.run([tesseract_cmd, '--list-langs'], capture_output=True, text=True, encoding='utf-8', errors='replace', timeout=5, shell=False)
+        if result.returncode == 0:
+            langs = result.stdout
+            if 'rus' in langs and 'eng' in langs:
+                return 'rus+eng'
+            elif 'rus' in langs:
+                return 'rus'
+            elif 'eng' in langs:
+                return 'eng'
+    except Exception:
+        pass
+    return 'rus+eng'
 
 
 class OCRWorker:
@@ -30,48 +77,61 @@ class OCRWorker:
         self._stats = {"processed": 0, "errors": 0, "cache_hits": 0, "ocr_time": 0.0}
     
     def _find_tesseract(self) -> str:
-        """Поиск tesseract.exe в системе"""
-        env_cmd = os.environ.get("TESSERACT_CMD", "")
-        if env_cmd and os.path.exists(env_cmd):
-            print(f"[OCR_WORKER] Tesseract from env: {env_cmd}")
-            return env_cmd
-        
+        """     tesseract.exe  """
+        try:
+            cmd = _find_tesseract_cached()
+            if cmd and os.path.exists(cmd):
+                logger.debug(f"[OCR_WORKER] Found via cached: {cmd}")
+                return cmd
+        except Exception:
+            pass
+        #     (   )
+        for env_var in ("TESSERACT_PATH", "TESSERACT_CMD"):
+            env_cmd = os.environ.get(env_var, "")
+            if env_cmd and os.path.exists(env_cmd):
+                logger.debug(f"[OCR_WORKER] Tesseract from {env_var}: {env_cmd}")
+                return env_cmd
+
         possible_paths = [
+            r'D:\dev\Tesseract-OCR\tesseract.exe',
             r'E:\Program Files\Tesseract-OCR\tesseract.exe',
             r'C:\Program Files\Tesseract-OCR\tesseract.exe',
             r'C:\Program Files (x86)\Tesseract-OCR\tesseract.exe',
         ]
-        
+
         for path in possible_paths:
             if os.path.exists(path):
-                print(f"[OCR_WORKER] Found Tesseract: {path}")
+                logger.debug(f"[OCR_WORKER] Found Tesseract: {path}")
                 return path
-        
+
         try:
             result = subprocess.run(
                 ['where', 'tesseract'],
                 capture_output=True,
-                text=True,
-                timeout=5,
-                shell=True
+                text=True, encoding="utf-8", errors="replace",
+                timeout=5
             )
             if result.returncode == 0 and result.stdout.strip():
                 path = result.stdout.strip().split('\n')[0]
-                print(f"[OCR_WORKER] Found via 'where': {path}")
+                logger.debug(f"[OCR_WORKER] Found via 'where': {path}")
                 return path
         except:
             pass
-        
-        print(f"[OCR_WORKER] WARNING: Tesseract not found, using 'tesseract' from PATH")
+
+        logger.debug(f"[OCR_WORKER] WARNING: Tesseract not found, using 'tesseract' from PATH")
         return 'tesseract'
     
     def _detect_languages(self) -> str:
         """Определение доступных языков"""
         try:
+            return _detect_langs_cached(self._tesseract_cmd)
+        except Exception:
+            pass
+        try:
             result = subprocess.run(
                 [self._tesseract_cmd, '--list-langs'],
                 capture_output=True,
-                text=True,
+                text=True, encoding="utf-8", errors="replace",
                 timeout=10,
                 shell=False
             )
@@ -84,12 +144,13 @@ class OCRWorker:
                 elif 'eng' in langs:
                     return 'eng'
         except Exception as e:
-            print(f"[OCR_WORKER] Language detection failed: {e}")
+            logger.debug(f"[OCR_WORKER] Language detection failed: {e}")
         return 'rus+eng'
     
     def _get_cache_key(self, image_data: bytes, languages: str, psm: int) -> str:
         """Генерация ключа кэша"""
-        return hashlib.md5(image_data + f"{languages}_{psm}".encode()).hexdigest()
+# MD5 используется как кэш-ключ для OCR temp-файла, НЕ для криптографии (BACKLOG-066).
+        return hashlib.md5(image_data + f"{languages}_{psm}".encode()).hexdigest()  # nosemgrep: python.lang.security.insecure-hash-algorithms-md5.insecure-hash-algorithm-md5
     
     def _add_to_cache(self, key: str, value: str):
         """Добавление в кэш с LRU"""
@@ -127,7 +188,7 @@ class OCRWorker:
             result = subprocess.run(
                 cmd,
                 capture_output=True,
-                text=True,
+                text=True, encoding="utf-8", errors="replace",
                 timeout=timeout,
                 shell=False
             )
@@ -225,12 +286,12 @@ class OCRWorker:
     def run(self, request_queue: Queue, response_queue: Queue, max_cache_size: int = 500):
         """Основной цикл обработки"""
         self._max_cache_size = max_cache_size
-        print(f"[OCR_WORKER] Процесс запущен (PID: {os.getpid()})")
+        logger.debug(f"[OCR_WORKER] Процесс запущен (PID: {os.getpid()})")
         
         self._tesseract_cmd = self._find_tesseract()
         self._languages = self._detect_languages()
-        print(f"[OCR_WORKER] Tesseract: {self._tesseract_cmd}")
-        print(f"[OCR_WORKER] Языки: {self._languages}")
+        logger.debug(f"[OCR_WORKER] Tesseract: {self._tesseract_cmd}")
+        logger.debug(f"[OCR_WORKER] Языки: {self._languages}")
         
         last_gc = time.time()
         last_cleanup = time.time()
@@ -263,7 +324,7 @@ class OCRWorker:
             except KeyboardInterrupt:
                 break
             except Exception as e:
-                print(f"[OCR_WORKER] Error: {e}")
+                logger.debug(f"[OCR_WORKER] Error: {e}")
                 if 'request' in locals():
                     try:
                         response_queue.put({
@@ -275,8 +336,8 @@ class OCRWorker:
                     except:
                         pass
         
-        print(f"[OCR_WORKER] Завершение. Обработано запросов: {self._request_count}")
-        print(f"[OCR_WORKER] Статистика: {self._stats}")
+        logger.debug(f"[OCR_WORKER] Завершение. Обработано запросов: {self._request_count}")
+        logger.debug(f"[OCR_WORKER] Статистика: {self._stats}")
     
     def stop(self):
         self._running = False
@@ -285,6 +346,9 @@ class OCRWorker:
 # Глобальная функция для запуска процесса (должна быть на уровне модуля для pickle)
 def _run_ocr_worker(request_queue: Queue, response_queue: Queue, max_cache_size: int):
     """Целевая функция для процесса"""
+    import signal
+    # Игнорируем Ctrl+C — завершение управляется через очередь родительским процессом
+    signal.signal(signal.SIGINT, signal.SIG_IGN)
     worker = OCRWorker()
     worker.run(request_queue, response_queue, max_cache_size)
 
@@ -292,7 +356,6 @@ def _run_ocr_worker(request_queue: Queue, response_queue: Queue, max_cache_size:
 def start_ocr_worker(models_cache: str = "models", max_cache_size: int = 500) -> Tuple[Process, Queue, Queue]:
     """Запуск OCR рабочего процесса"""
     try:
-        import multiprocessing as mp
         mp.set_start_method('spawn', force=True)
     except RuntimeError:
         pass
@@ -313,15 +376,22 @@ def start_ocr_worker(models_cache: str = "models", max_cache_size: int = 500) ->
 
 
 def stop_ocr_worker(process: Process, request_queue: Queue, response_queue: Queue):
-    """Остановка OCR рабочего процесса"""
+    """Остановка OCR рабочего процесса.
+
+    BUG-081 (TASK-052, v3.13.20): graceful shutdown — сначала штатный выход через
+    None в request_queue (процесс печатает «Завершение. Обработано запросов: N»),
+    затем join(5) → terminate → join(2) → kill.
+    """
     try:
         request_queue.put(None, timeout=1)
-    except:
+    except Exception:
         pass
-    
+
     if process and process.is_alive():
-        process.terminate()
         process.join(timeout=5)
+        if process.is_alive():
+            process.terminate()
+            process.join(timeout=2)
         if process.is_alive():
             process.kill()
 

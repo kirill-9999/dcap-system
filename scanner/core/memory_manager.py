@@ -233,7 +233,7 @@ class MemoryManager:
         system_commit = mem.get("system_commit_percent", 0)
         
         if system_commit > self.emergency_restart_threshold:
-            print(f"[MEMORY] ⚠️ АВАРИЙНЫЙ ПОРОГ! System Commit: {system_commit:.1f}% > {self.emergency_restart_threshold}%")
+            print(f"[MEMORY] [WARN] АВАРИЙНЫЙ ПОРОГ! System Commit: {system_commit:.1f}% > {self.emergency_restart_threshold}%")
             return True
         return False
     

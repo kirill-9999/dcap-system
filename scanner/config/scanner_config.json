@@ -1,0 +1,98 @@
+{
+    "scanner": {
+        "name": "scanner-1",
+        "manager_url": "http://localhost:8000",
+        "scanner_id": null,
+        "scan_interval": 10,
+        "state_dir": "scanner/state",
+        "log_level": "INFO",
+        "progress_report_interval": 5
+    },
+    "performance": {
+        "max_file_size_mb": 500,
+        "cache_cleanup_interval": 10000,
+        "models_reload_after_files": 50000,
+        "memory_limit_rss_mb": 16384,
+        "emergency_restart_threshold": 90,
+        "save_interval": 1000,
+        "catalog_save_interval": 1000,
+        "max_parallel_files": 8,
+        "executor": "process",
+        "max_workers": 4,
+        "chunk_size": 100,
+        "timeout_per_file_sec": 60
+    },
+    "classifiers": {
+        "pii_classifier": {
+            "enabled": true,
+            "min_confidence": 0.3,
+            "ocr_enabled": true,
+            "analyzer_pool_size": 4,
+            "ner_enabled": false,
+            "excluded_entities": ["PERSON", "LOCATION", "ORGANIZATION", "DATE_TIME", "NRP"]
+        },
+        "credentials_classifier": {
+            "enabled": true,
+            "entropy_threshold": 4.5,
+            "min_length": 8,
+            "max_file_size_mb": 50,
+            "strict_filter": true,
+            "confidence_threshold": 0.7,
+            "no_generic": false,
+            "require_mixed": false
+        },
+        "code_classifier": {
+            "enabled": true
+        }
+    },
+    "connector": {
+        "skip_dirs": [
+            "$Recycle.Bin", "System Volume Information", "tmp", "temp", "cache",
+            "__pycache__", "node_modules", "venv", "logs", ".git", "models",
+            "_example", "sample", "template", "examples", "samples", "templates"
+        ],
+        "follow_symlinks": false,
+        "scan_hidden": true,
+        "buffer_size": 1048576,
+        "max_text_chars": 200000,
+        "context_lines": 2,
+        "max_parallel_files": 8,
+        "text_extensions": [
+            "txt", "csv", "log", "json", "yaml", "yml", "xml", "toml", "ini", "cfg", "conf",
+            "env", "envrc", "properties", "py", "js", "ts", "tsx", "jsx", "java", "c", "cpp",
+            "h", "hpp", "go", "rs", "sh", "bash", "zsh", "ps1", "cmd", "bat", "sql", "php",
+            "rb", "pl", "lua", "r", "swift", "kt", "md", "rst", "html", "css", "scss",
+            "dockerfile", "makefile", "tf", "hcl",
+            "pem", "key", "crt", "csr", "cert", "p12", "pfx", "jks",
+            "pdf", "doc", "docx", "xls", "xlsx", "png", "jpg", "jpeg",
+            "gif", "bmp", "tiff", "webp"
+        ],
+        "_comment_s3": "День 53.1b (BACKLOG-097): дефолтный шаблон S3/MinIO-коннектора. Реальные endpoint/bucket/prefix приходят в payload задачи от Manager и перекрывают эти значения. Секреты (access_key/secret_key) НЕ хранятся здесь — только ENV S3_ACCESS_KEY / S3_SECRET_KEY на хосте сканера.",
+        "s3": {
+            "endpoint": "host.docker.internal:9000",
+            "bucket": "",
+            "prefix": "",
+            "secure": false,
+            "use_path_style": true,
+            "region": "us-east-1"
+        }
+    },
+    "logging": {
+        "level": "INFO",
+        "file": "logs/scanner.log",
+        "max_size_mb": 100,
+        "backup_count": 5
+    },
+    "finding_collector": {
+        "max_findings": 10000000,
+        "max_failed_files": 100000
+    },
+    "client": {
+        "timeout": 30,
+        "heartbeat_timeout": 10,
+        "submit_timeout": 60,
+        "cert_path": "",
+        "key_path": "",
+        "ca_path": ""
+    }
+}

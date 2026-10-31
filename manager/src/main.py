@@ -1,214 +1,242 @@
-#!/usr/bin/env python3
-# -*- coding: utf-8 -*-
-"""
-DCAP Manager - Main Entry Point (with REST API)
-"""
-
+﻿# manager/src/main.py
 import os
-import sys
-import asyncio
-import logging
-import platform
-import signal
-from datetime import datetime
-import threading
 
-# Добавляем путь для импорта сгенерированных файлов
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'proto_gen'))
-
-import grpc
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-import uvicorn
+from fastapi.responses import RedirectResponse
+from fastapi import HTTPException
 
-from manager.src.db.session import init_db, close_db, get_session
-from manager.src.services.manager_service import ManagerService
-from manager.src.core.scheduler import SchedulerEngine
-from manager.src.db.models import Scanner, ScannerStatus, ScanTask, TaskStatus, Finding
+from manager.src.api.resources import router as resources_router
+from manager.src.api.tasks import router as tasks_router
+from manager.src.api.findings import router as findings_router
+from manager.src.api.catalog import router as catalog_router
+from manager.src.api.scanner import router as scanner_router
+from manager.src.api.permissions import router as permissions_router
+from manager.src.api.audit import router as audit_router
+from manager.src.api.webui import router as webui_router
+from manager.src.api.retention import router as retention_router
+from manager.src.metrics import metrics_endpoint, MetricsMiddleware
+from manager.src.config import get_config
+from manager.src.auth.manager import AuthManager
+from manager.src.auth.middleware import AuthMiddleware
+from manager.src.auth.router import router as auth_router, set_auth_manager
+from manager.src.core.security import CertificateManager
+from manager.src.db import session
 
-# Импортируем сгенерированный код
-import dcap.manager_pb2_grpc as manager_pb2_grpc
-import dcap.manager_pb2 as manager_pb2
+def get_version() -> str:
+    """Версия Manager: env VERSION → config.json version → default.
 
-# Настройка логирования
-logging.basicConfig(
-    level=logging.DEBUG,
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+    Устраняет BUG-001 (хардкод "3.7.0" в /api/health).
+    """
+    v = os.getenv("VERSION")
+    if v:
+        return v.strip()
+
+    # fallback: из config.json (секция version)
+    try:
+        import json
+
+        from manager.src.config import _base_dir
+
+        cfg_path = _base_dir / "config" / "config.json"
+        if cfg_path.exists():
+            return json.loads(cfg_path.read_text(encoding="utf-8")).get("version", "unknown")
+    except Exception:
+        pass
+    return "unknown"
+
+
+app = FastAPI(
+    title="DCAP System Manager",
+    description="Data-Centric Audit and Protection System",
+    version=get_version(),
 )
-logger = logging.getLogger("dcap-manager")
 
-logger.info(f"Platform: {platform.system()} {platform.release()}")
-logger.info(f"Python: {sys.version}")
-
-# FastAPI приложение
-app = FastAPI(title="DCAP Manager API", version="3.0.0")
+# CORS
+# JWT передаётся в заголовке Authorization (не cookies), поэтому allow_origins=["*"]
+# безопасен для браузера (credentials не отправляются автоматически).
+# Production: ограничить CORS_ALLOWED_ORIGINS (BACKLOG-342, v3.1.0).
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=["*"],  # nosemgrep: python.fastapi.security.wildcard-cors.wildcard-cors
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-_scheduler = None
-_grpc_stub = None
-_grpc_loop = None
+# ============================================================
+# АУТЕНТИФИКАЦИЯ (День 30)
+# ============================================================
+
+_config = get_config()
+_auth_manager = AuthManager(_config)
+set_auth_manager(_auth_manager)
+
+# ============================================================
+# БЕЗОПАСНОСТЬ / mTLS (День 34)
+# ============================================================
+
+_security_config = {
+    "mtls_enabled": _config.get("security", {}).get("mtls_enabled", False),
+    "mtls_strict": _config.get("security", {}).get("mtls_strict", False),
+    "certs_dir": _config.get("security", {}).get("certs_dir", "certs"),
+}
+
+_cert_manager = CertificateManager(_security_config)
+
+if _cert_manager.is_available:
+    import logging
+
+    sec_logger = logging.getLogger("dcap.security")
+    sec_logger.warning("mTLS is active for Manager")
+else:
+    if _security_config["mtls_enabled"]:
+        import logging
+
+        sec_logger = logging.getLogger("dcap.security")
+        sec_logger.warning(
+            "mTLS enabled but certificates missing — server runs on plain HTTP " "(relaxed mode)"
+        )
+
+app.add_middleware(
+    AuthMiddleware,
+    auth_manager=_auth_manager,
+    db_session_factory=session.SessionLocal,
+    cert_manager=_cert_manager,
+)
 
 
-def get_stub():
-    """Получить gRPC stub"""
-    global _grpc_stub, _grpc_loop
-    if _grpc_stub is None:
-        # Создаём stub в текущем loop
-        current_loop = asyncio.get_event_loop()
-        channel = grpc.aio.insecure_channel('localhost:50051')
-        _grpc_stub = manager_pb2_grpc.ManagerStub(channel)
-        _grpc_loop = current_loop
-    return _grpc_stub
+# ============================================================
+# UI
+# Каноничный WebUI — webui/main.py на порту :8001 (python run_webui.py).
+# Manager — чистое API: легаси-статика удалена, корень редиректит на UI.
+# ============================================================
 
 
-@app.get("/health")
+@app.get("/", include_in_schema=False)
+async def root():
+    return RedirectResponse(url="http://localhost:8001")
+
+
+# ============================================================
+# ПОДКЛЮЧЕНИЕ РОУТЕРОВ
+# ============================================================
+
+app.include_router(resources_router)
+app.include_router(tasks_router)
+app.include_router(findings_router)
+app.include_router(catalog_router)
+app.include_router(scanner_router)
+app.include_router(permissions_router)
+app.include_router(audit_router)
+app.include_router(webui_router)
+app.include_router(retention_router)
+app.include_router(auth_router)
+
+
+# ============================================================
+# RATE LIMITING (День 36-37): общий лимит /api/* с Redis-бэкендом
+# и fail-open in-memory fallback. Добавляем ПЕРЕД CORS-порядком не
+# критично — starlette применяет middleware в обратном порядке.
+# ============================================================
+
+from manager.src.core.rate_limit import RateLimitMiddleware  # noqa: E402
+
+_redis_cfg = _config.get("redis", {})
+_rl = _redis_cfg.get("rate_limit", {})
+app.add_middleware(
+    RateLimitMiddleware,
+    max_requests=int(os.getenv("RATE_LIMIT_MAX_REQUESTS", str(_rl.get("max_requests", 300)))),
+    window_seconds=int(os.getenv("RATE_LIMIT_WINDOW_SECONDS", str(_rl.get("window_seconds", 60)))),
+)
+
+# ============================================================
+# PROMETHEUS-МЕТРИКИ HTTP (День 39) — ПОСЛЕДНИМ, САМЫМ ВНЕШНИМ
+# ============================================================
+# BUG-103 (v3.13.28): Starlette строит стек middleware в обратном порядке
+# (последний add_middleware — самый внешний). Раньше MetricsMiddleware
+# регистрировался ДО AuthMiddleware, поэтому оказывался ВНУТРИ него и не видел
+# 401/403 от аутентификации и 429 от rate-limit: в метриках не было ни одного
+# отказа. Теперь он оборачивает весь стек.
+app.add_middleware(MetricsMiddleware)
+
+
+# ============================================================
+# API ЭНДПОИНТЫ
+# ============================================================
+
+
+@app.get("/api/health")
 async def health_check():
-    """HealthCheck endpoint для мониторинга"""
-    try:
-        stub = get_stub()
-        request = manager_pb2.HealthCheckRequest(service="manager")
-        response = await stub.HealthCheck(request)
-        
-        return {
-            "status": "success",
-            "healthy": response.healthy,
-            "service_status": response.status,
-            "message": response.message,
-            "timestamp": response.timestamp,
-            "metrics": {
-                "active_scanners": response.metrics.active_scanners,
-                "pending_tasks": response.metrics.pending_tasks,
-                "running_tasks": response.metrics.running_tasks,
-                "completed_tasks": response.metrics.completed_tasks,
-                "failed_tasks": response.metrics.failed_tasks,
-                "total_findings": response.metrics.total_findings
-            }
-        }
-    except Exception as e:
-        logger.error(f"HealthCheck error: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+    return {"status": "healthy", "version": get_version()}
+    return {"status": "healthy", "version": get_version()}
 
 
 @app.get("/metrics")
-async def get_metrics():
-    """Получить метрики (аналог /health)"""
-    return await health_check()
+async def metrics():
+    return metrics_endpoint()
 
 
-@app.get("/")
-async def root():
-    return {
-        "service": "DCAP Manager",
-        "version": "3.0.0",
-        "endpoints": {
-            "health": "/health",
-            "metrics": "/metrics"
-        }
-    }
-
-
-async def serve_grpc(shutdown_event: asyncio.Event):
-    """Запуск gRPC сервера"""
-    global _scheduler, _grpc_stub
-    
-    logger.info("Starting DCAP Manager...")
-
-    await init_db()
-
-    server = grpc.aio.server()
-
-    manager_pb2_grpc.add_ManagerServicer_to_server(
-        ManagerService(),
-        server
-    )
-    logger.info("✅ Manager service registered successfully!")
-
-    port = os.environ.get("GRPC_PORT", "50051")
-    server.add_insecure_port(f'[::]:{port}')
-
-    logger.info(f"✅ gRPC server listening on port {port}")
-
-    # Запуск планировщика
-    _scheduler = SchedulerEngine(check_interval_seconds=60)
-    await _scheduler.start()
-
-    logger.info("Available methods:")
-    for method in dir(ManagerService):
-        if method.startswith(('Register', 'Heartbeat', 'GetTask', 'Create', 'List', 'Delete', 'Health')):
-            logger.info(f"  - {method}")
-
-    await server.start()
-
+@app.post("/api/folders/pick")
+def pick_folder():
+    """Открыть нативный диалог выбора папки (Windows)"""
     try:
-        await shutdown_event.wait()
-        logger.info("Shutting down gracefully...")
-        
-        await _scheduler.stop()
-        await server.stop(5)
-        await close_db()
+        import tkinter
+        from tkinter import filedialog
+
+        root = tkinter.Tk()
+        root.withdraw()
+        root.attributes("-topmost", True)
+        path = filedialog.askdirectory(title="Выбор папки для сканирования")
+        root.destroy()
     except Exception as e:
-        logger.error(f"Error during shutdown: {e}")
-        await server.stop(0)
+        raise HTTPException(status_code=500, detail=f"Невозможно открыть диалог выбора папки: {e}")
+    if not path:
+        return {"success": False, "path": None}
+    return {"success": True, "path": path}
 
 
-def run_rest():
-    """Запуск REST API в отдельном потоке"""
-    uvicorn.run(app, host="0.0.0.0", port=8000, log_level="info")
+@app.get("/api/root")
+async def api_root():
+    return {"message": "DCAP System Manager API", "docs": "/docs"}
 
 
-def main():
-    """Точка входа"""
-    shutdown_event = asyncio.Event()
-    
-    # Обработка сигналов
-    def signal_handler():
-        logger.info("Received shutdown signal...")
-        shutdown_event.set()
-    
-    if sys.platform != "win32":
-        loop = asyncio.get_event_loop()
-        loop.add_signal_handler(signal.SIGTERM, signal_handler)
-        loop.add_signal_handler(signal.SIGINT, signal_handler)
-    else:
-        def wait_for_ctrl_c():
-            try:
-                while True:
-                    import time
-                    time.sleep(0.1)
-                    if shutdown_event.is_set():
-                        break
-            except KeyboardInterrupt:
-                signal_handler()
-        threading.Thread(target=wait_for_ctrl_c, daemon=True).start()
-    
+# ============================================================
+# ЗАПУСК СЕРВЕРА
+# ============================================================
+
+
+@app.on_event("startup")
+async def on_startup():
+    """Создание таблиц и инициализация ролей/admin при старте."""
     try:
-        logger.info("✅ REST API listening on port 8000")
-        
-        # Запускаем REST в отдельном потоке
-        rest_thread = threading.Thread(target=run_rest, daemon=True)
-        rest_thread.start()
-        
-        # Запускаем gRPC сервер в основном loop
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-        loop.run_until_complete(serve_grpc(shutdown_event))
-        
-    except KeyboardInterrupt:
-        logger.info("Interrupted by user")
+        session.init_db()
+        from manager.src.db.init_roles import init_roles_and_admin
+
+        db = session.SessionLocal()
+        try:
+            init_roles_and_admin(db)
+        finally:
+            db.close()
     except Exception as e:
-        logger.error(f"Fatal error: {e}", exc_info=True)
-        sys.exit(1)
-    finally:
-        logger.info("Manager shutdown complete")
-        if sys.platform == "win32":
-            os._exit(0)
+        print(f"[auth] Ошибка инициализации ролей: {e}")
+
+    # День 36-37: проверка Redis (fail-open). Фоновый планировщик removal:
+    # периодическая архивация теперь выполняется Celery Beat (очередь retention),
+    # scheduler.py удалён из retention/.
+    try:
+        from manager.src.cache.redis_client import get_redis
+
+        redis = get_redis()
+        if redis.available:
+            print(f"[redis] Redis OK ({redis.url})")
+        else:
+            print("[redis] Redis unavailable — no-op mode (fail-open)")
+    except Exception as e:
+        print(f"[redis] Ошибка инициализации: {e}")
 
 
 if __name__ == "__main__":
-    main()
+    import uvicorn
+
+    uvicorn.run("manager.src.main:app", host="0.0.0.0", port=8000, reload=True)

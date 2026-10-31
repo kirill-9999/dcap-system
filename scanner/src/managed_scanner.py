@@ -1,306 +1,2123 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Managed Scanner — получает задания от Manager и выполняет реальное сканирование
+Managed Scanner — работает в непрерывном цикле, получает задания от Manager через REST API
 """
 
-import asyncio
+import os
 import sys
-import logging
+import json
+import time
+import math
+import base64
+import hashlib
 import uuid
+
+math_isfinite = math.isfinite
+import logging
+import signal
+import socket
+import warnings
+import threading
 from pathlib import Path
 from datetime import datetime
-from typing import List, Dict, Any, Optional
+from typing import Callable, Optional, Dict, Any, List
+import requests
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
 
-import grpc
+# ============================================================
+# ПОДАВЛЕНИЕ ШУМНЫХ ЛОГОВ И ПРЕДУПРЕЖДЕНИЙ
+# ============================================================
+warnings.filterwarnings("ignore", category=DeprecationWarning)
+warnings.filterwarnings("ignore", category=UserWarning)
+warnings.filterwarnings("ignore", message="Multiple definitions in dictionary")
 
-# Добавляем пути для импорта
+logging.getLogger("presidio-analyzer").setLevel(logging.WARNING)
+logging.getLogger("presidio-analyzer").disabled = True
+logging.getLogger("presidio-analyzer").propagate = False
+logging.getLogger("pypdf").setLevel(logging.ERROR)
+logging.getLogger("pypdf.generic").setLevel(logging.ERROR)
+logging.getLogger("pypdf._reader").setLevel(logging.ERROR)
+logging.getLogger("PdfReader").setLevel(logging.ERROR)
+logging.getLogger("urllib3").setLevel(logging.WARNING)
+
+# ============================================================
+
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-# Импорты из dcap-agent
 from scanner.core.orchestrator import Orchestrator
-from scanner.core.base import FileContext, ClassificationResult, DataCategory
-from scanner.connectors.filesystem import FileSystemConnector
+from scanner.core.base import FileContext, ClassificationResult, ClassificationFinding, DataCategory
+from scanner.connectors.filesystem import FileSystemConnector, FilesystemConnector
+# День 53.1b (BACKLOG-097): коннектор выбирается по source_type из payload задачи
+from scanner.connectors.factory import create_line_connector
+from scanner.handlers.finding_collector import FindingCollector
+from scanner.src.config_loader import AppConfig
+from scanner.src.heartbeat import HeartbeatThread
+from scanner.src import metrics as scanner_metrics
+from scanner.src.encryption import get_encryption, mask, mask_line, mask_context
+from scanner.src.finding import Finding
+from scanner.src.state_manager import ScanState
 
-# Импорты для gRPC
-sys.path.insert(0, str(Path(__file__).parent.parent.parent))
-import dcap.manager_pb2 as manager_pb2
-import dcap.manager_pb2_grpc as manager_pb2_grpc
-
-# Настройка логирования
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
-)
 logger = logging.getLogger("dcap-scanner")
 
 
-class GrpcHandler:
-    """Обработчик, отправляющий находки в Manager через gRPC"""
-    
-    def __init__(self, stub, scanner_id: int, task_id: int):
-        self.stub = stub
+# BACKLOG-086 (TASK-046/050, v3.13.19): встраивание OCR-фрагментов в payload.
+# MAX_FRAGMENT_EMBED_SIZE — файл больше лимита не встраиваем (остаётся fragment_path).
+# MAX_BATCH_SIZE_BYTES — разбивка POST результатов по размеру (фрагменты 2 МБ).
+MAX_FRAGMENT_EMBED_SIZE = int(os.environ.get("MAX_FRAGMENT_EMBED_SIZE", 2 * 1024 * 1024))
+MAX_BATCH_SIZE_BYTES = int(os.environ.get("MAX_BATCH_SIZE_BYTES", 20 * 1024 * 1024))
+_MAX_BATCH_COUNT = 500  # прежний лимит количества finding на POST
+_IMAGE_MIME = {
+    ".png": "image/png",
+    ".jpg": "image/jpeg",
+    ".jpeg": "image/jpeg",
+    ".gif": "image/gif",
+    ".bmp": "image/bmp",
+    ".tif": "image/tiff",
+    ".tiff": "image/tiff",
+    ".webp": "image/webp",
+}
+
+
+def _embed_fragment(finding: "Finding") -> dict:
+    """BACKLOG-086 (TASK-046): встроить OCR-фрагмент в payload.
+
+    Только для image_region (OCR). text_line — данные в line_text_encrypted,
+    byte_range — отложено до v3.1.0. Если файл отсутствует или больше
+    MAX_FRAGMENT_EMBED_SIZE — ничего не встраиваем (остаётся fragment_path).
+    """
+    if finding.fragment_type != "image_region":
+        return {}
+    if not finding.fragment_path or not os.path.exists(finding.fragment_path):
+        return {}
+    size = os.path.getsize(finding.fragment_path)
+    if size > MAX_FRAGMENT_EMBED_SIZE:
+        return {}
+    with open(finding.fragment_path, "rb") as f:
+        data = f.read()
+    ext = os.path.splitext(finding.fragment_path)[1].lower()
+    return {
+        "fragment_base64": base64.b64encode(data).decode("ascii"),
+        "fragment_mime": _IMAGE_MIME.get(ext, "image/png"),
+        "fragment_hash": hashlib.sha256(data).hexdigest(),
+        "fragment_size": len(data),
+    }
+
+
+def _split_by_size(findings: List[Dict[str, Any]], max_bytes: int) -> List[List[Dict[str, Any]]]:
+    """BACKLOG-086 (TASK-050): разбивка findings на батчи по общему размеру.
+
+    Счётный чанк (500) может всё ещё содержать 500 × 2 МБ base64-фрагментов —
+    разбиваем ещё и по общему размеру payload (оценка по fragment_size).
+    """
+    batches: List[List[Dict[str, Any]]] = []
+    cur: List[Dict[str, Any]] = []
+    cur_size = 0
+    for item in findings:
+        fbytes = item.get("fragment_size") or 0
+        if cur and (len(cur) >= _MAX_BATCH_COUNT or cur_size + fbytes > max_bytes):
+            batches.append(cur)
+            cur, cur_size = [], 0
+        cur.append(item)
+        cur_size += fbytes
+    if cur:
+        batches.append(cur)
+    return batches or [[]]
+
+
+class ProgressPoller(threading.Thread):
+    """Периодически читает state.json оркестратора и обновляет прогресс в heartbeat.
+
+    Позволяет показывать LIVE-прогресс (files_scanned / total) во время долгого
+    сканирования, даже если основной цикл занят process_source.
+    """
+
+    def __init__(self, state_file: str, total: int, heartbeat: HeartbeatThread,
+                 interval: int = 15):
+        super().__init__(daemon=True, name="ProgressPoller")
+        self.state_file = state_file
+        self.total = total or 0
+        self.heartbeat = heartbeat
+        self.interval = interval
+        self._stop = threading.Event()
+
+    def _count_processed(self) -> int:
+        if not self.state_file or not os.path.exists(self.state_file):
+            return 0
+        with open(self.state_file, "r", encoding="utf-8") as f:
+            return sum(1 for _ in f)
+
+    def run(self):
+        while not self._stop.wait(self.interval):
+            try:
+                processed = self._count_processed()
+                if processed:
+                    self.heartbeat.set_progress(processed, self.total)
+            except Exception as e:
+                logger.debug("ProgressPoller read error: %s", e)
+
+    def stop(self):
+        self._stop.set()
+
+
+class SubmitStatus:
+    """Итог отправки результатов (BUG-097, TASK-066, v3.13.25).
+
+    Различает «временно не отправилось» (нужен повтор) и «задания больше нет
+    в Manager» (повтор бессмысленен — задача удалена, повтор вёл к вечной
+    петле 404 в логах и к зависшим заданиям в статусе assigned).
+    """
+    OK = "ok"
+    RETRY = "retry"
+    LOST = "lost"
+
+
+class ManagerClient:
+    def __init__(self, base_url: str, scanner_id: Optional[int] = None, config: AppConfig = None):
+        self.base_url = base_url.rstrip('/')
         self.scanner_id = scanner_id
-        self.task_id = task_id
-        self.buffer = []
-        self.batch_size = 50
-        self.findings_count = 0
-    
-    def write(self, result: ClassificationResult, file_context: FileContext):
-        """Добавление находки в буфер"""
-        if not result.findings:
-            return
+        self.config = config
+        self.session = requests.Session()
+        self.session.headers.update({
+            'Content-Type': 'application/json',
+            'Accept': 'application/json'
+        })
+
+        # HTTP retry (TASK-026, BUG-061): ретраи при 5xx и сетевых сбоях.
+        # total=5, backoff=0.5, fire-and-forget (raise_on_status=False).
+        retry = Retry(
+            total=5,
+            backoff_factor=0.5,
+            status_forcelist=(500, 502, 503, 504),
+            allowed_methods=frozenset(['GET', 'POST']),
+            raise_on_status=False,
+        )
+        adapter = HTTPAdapter(max_retries=retry)
+        self.session.mount('http://', adapter)
+        self.session.mount('https://', adapter)
         
-        for finding in result.findings[:20]:
-            self.buffer.append(manager_pb2.Finding(
-                file_path=file_context.path,
-                file_hash="",
-                file_size=file_context.size_bytes,
-                file_modified=file_context.modified_time.isoformat() if file_context.modified_time else "",
-                classifier_name=result.classifier_name,
-                category=result.category.value,
-                subcategory=finding.subcategory,
-                value=finding.value[:200],
-                confidence=finding.confidence,
-                detection_method=finding.detection_method,
-                context=finding.context[:200] if finding.context else ""
-            ))
+        if config and config.client:
+            self.timeout = config.client.timeout
+            self.heartbeat_timeout = config.client.heartbeat_timeout
+            self.submit_timeout = config.client.submit_timeout
+
+            # mTLS (День 34): cert/key/ca из config.client
+            cert_path = getattr(config.client, "cert_path", None)
+            key_path = getattr(config.client, "key_path", None)
+            ca_path = getattr(config.client, "ca_path", None)
+            if cert_path and key_path and ca_path:
+                self.session.cert = (cert_path, key_path)
+                self.session.verify = ca_path
+                logger.info("[ManagerClient] mTLS enabled")
+            else:
+                logger.info("[ManagerClient] mTLS not configured, plain HTTP")
+        else:
+            self.timeout = 30
+            self.heartbeat_timeout = 10
+            self.submit_timeout = 60
         
-        self.findings_count += len(result.findings)
+        self.files_scanned = 0
+        self.findings_found = 0
+
+        # 53.4n (v3.14.12, BUG-284): оффлайн-детект для лога восстановления связи
+        self._offline = False
+        self._offline_since: Optional[datetime] = None
+
+        logger.info(f"[ManagerClient] Initialized: URL={base_url}, ScannerID={scanner_id}")
+
+    def _request(self, method: str, path: str, **kwargs) -> requests.Response:
+        """Единая точка HTTP-запросов (53.4n, v3.14.12).
+
+        Отслеживает доступность Manager и логирует восстановление связи
+        (BUG-284): раньше reconnect проходил молча, и по логам нельзя было
+        понять, что связь пропадала.
+        """
+        url = f"{self.base_url}{path}"
+        was_offline = getattr(self, "_offline", False)
+        try:
+            if hasattr(self.session, "request"):
+                response = self.session.request(method, url, **kwargs)
+            else:
+                meth = getattr(self.session, method.lower(), None)
+                if meth is None:
+                    meth = self.session.post
+                response = meth(url, **kwargs)
+        except requests.exceptions.RequestException as exc:
+            if not self._offline:
+                self._offline = True
+                self._offline_since = datetime.utcnow()
+                logger.warning(
+                    "[Manager] Соединение потеряно (%s %s): %s — оффлайн-режим",
+                    method,
+                    path,
+                    exc,
+                )
+            raise
+
+        if was_offline:
+            since = self._offline_since
+            downtime = ""
+            if since is not None:
+                downtime = f" (простой {int((datetime.utcnow() - since).total_seconds())} с)"
+            logger.info("[Manager] Соединение восстановлено%s — продолжаем работу", downtime)
+            self._offline = False
+            self._offline_since = None
+
+        return response
+
+    def register(self, name: str, hostname: str = None, ip_address: str = None, scan_interval: int = 10) -> Optional[int]:
+        url = f"{self.base_url}/api/scanner/register"
         
-        if len(self.buffer) >= self.batch_size:
-            self.flush()
-    
-    def flush(self):
-        """Отправка буфера в Manager"""
-        if not self.buffer:
-            return
+        if hostname is None:
+            try:
+                hostname = socket.gethostname()
+            except:
+                hostname = "unknown"
+        
+        if ip_address is None:
+            try:
+                ip_address = socket.gethostbyname(hostname)
+            except:
+                ip_address = "127.0.0.1"
+        
+        data = {
+            "name": name,
+            "hostname": hostname,
+            "ip_address": ip_address,
+            "scan_interval": scan_interval
+        }
         
         try:
-            chunk = manager_pb2.ReportChunk(
-                scanner_id=self.scanner_id,
-                task_id=self.task_id,
-                findings=self.buffer,
-                catalog=[],
-                failed=[]
-            )
+            logger.info(f"[Register] Registering scanner: {name}")
+            response = self._request("POST", "/api/scanner/register", json=data, timeout=self.timeout)
             
-            response = self.stub.ReportBatch(iter([chunk]))
-            logger.info(f"📤 Отправлено {len(self.buffer)} находок в Manager")
-            self.buffer = []
-            
-        except Exception as e:
-            logger.error(f"❌ Ошибка отправки в Manager: {e}")
+            if response.status_code == 200:
+                result = response.json()
+                scanner_id = result.get("scanner_id")
+                logger.info(f"[Register] [OK] Scanner registered: ID={scanner_id}, name={result.get('name')}")
+                self.scanner_id = scanner_id
+                return scanner_id
+            else:
+                logger.error(f"[Register] [ERROR] Failed: {response.status_code} - {response.text}")
+                return None
+                
+        except requests.exceptions.Timeout:
+            logger.error("[Register] [ERROR] Timeout")
+            return None
+        except requests.exceptions.RequestException as e:
+            logger.error(f"[Register] [ERROR] Error: {e}")
+            return None
     
-    def close(self):
-        """Закрытие обработчика"""
-        self.flush()
+    def heartbeat(self, status: str = "idle", task_id: Optional[int] = None) -> bool:
+        if self.scanner_id is None:
+            logger.warning("[Heartbeat] Scanner not registered")
+            return False
+            
+        url = f"{self.base_url}/api/scanner/heartbeat"
+        data = {
+            "scanner_id": self.scanner_id,
+            "status": status,
+            "current_task_id": task_id
+        }
+        
+        try:
+            response = self._request("POST", "/api/scanner/heartbeat", json=data, timeout=self.heartbeat_timeout)
+            if response.status_code == 200:
+                logger.debug(f"[Heartbeat] OK: {status}")
+                return True
+            else:
+                logger.warning(f"[Heartbeat] Failed: {response.status_code}")
+                return False
+        except requests.exceptions.Timeout:
+            logger.debug("[Heartbeat] Timeout")
+            return False
+        except requests.exceptions.RequestException as e:
+            logger.error(f"[Heartbeat] Error: {e}")
+            return False
+    
+    def get_task(self) -> Optional[Dict[str, Any]]:
+        if self.scanner_id is None:
+            logger.warning("[GetTask] Scanner not registered")
+            return None
+            
+        url = f"{self.base_url}/api/scanner/tasks/pending"
+        params = {"scanner_id": self.scanner_id}
+        
+        try:
+            response = self._request("GET", url[len(self.base_url):], params=params, timeout=self.timeout)
+            if response.status_code == 200:
+                data = response.json()
+                task = data.get("task")
+                if task:
+                    logger.info(f"[GetTask] Received task {task['id']}")
+                    return task
+                else:
+                    logger.debug("[GetTask] No pending tasks")
+                    return None
+            else:
+                logger.warning(f"[GetTask] Failed: {response.status_code}")
+                return None
+        except requests.exceptions.Timeout:
+            logger.warning("[GetTask] Timeout")
+            return None
+        except requests.exceptions.RequestException as e:
+            logger.error(f"[GetTask] Error: {e}")
+            return None
+    
+    def submit_results(
+        self,
+        task_id: int,
+        findings: List[Dict[str, Any]],
+        catalog_entries: List[Dict[str, Any]],
+        failed_files: List[Dict[str, Any]],
+        stats: Dict[str, Any]
+    ) -> bool:
+        """Совместимая обёртка: True только при полной успешной отправке."""
+        return self.submit_results_status(
+            task_id, findings, catalog_entries, failed_files, stats
+        ) == SubmitStatus.OK
+
+    def submit_results_status(
+        self,
+        task_id: int,
+        findings: List[Dict[str, Any]],
+        catalog_entries: List[Dict[str, Any]],
+        failed_files: List[Dict[str, Any]],
+        stats: Dict[str, Any],
+        final: bool = True,
+    ) -> str:
+        """Отправка результатов с явным статусом (BUG-097, TASK-066, v3.13.25).
+
+        Раньше метод возвращал только bool, из-за чего офлайн-буфер с
+        удалённым заданием ретраился бесконечно: Manager отвечал 404, сканер
+        сохранял файл заново и повторял попытку в каждом цикле main().
+        Теперь 404 → SubmitStatus.LOST, и вызывающий код отбрасывает пачку.
+
+        final=False (53.4n, v3.14.12): промежуточный чанк не завершает задание
+        (Manager не ставит completed) — остальные данные игнорируются.
+        """
+        if self.scanner_id is None:
+            logger.warning("[SubmitResults] Scanner not registered")
+            return SubmitStatus.RETRY
+            
+        url = f"{self.base_url}/api/scanner/tasks/{task_id}/results"
+        path = f"/api/scanner/tasks/{task_id}/results"
+        # BACKLOG-086 (TASK-050): разбивка по размеру payload, а не только по
+        # счётчику — встроенные фрагменты (до 2 МБ каждый) могут набрать мегабайты.
+        chunks = _split_by_size(findings, MAX_BATCH_SIZE_BYTES)
+        total_batches = len(chunks)
+
+        try:
+            for batch_idx, chunk in enumerate(chunks, start=1):
+                is_last = batch_idx == total_batches
+                data = {
+                    "findings": chunk,
+                    "catalog_entries": catalog_entries if is_last else [],
+                    "failed_files": failed_files if is_last else [],
+                    "stats": stats if is_last else {},
+                }
+                params = {
+                    "batch": batch_idx,
+                    "total": total_batches,
+                    # 53.4n: последний батч завершает задание только если это
+                    # финальный чанк всего сканирования.
+                    "final": 1 if (final and is_last) else 0,
+                }
+                response = self._request("POST", path, json=data, params=params, timeout=self.submit_timeout)
+                if response.status_code == 200:
+                    result = response.json()
+                    logger.info(f"[SubmitResults] batch {batch_idx}/{total_batches}: {result.get('findings_count', 0)} findings saved")
+                elif response.status_code in (404, 410):
+                    # BUG-097: задание удалено в Manager (или истекло) — повтор
+                    # не имеет смысла, задача потеряна безвозвратно.
+                    logger.warning(
+                        f"[SubmitResults] task {task_id} not found in Manager "
+                        f"(HTTP {response.status_code}, scanner_id={self.scanner_id}) — "
+                        "results dropped"
+                    )
+                    return SubmitStatus.LOST
+                else:
+                    logger.error(f"[SubmitResults] batch {batch_idx}/{total_batches} failed: {response.status_code}")
+                    logger.error(f"[SubmitResults] response: {response.text[:200]}")
+                    return SubmitStatus.RETRY
+            return SubmitStatus.OK
+        except Exception as e:
+            logger.error(f"[SubmitResults] error: {e}")
+            return SubmitStatus.RETRY
+    
+    def get_scanner_info(self) -> Optional[Dict[str, Any]]:
+        if self.scanner_id is None:
+            logger.warning("[GetScannerInfo] Scanner not registered")
+            return None
+            
+        url = f"{self.base_url}/api/scanner/{self.scanner_id}"
+        
+        try:
+            response = self._request("GET", url[len(self.base_url):], timeout=self.timeout)
+            if response.status_code == 200:
+                return response.json()
+            else:
+                logger.warning(f"[GetScannerInfo] Failed: {response.status_code}")
+                return None
+        except Exception as e:
+            logger.error(f"[GetScannerInfo] Error: {e}")
+            return None
+
+    def check_fingerprints(self, fingerprints: List[str]) -> Optional[Dict[str, Any]]:
+        """Batch-проверка fingerprint'ов перед отправкой (день 40.2).
+
+        Возвращает {"false_positives": [...], "confirmed": [...], "new": [...]}
+        или None при недоступности эндпоинта (в этом случае фильтр отключается).
+        """
+        if not fingerprints:
+            return {"false_positives": [], "confirmed": [], "new": []}
+
+        # Чанками по 5000 — эндпоинт Manager принимает не более 10000 за запрос (день 40.2+)
+        FP_CHUNK = 5000
+        merged: Dict[str, Any] = {"false_positives": [], "confirmed": [], "new": []}
+        url = f"{self.base_url}/api/findings/check-fingerprints"
+        try:
+            for i in range(0, len(fingerprints), FP_CHUNK):
+                chunk = fingerprints[i:i + FP_CHUNK]
+                response = self._request(
+                    "POST",
+                    "/api/findings/check-fingerprints",
+                    json={"fingerprints": chunk},
+                    timeout=self.timeout,
+                )
+                if response.status_code == 200:
+                    data = response.json()
+                    merged["false_positives"].extend(data.get("false_positives", []))
+                    merged["confirmed"].extend(data.get("confirmed", []))
+                    merged["new"].extend(data.get("new", []))
+                else:
+                    logger.warning(
+                        "[CheckFingerprints] Failed (chunk %d): %s %s",
+                        i // FP_CHUNK + 1,
+                        response.status_code,
+                        response.text[:200],
+                    )
+                    return None
+            return merged
+        except Exception as e:
+            logger.warning("[CheckFingerprints] Error: %s", e)
+            return None
+
+    def release_task(self, task_id: int, reason: str = "scanner aborted") -> bool:
+        """Вернуть задание в очередь Manager (53.4n, v3.14.12, BUG-280).
+
+        Используется вместо fail_task при остановке сканера: задание остаётся
+        pending и будет продолжено с сохранённого чанка (resume).
+        """
+        if self.scanner_id is None:
+            return False
+        url = f"/api/scanner/tasks/{task_id}/release"
+        try:
+            response = self._request(
+                "POST", url, json={"reason": reason}, timeout=self.timeout
+            )
+            if response.status_code in (200, 204):
+                logger.info(f"[Release] Task {task_id} возвращено в очередь (resume)")
+                return True
+            if response.status_code in (404, 410):
+                logger.warning(f"[Release] Task {task_id} не найдено в Manager")
+                return False
+            logger.warning(f"[Release] Failed: {response.status_code} {response.text[:200]}")
+            return False
+        except Exception as e:
+            logger.error(f"[Release] Error: {e}")
+            return False
+
+    def fail_task(self, task_id: int, reason: str = "scanner aborted") -> bool:
+        """BUG-034: уведомить Manager о прерывании задачи (Ctrl+C/stop)."""
+        if self.scanner_id is None:
+            return False
+        url = f"{self.base_url}/api/scanner/tasks/{task_id}/fail"
+        try:
+            response = self._request("POST", url[len(self.base_url):], json={"reason": reason}, timeout=self.timeout)
+            if response.status_code == 200:
+                logger.info(f"[FailTask] Task {task_id} marked failed")
+                return True
+            logger.warning(f"[FailTask] Failed: {response.status_code}")
+            return False
+        except Exception as e:
+            logger.error(f"[FailTask] Error: {e}")
+            return False
 
 
 class ManagedScanner:
-    """Управляемый сканер"""
-    
-    def __init__(self, name: str, manager_endpoint: str = "localhost:50051"):
+    def __init__(
+        self,
+        name: str,
+        manager_url: str = "http://localhost:8000",
+        scanner_id: Optional[int] = None,
+        interval: int = 10,
+        config: Optional[AppConfig] = None
+    ):
         self.name = name
-        self.manager_endpoint = manager_endpoint
-        self.scanner_id = None
-        self.stub = None
-        self.channel = None
+        self.manager_url = manager_url
+        self.scanner_id = scanner_id
+        self.interval = interval
+        self.config = config
+        self._should_exit = False
+        # Событие остановки (день 42.5+): устанавливается из stop()/Ctrl+C,
+        # проверяется параллельным scan_path для немедленной остановки.
+        self._stop_event = threading.Event()
+        # BUG-081 (TASK-052, v3.13.20): SIGINT → graceful shutdown.
+        # Обработчик ставит флаги; цикл выходит корректно, stop() завершает
+        # heartbeat и OCRWorker (Windows-совместимо — только SIGINT/SIGBREAK).
+        try:
+            signal.signal(signal.SIGINT, self._handle_sigint)
+            if hasattr(signal, "SIGBREAK"):
+                signal.signal(signal.SIGBREAK, self._handle_sigint)
+        except (ValueError, OSError) as e:
+            logger.debug("SIGINT handler not installed: %s", e)
         
+        self.client = None
         self.classifiers = []
+        self.heartbeat_thread: Optional[HeartbeatThread] = None
+        # Построчный конвейер (день 40.2)
+        self._connector: Optional[FilesystemConnector] = None
+        # День 53.1b (BACKLOG-097): тип источника текущей задачи
+        # (filesystem | s3 | minio) — из payload Manager.
+        self._current_source_type: str = "filesystem"
+        # День 53.2 (BACKLOG-097): scan_config текущей задачи (payload Manager).
+        # Нужен в _init_line_pipeline для merge scan_config.connector.s3 —
+        # там scan_config является локальной переменной.
+        self._current_scan_config: Dict[str, Any] = {}
+        self._enc = None
         self._load_classifiers()
     
     def _load_classifiers(self):
-        """Загрузка классификаторов"""
         try:
             from scanner.classifiers.pii_classifier import PiiClassifier
             from scanner.classifiers.credentials_classifier import CredentialsClassifier
             from scanner.classifiers.code_classifier import CodeClassifier
             
-            pii = PiiClassifier()
-            pii.configure({"ocr_enabled": True})
-            self.classifiers.append(pii)
+            if self.config and self.config.classifiers:
+                pii_config = self.config.classifiers.pii
+                cred_config = self.config.classifiers.credentials
+                code_config = self.config.classifiers.code
+            else:
+                pii_config = None
+                cred_config = None
+                code_config = None
             
-            cred = CredentialsClassifier()
-            cred.configure({})
-            self.classifiers.append(cred)
+            if not pii_config or pii_config.enabled:
+                pii = PiiClassifier()
+                pii_config_dict = {}
+                if pii_config:
+                    pii_config_dict = {
+                        "ocr_enabled": pii_config.ocr_enabled,
+                        "min_confidence": pii_config.min_confidence,
+                        "ocr_languages": pii_config.ocr_languages,
+                        "ocr_psm": pii_config.ocr_psm,
+                        "ocr_timeout": pii_config.ocr_timeout,
+                        "max_file_size_mb": pii_config.max_file_size_mb,
+                        "quick_filter_enabled": pii_config.quick_filter_enabled,
+                        "analyzer_pool_size": pii_config.analyzer_pool_size,  # 0 = авто
+                        # 53.4l (v3.14.10): NER-категории (person/location/...)
+                        "ner_enabled": getattr(pii_config, "ner_enabled", False),
+                        "excluded_entities": getattr(pii_config, "excluded_entities", None),
+                    }
+                    if self.config and self.config.connector and pii_config.analyzer_pool_size <= 0:
+                        pii_config_dict["max_parallel_files"] = (
+                            getattr(self.config.connector, "max_parallel_files", None) or 4
+                        )
+                    # 53.4m (v3.14.11): в process-режиме файлы обрабатывают
+                    # воркеры (там пул = 1), родитель не анализирует — не грузим
+                    # лишние потоки Presidio.
+                    if self._is_process_executor():
+                        pii_config_dict["analyzer_pool_size"] = 1
+                pii.configure(pii_config_dict)
+                self.classifiers.append(pii)
+                logger.info(f"[OK] PII Classifier loaded (OCR enabled: {pii_config_dict.get('ocr_enabled', True)})")
             
-            code = CodeClassifier()
-            code.configure({})
-            self.classifiers.append(code)
+            if not cred_config or cred_config.enabled:
+                cred = CredentialsClassifier()
+                cred_config_dict = {}
+                if cred_config:
+                    cred_config_dict = {
+                        "entropy_threshold": cred_config.entropy_threshold,
+                        "min_length": cred_config.min_length,
+                        "max_file_size_mb": cred_config.max_file_size_mb,
+                        "strict_filter": cred_config.strict_filter,
+                        "confidence_threshold": cred_config.confidence_threshold,
+                        "no_generic": cred_config.no_generic,
+                        "require_mixed": cred_config.require_mixed,
+                    }
+                cred.configure(cred_config_dict)
+                self.classifiers.append(cred)
+                logger.info(f"[OK] Credentials Classifier loaded")
             
-            logger.info(f"✅ Загружено {len(self.classifiers)} классификаторов")
+            if not code_config or code_config.enabled:
+                code = CodeClassifier()
+                code_config_dict = {}
+                if code_config:
+                    code_config_dict = {
+                        "max_file_size_mb": code_config.max_file_size_mb
+                    }
+                code.configure(code_config_dict)
+                self.classifiers.append(code)
+                logger.info(f"[OK] Code Classifier loaded")
+            
+            logger.info(f"[OK] Загружено {len(self.classifiers)} классификаторов")
             
         except Exception as e:
-            logger.error(f"❌ Ошибка загрузки классификаторов: {e}")
+            logger.error(f"[ERROR] Ошибка загрузки классификаторов: {e}")
     
-    async def connect(self):
-        """Подключение к Manager"""
-        self.channel = grpc.aio.insecure_channel(self.manager_endpoint)
-        self.stub = manager_pb2_grpc.ManagerStub(self.channel)
-        
-        logger.info(f"📝 Регистрация сканера '{self.name}'...")
-        response = await self.stub.Register(manager_pb2.RegisterRequest(
-            scanner_name=self.name,
-            endpoint="localhost:0"
-        ))
-        
-        if response.success:
-            self.scanner_id = int(response.scanner_id)
-            logger.info(f"✅ Зарегистрирован! ID: {self.scanner_id}")
-            return True
-        else:
-            logger.error(f"❌ Ошибка регистрации: {response.message}")
+    def _register_scanner(self) -> bool:
+        if self.client is None:
+            logger.error("[Register] Client not initialized")
             return False
-    
-    async def get_task(self):
-        """Получение задания от Manager"""
-        try:
-            response = await self.stub.GetTask(manager_pb2.GetTaskRequest(
-                scanner_id=str(self.scanner_id)  # ← СТРОКА!
-            ))
-            
-            if response.has_task:
-                logger.info(f"📋 Получено задание: {response.task_id}")
-                logger.info(f"   Ресурс: {response.resource_path}")
-                return response
-            else:
-                return None
-                
-        except Exception as e:
-            logger.error(f"❌ Ошибка получения задания: {e}")
-            return None
-    
-    async def execute_task(self, task):
-        """Выполнение задания"""
-        logger.info(f"🔍 Начало сканирования: {task.resource_path}")
         
-        grpc_handler = GrpcHandler(
-            self.stub,
-            self.scanner_id,
-            int(task.task_id)
+        if self.scanner_id is not None:
+            logger.info(f"[Register] Using existing scanner ID: {self.scanner_id}")
+            info = self.client.get_scanner_info()
+            if info:
+                logger.info(f"[Register] Scanner found: {info.get('name')}, status={info.get('status')}")
+                return True
+            else:
+                logger.warning(f"[Register] Scanner ID {self.scanner_id} not found, re-registering...")
+        
+        scanner_id = self.client.register(
+            name=self.name,
+            scan_interval=self.interval
         )
         
-        orchestrator = Orchestrator(
-            config={
-                "state_file": "state.json",
-                "logs_folder": "logs",
-                "catalog_dir": "catalog"
-            },
-            shared_classifiers=self.classifiers,
-            shared_handlers=[grpc_handler]
+        if scanner_id is not None:
+            self.scanner_id = scanner_id
+            return True
+        
+        logger.error("[Register] [ERROR] Registration failed")
+        return False
+    
+    def _get_connector_config(self) -> Dict[str, Any]:
+        if self.config and self.config.connector:
+            return {
+                "extensions": self.config.connector.extensions,
+                "max_file_size_mb": self.config.connector.max_file_size_mb or 500,
+                "recursive": self.config.connector.recursive,
+                "skip_dirs": self.config.connector.skip_dirs,
+                "buffer_size": self.config.connector.buffer_size,
+                "max_text_chars": self.config.connector.max_text_chars,
+                "context_lines": self.config.connector.context_lines,
+                "max_parallel_files": getattr(self.config.connector, "max_parallel_files", 1) or 1,
+                # 53.4m (v3.14.11): режим исполнения и размер пула воркеров
+                "performance": self._get_performance_dict(),
+            }
+        return {
+            "extensions": ["*"],
+            "max_file_size_mb": 500,
+            "recursive": True,
+            "skip_dirs": ["$Recycle.Bin", "System Volume Information", "tmp", "temp", "cache", "__pycache__", "node_modules", "venv", "logs", ".git"],
+            "buffer_size": 1024 * 1024,
+            "max_text_chars": 200000,
+            "context_lines": 2,
+            "max_parallel_files": 1,
+            "performance": self._get_performance_dict(),
+        }
+
+    def _get_performance_dict(self) -> Dict[str, Any]:
+        """Секция performance для коннектора (53.4m, v3.14.11)."""
+        perf = getattr(self.config, "performance", None) if self.config else None
+        if perf is None:
+            return {}
+        return {
+            "max_parallel_files": getattr(perf, "max_parallel_files", 8),
+            "executor": getattr(perf, "executor", "process"),
+            "max_workers": getattr(perf, "max_workers", 4),
+            "chunk_size": getattr(perf, "chunk_size", 100),
+        }
+
+    def _is_process_executor(self) -> bool:
+        """True, если файлы обрабатываются ProcessPoolExecutor (53.4m)."""
+        return str(self._get_performance_dict().get("executor") or "").lower() == "process"
+    
+    def _get_orchestrator_config(self) -> Dict[str, Any]:
+        """Получить конфигурацию оркестратора"""
+        # Получаем state_dir из конфига сканера
+        state_dir = "scanner_state"  # значение по умолчанию
+        if self.config and self.config.scanner:
+            state_dir = self.config.scanner.state_dir or "scanner_state"
+        
+        return {
+            "state_file": str(Path(state_dir) / "state.json"),  # Полный путь к state.json
+            "logs_folder": "logs",
+            "catalog_dir": "catalog",
+            "max_failed_log": 100000,
+            "performance": {
+                "save_interval": 1000,
+                "cache_cleanup_interval": 10000,
+                "models_reload_after_files": 50000,
+                "cache_memory_threshold_rss": 4096,
+                "models_memory_threshold_rss": 6144,
+            }
+        }
+    
+    def _get_collector_config(self) -> Dict[str, Any]:
+        return {
+            "max_findings": 10000000,
+            "max_failed_files": 100000
+        }
+    
+    def _get_state_dir(self) -> Path:
+        """Получить путь к директории состояния"""
+        state_dir = "scanner_state"
+        if self.config and self.config.scanner:
+            state_dir = self.config.scanner.state_dir or "scanner_state"
+        
+        state_path = Path(state_dir)
+        state_path.mkdir(parents=True, exist_ok=True)
+        return state_path
+
+    def _parent_of_path(self, file_path: str) -> str:
+        """Родительская папка файла (поддерживает FS-пути и s3://bucket/key).
+
+        Path('s3://bucket/key').parent даст 's3:/bucket' — сломано. Для s3://
+        используем urlparse + posixpath.dirname.
+        """
+        if not file_path:
+            return ""
+        if file_path.startswith(("s3://", "minio://")):
+            from urllib.parse import urlparse
+            import posixpath
+            parsed = urlparse(file_path)
+            parent_dir = posixpath.dirname(parsed.path.lstrip("/"))
+            bucket = parsed.netloc
+            if parent_dir:
+                return f"{parsed.scheme}://{bucket}/{parent_dir}"
+            return f"{parsed.scheme}://{bucket}"
+        return str(Path(file_path).parent)
+
+    def _collect_catalog_entries(self, resource_path: str, findings: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """Собрать записи каталога - папки, в которых есть находки."""
+        catalog_entries = {}
+        
+        for finding in findings:
+            file_path = finding.get("file_path", "")
+            if not file_path:
+                continue
+            
+            folder_path = self._parent_of_path(file_path)
+            category = finding.get("category", "unknown")
+            
+            if folder_path not in catalog_entries:
+                catalog_entries[folder_path] = {
+                    "path": folder_path,
+                    "classifiers": {},
+                    "total_findings": 0,
+                    "file_count": 0,
+                    "files": set()
+                }
+            
+            if category not in catalog_entries[folder_path]["classifiers"]:
+                catalog_entries[folder_path]["classifiers"][category] = {
+                    "count": 0,
+                    "last_detected": datetime.utcnow().isoformat()
+                }
+            catalog_entries[folder_path]["classifiers"][category]["count"] += 1
+            catalog_entries[folder_path]["total_findings"] += 1
+            catalog_entries[folder_path]["files"].add(file_path)
+        
+        result = []
+        for folder_path, data in catalog_entries.items():
+            result.append({
+                "path": folder_path,
+                "metadata": {
+                    "classifiers": data["classifiers"],
+                    "total_findings": data["total_findings"],
+                    "file_count": len(data["files"]),
+                    "last_scanned": datetime.utcnow().isoformat()
+                }
+            })
+        
+        logger.info(f"[Catalog] Collected {len(result)} folders with findings")
+        return result
+    
+    def _init_line_pipeline(self) -> bool:
+        """Инициализация построчного конвейера (день 40.2).
+
+        Загружает шифрование (по ключам), строит коннектор через фабрику
+        (день 53.1b — по source_type задачи).
+        Возвращает True, если есть классификаторы со scan_line.
+        """
+        line_capable = [
+            c for c in self.classifiers if hasattr(c, "scan_line")
+        ]
+        if not line_capable:
+            logger.warning("[LineScan] Нет классификаторов с scan_line — построчный конвейер недоступен")
+            return False
+
+        self._enc = get_encryption()
+
+        connector_cfg = self._get_connector_config()
+        # TASK-029 (BUG-067c): OCR-ключ берём из classifiers.pii.ocr_enabled,
+        # потому что в connector-секции его нет (день 46.7).
+        pii_cfg = None
+        if self.config is not None and self.config.classifiers is not None:
+            pii_cfg = getattr(self.config.classifiers, "pii", None)
+        ocr_enabled = bool(
+            getattr(pii_cfg, "ocr_enabled", True)
+            if pii_cfg is not None
+            else True
         )
-        
-        connector = FileSystemConnector()
-        connector.configure({
-            "extensions": ["txt", "pdf", "docx", "xlsx", "png", "jpg", "jpeg"],
-            "max_file_size_mb": 50
-        })
-        
-        orchestrator.configure(connector)
-        
+        connector_cfg["ocr_enabled"] = ocr_enabled
+        # День 53.2 (BACKLOG-097): для S3/MinIO параметры endpoint/bucket/prefix
+        # приходят в payload задачи (scan_config.connector.s3). Мержим поверх
+        # локального конфига — приоритет у payload (per-task конфиг).
+        self._current_scan_config = self._current_scan_config or {}
+        s3_payload = (
+            self._current_scan_config.get("connector", {}).get("s3", {}) or {}
+        )
+        if s3_payload:
+            connector_cfg.update(s3_payload)
+        # День 53.1b/53.2 (BACKLOG-097): коннектор выбирается по source_type
+        # задачи через фабрику (filesystem | s3 | minio).
         try:
-            orchestrator.process_source(task.resource_path)
-            grpc_handler.close()
-            
-            stats = orchestrator.get_statistics()
-            
-            logger.info(f"✅ Сканирование завершено!")
-            logger.info(f"   Обработано: {stats.get('processed_files', 0)} файлов")
-            logger.info(f"   Находок: {grpc_handler.findings_count}")
-            
-            await self.complete_task(int(task.task_id), stats, grpc_handler.findings_count)
-            
+            self._connector = create_line_connector(self._current_source_type, connector_cfg)
+            logger.info(
+                "[LineScan] Connector created: source_type=%s, type=%s",
+                self._current_source_type,
+                type(self._connector).__name__,
+            )
+        except ValueError as exc:
+            logger.error("[LineScan] %s", exc)
+            self._connector = None
+            return False
+
+        logger.info(
+            "[LineScan] Построчный конвейер готов: %d классификаторов, keys=%s",
+            len(line_capable),
+            "enabled" if self._enc else "disabled (legacy)",
+        )
+        return True
+
+    def _legacy_fingerprint(self, file_path: str, line: int, match: str, finding_type: str) -> str:
+        """
+        Fingerprint БЕЗ HMAC (legacy-режим, когда ключей нет).
+
+        Важно: SHA-256 с полным контекстом (file_path + line + match + type) —
+        уменьшает коллизии; слабые 32-hex дайджесты не используются.
+        """
+        import hashlib
+
+        msg = f"{file_path}|{line}|{match}|{finding_type}".encode("utf-8")
+        return hashlib.sha256(msg).hexdigest()
+
+    def _serialize_finding(self, finding: Finding, resource_path: str,
+                           all_findings_in_line: Optional[List[Finding]] = None,
+                           line_text: Optional[str] = None) -> Dict[str, Any]:
+        """Сериализация находки для Manager (новый формат, день 40.2).
+
+        При включённом шифровании открытый текст НЕ покидает хост:
+        передаются encrypted + masked версии value/line/context.
+        """
+        enc = self._enc
+        fpath = finding.fragment_path or resource_path
+        cat = finding.category or "unknown"
+        value = finding.match_text or ""
+        line_text = finding.line_text or ""
+        ctx_before = finding.context_before or ""
+        ctx_after = finding.context_after or ""
+
+        # BUG-022: маскируем ВСЕ PII в строке, а не только своей категории.
+        positions = [
+            (f.start_pos, f.end_pos, f.category or cat)
+            for f in (all_findings_in_line or [finding])
+            if f.start_pos is not None and f.end_pos is not None
+        ]
+        if not positions:
+            positions = [(finding.start_pos, finding.end_pos, cat)]
+        line_no = int(finding.line_number or 0)
+
+        d: Dict[str, Any] = {
+            "file_path": fpath,
+            "line_number": line_no,
+            "category": cat,
+            "subcategory": finding.category,
+            "finding_type": finding.finding_type,
+            "value": value if enc is None else "(encrypted)",
+            "confidence": finding.confidence or 1.0,
+            "severity": finding.severity or "medium",
+            "detector": finding.detector or "regex",
+            "context": line_text if enc is None else None,
+            "start_pos": finding.start_pos,
+            "end_pos": finding.end_pos,
+            "fragment_type": finding.fragment_type,
+            "bounding_box": finding.bounding_box,
+            "byte_offset": finding.byte_offset,
+            "byte_length": finding.byte_length,
+            "hex_preview": finding.hex_preview,
+            **_embed_fragment(finding),  # BACKLOG-086 (TASK-046)
+        }
+        if getattr(finding, "metadata", None):
+            d["metadata"] = finding.metadata
+
+        if enc is not None:
+            d["fingerprint"] = enc.fingerprint(fpath, line_no, value, finding.finding_type)
+            d["match_text_encrypted"] = enc.encrypt(value) if value else None
+            d["match_text_masked"] = mask(value, cat) if value else None
+            d["line_text_encrypted"] = enc.encrypt(line_text) if line_text else None
+            d["line_text_masked"] = mask_line(line_text, positions) if line_text else None
+            d["context_before_masked"] = mask_context(ctx_before, cat) if ctx_before else None
+            d["context_after_masked"] = mask_context(ctx_after, cat) if ctx_after else None
+            d["encryption_key_id"] = enc.key_id
+            d["legacy_fingerprint"] = self._legacy_fingerprint(fpath, line_no, value, finding.finding_type)
+        else:
+            d["fingerprint"] = None
+            d["match_text_masked"] = mask(value, cat) if value else None
+            d["line_text_masked"] = mask_line(line_text, positions) if line_text else None
+            d["context_before_masked"] = mask_context(ctx_before, cat) if ctx_before else None
+            d["context_after_masked"] = mask_context(ctx_after, cat) if ctx_after else None
+
+        return d
+
+    def _filter_false_positives(self, serialized: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """Batch-фильтр FP через check-fingerprints (день 40.2).
+
+        Находки с fingerprint, отмеченные как false_positive (или уже confirmed),
+        НЕ отправляются в Manager. Если эндпоинт недоступен (старый Manager) —
+        отправляем как раньше (backward compat).
+        """
+        if not serialized:
+            return serialized
+
+        fps = [d.get("fingerprint") for d in serialized if d.get("fingerprint")]
+        if not fps:
+            return serialized
+
+        try:
+            result = self.client.check_fingerprints(fps) if self.client else None
         except Exception as e:
-            logger.error(f"❌ Ошибка сканирования: {e}")
-            await self.complete_task(int(task.task_id), {}, 0, success=False, error=str(e))
-        
-        orchestrator.stop()
-        del orchestrator
-    
-    async def complete_task(self, task_id: int, stats: Dict, findings_count: int, 
-                           success: bool = True, error: str = ""):
-        """Завершение задания"""
+            logger.warning("[FPFilter] check-fingerprints error: %s", e)
+            result = None
+
+        if not result:
+            return serialized
+
+        skip = set(result.get("false_positives", [])) | set(result.get("confirmed", []))
+
+        filtered = [d for d in serialized if d.get("fingerprint") not in skip]
+        if len(filtered) != len(serialized):
+            logger.info(
+                "[FPFilter] Отфильтровано %d находок (FP/confirmed)",
+                len(serialized) - len(filtered),
+            )
+        return filtered
+
+    def _chunk_size(self) -> int:
+        """Размер чанка для resume (53.4n): performance.chunk_size, по умолчанию 100."""
         try:
-            response = await self.stub.CompleteTask(manager_pb2.CompleteTaskRequest(
-                scanner_id=str(self.scanner_id),  # ← СТРОКА!
-                task_id=task_id,
-                files_scanned=stats.get('processed_files', 0),
-                findings_count=findings_count,
-                success=success,
-                error_message=error
-            ))
-            
-            if response.success:
-                logger.info(f"📋 Задание {task_id} завершено!")
+            value = int(self._get_performance_dict().get("chunk_size") or 100)
+        except (TypeError, ValueError):
+            value = 100
+        return max(1, value)
+
+    def _scan_line_by_line(
+        self,
+        resource_path: str,
+        start_chunk: int = 0,
+        chunk_size: Optional[int] = None,
+        on_chunk: Optional[Callable[[int, int, List[Finding]], bool]] = None,
+        meta: Optional[Dict[str, Any]] = None,
+        executor: Optional[Any] = None,
+    ) -> Dict[str, Any]:
+        """Построчное сканирование каталога (день 40.2; чанки — 53.4n).
+
+        Возвращает {"findings": [...], "files_scanned": int, "error": str|None,
+        "total_files": int, "total_chunks": int, "chunks_done": int}.
+
+        on_chunk(chunk_index, total_chunks, findings) вызывается после каждого
+        чанка; возврат False — остановить сканирование (используется для
+        по-чанкового submit и сохранения состояния).
+        """
+        line_capable = [c for c in self.classifiers if hasattr(c, "scan_line")]
+
+        # счётчик обработанных файлов для stats
+        scanned = [0]
+        # при resume (53.4n) скорость/ETA считаем от начала текущего запуска
+        run_base = [0]
+        # тайминги для консольного прогресса (День 40.x: скорость + ETA)
+        start_time = [time.time()]
+        last_report = [0.0]
+        report_interval = self._progress_report_interval()
+
+        def _fmt_eta(seconds: Optional[float]) -> str:
+            if seconds is None or not math_isfinite(seconds) or seconds <= 0:
+                return "—"
+            s = int(seconds)
+            h, rem = divmod(s, 3600)
+            m, _ = divmod(rem, 60)
+            if h:
+                return f"{h}ч {m}м"
+            return f"{m}м"
+
+        def _fmt_speed(speed: float) -> str:
+            if not math_isfinite(speed) or speed < 0:
+                return "—"
+            if speed < 1:
+                return f"{speed * 60:.1f} ф/мин"
+            return f"{speed:.1f} ф/с"
+
+        def _report(current: int, total: int):
+            elapsed = time.time() - start_time[0]
+            done = max(0, current - run_base[0])
+            speed = done / elapsed if elapsed > 0 else 0.0
+            rate = speed if speed > 0 else 0.0
+            eta = (total - current) / rate if rate > 0 else None
+            if self.heartbeat_thread is not None:
+                try:
+                    self.heartbeat_thread.set_progress(current, total, speed, int(eta) if eta else None)
+                except Exception:
+                    pass
+            if total:
+                pct = (current / total) * 100 if total else 0.0
+                logger.info(
+                    "[ScanProgress] %s%d/%d (%.1f%%) | скорость %s | ETA %s",
+                    " ",
+                    current,
+                    total,
+                    pct,
+                    _fmt_speed(speed),
+                    _fmt_eta(eta),
+                )
             else:
-                logger.warning(f"⚠️ Ошибка завершения задания: {response.message}")
-                
+                logger.info(
+                    "[ScanProgress] %d файлов | скорость %s | прошло %.0fс",
+                    current,
+                    _fmt_speed(speed),
+                    elapsed,
+                )
+
+        def _progress(stage: int, current: int, total: int, file_path: str):
+            if stage == 1:
+                scanned[0] = current
+                now = time.time()
+                if now - last_report[0] >= report_interval:
+                    last_report[0] = now
+                    _report(current, total)
+                elif self.heartbeat_thread is not None:
+                    # между консольными отчётами всё равно обновляем heartbeat в фоне
+                    try:
+                        elapsed = time.time() - start_time[0]
+                        done = max(0, current - run_base[0])
+                        speed = done / elapsed if elapsed > 0 else 0.0
+                        eta = (total - current) / speed if speed > 0 else None
+                        self.heartbeat_thread.set_progress(current, total, speed, int(eta) if eta else None)
+                    except Exception:
+                        pass
+
+        # 53.4n (v3.14.12): если коннектор умеет отдавать список файлов —
+        # сканируем чанками (нужно для resume), иначе — одним scan_path.
+        discover = getattr(self._connector, "discover_files", None)
+        scan_chunk = getattr(self._connector, "scan_files", None)
+        if not callable(discover) or not callable(scan_chunk):
+            findings = self._connector.scan_path(
+                resource_path,
+                line_capable,
+                progress_callback=_progress,
+                stop_event=self._stop_event,
+            )
+            _report(scanned[0], scanned[0])
+            return {
+                "findings": findings,
+                "files_scanned": scanned[0],
+                "error": None,
+                "total_files": scanned[0],
+                "total_chunks": 1,
+                "chunks_done": 1 if findings or scanned[0] else 0,
+            }
+
+        files = discover(resource_path)
+        total_files = len(files)
+        if meta is not None:
+            meta["total_files"] = total_files
+        if not total_files:
+            if self.heartbeat_thread is not None:
+                try:
+                    self.heartbeat_thread.set_progress(0, 0)
+                except Exception:
+                    pass
+            return {
+                "findings": [],
+                "files_scanned": 0,
+                "error": None,
+                "total_files": 0,
+                "total_chunks": 0,
+                "chunks_done": 0,
+            }
+
+        chunk_size = int(chunk_size or self._chunk_size())
+        chunk_size = max(1, chunk_size)
+        total_chunks = (total_files + chunk_size - 1) // chunk_size
+        start_chunk = max(0, min(int(start_chunk), total_chunks))
+        if meta is not None:
+            meta["total_files"] = total_files
+            meta["total_chunks"] = total_chunks
+            meta["chunk_size"] = chunk_size
+
+        findings: List[Finding] = []
+        chunks_done = start_chunk
+        scanned[0] = min(start_chunk * chunk_size, total_files)
+        run_base[0] = scanned[0]
+
+        for chunk_idx in range(start_chunk, total_chunks):
+            if self._stop_event.is_set() or self._should_exit:
+                logger.info("[FS] Сканирование остановлено на чанке %d/%d", chunk_idx, total_chunks)
+                break
+
+            offset = chunk_idx * chunk_size
+            chunk_files = files[offset:offset + chunk_size]
+
+            def _chunk_progress(stage: int, current: int, tot: int, file_path: str,
+                                _offset: int = offset):
+                _progress(stage, _offset + current, total_files, file_path)
+
+            part = scan_chunk(
+                chunk_files,
+                line_capable,
+                progress_callback=_chunk_progress,
+                stop_event=self._stop_event,
+                offset=offset,
+                total=total_files,
+                executor=executor,
+            )
+
+            if self._stop_event.is_set() or self._should_exit:
+                # Прерванный чанк не засчитываем: при resume он пересканируется,
+                # дубли отсекаются fingerprint'ом в Manager.
+                # 53.4p: прогресс не откатываем — сохраняем максимум.
+                scanned[0] = max(scanned[0], offset)
+                if meta is not None:
+                    meta["scanned"] = scanned[0]
+                logger.info(
+                    "[FS] Остановка внутри чанка %d/%d — чанк будет пересканирован",
+                    chunk_idx,
+                    total_chunks,
+                )
+                break
+
+            findings.extend(part)
+            chunks_done = chunk_idx + 1
+            # 53.4p (v3.14.14, BUG-289): прогресс монотонный — не откатываемся.
+            scanned[0] = max(scanned[0], min(offset + len(chunk_files), total_files))
+            if meta is not None:
+                meta["scanned"] = scanned[0]
+            _report(scanned[0], total_files)
+
+            if on_chunk is not None:
+                try:
+                    keep_going = on_chunk(chunk_idx, total_chunks, part)
+                except Exception as e:
+                    logger.error("[Scanner] Ошибка обработки чанка %d/%d: %s",
+                                 chunk_idx, total_chunks, e)
+                    keep_going = False
+                if keep_going is False:
+                    break
+
+        scanned[0] = max(scanned[0], scanned[0])
+        if meta is not None:
+            meta["scanned"] = scanned[0]
+        # финальный отчёт
+        _report(scanned[0], total_files)
+        return {
+            "findings": findings,
+            "files_scanned": scanned[0],
+            "error": None,
+            "total_files": total_files,
+            "total_chunks": total_chunks,
+            "chunks_done": chunks_done,
+        }
+
+    def _progress_report_interval(self) -> float:
+        """Интервал консольного отчёта о прогрессе (по умолчанию 5 сек)."""
+        try:
+            if self.config and self.config.scanner:
+                v = getattr(self.config.scanner, "progress_report_interval", None)
+                if v is not None and v > 0:
+                    return float(v)
+        except Exception:
+            pass
+        return 5.0
+
+    def _update_metrics(self, stats: Dict[str, Any]):
+        """Инкремент Prometheus-метрик после завершения задания (День 39)."""
+        sid = str(self.scanner_id)
+        try:
+            files = int(stats.get("files_scanned", 0) or 0)
+            if files:
+                scanner_metrics.files_scanned.labels(scanner_id=sid).inc(files)
+
+            total_findings = int(stats.get("total_findings", 0) or 0)
+            if total_findings:
+                scanner_metrics.findings.labels(scanner_id=sid, type="total").inc(total_findings)
+
+            category_stats = stats.get("category_stats") or {}
+            for cat, count in category_stats.items():
+                if count:
+                    scanner_metrics.findings.labels(scanner_id=sid, type=str(cat)).inc(int(count))
+
+            failed = int(stats.get("files_failed", 0) or 0)
+            if failed:
+                scanner_metrics.scan_errors.labels(scanner_id=sid, error_type="files_failed").inc(failed)
         except Exception as e:
-            logger.error(f"❌ Ошибка CompleteTask: {e}")
-    
-    async def heartbeat_loop(self):
-        """Фоновый heartbeat"""
-        while True:
+            logger.debug("Metrics update error: %s", e)
+
+    def _serialize_chunk(
+        self, findings: List[Finding], resource_path: str
+    ) -> List[Dict[str, Any]]:
+        """Сериализация находок чанка (53.4n).
+
+        BUG-022: группируем находки по строке и маскируем ВСЕ PII строки,
+        а не только своей категории.
+        """
+        findings_by_line: dict = {}
+        for finding in findings:
+            key = (finding.fragment_path or resource_path, int(finding.line_number or 0))
+            findings_by_line.setdefault(key, []).append(finding)
+
+        serialized = [
+            self._serialize_finding(
+                finding,
+                resource_path,
+                all_findings_in_line=findings_by_line[
+                    (finding.fragment_path or resource_path, int(finding.line_number or 0))
+                ],
+            )
+            for finding in findings
+        ]
+        return self._filter_false_positives(serialized)
+
+    def _execute_task_linewise(self, task: Dict[str, Any], resource_path: str,
+                               scan_config: Dict[str, Any]) -> Dict[str, Any]:
+        """Построчное исполнение задания (день 40.2; чанки/resume — 53.4n).
+
+        Сканирует задание чанками по performance.chunk_size, после каждого
+        чанка отправляет находки в Manager и сохраняет состояние. При остановке
+        задание возвращается в очередь Manager (release) и при следующем
+        получении продолжается с последнего завершённого чанка.
+        """
+        task_id = task["id"]
+
+        if self.heartbeat_thread is not None:
+            self.heartbeat_thread.set_task(task_id)
+            self.heartbeat_thread.set_progress(0, None)
+
+        state = ScanState(task_id, state_dir=str(self._get_state_dir()))
+        resume = state.load()
+        chunk_size = self._chunk_size()
+        start_chunk = 0
+        prior_findings = 0
+        started_at = task.get("assigned_at")
+
+        if resume:
+            saved_path = resume.get("root_path")
+            saved_chunk_size = int(resume.get("chunk_size") or chunk_size)
+            if saved_path and saved_path != resource_path:
+                logger.warning(
+                    "[Resume] Путь задания изменился (%s → %s) — начинаем с нуля",
+                    saved_path, resource_path,
+                )
+                state.clear()
+                resume = {}
+            elif saved_chunk_size != chunk_size:
+                logger.warning(
+                    "[Resume] chunk_size изменился (%d → %d) — начинаем с нуля",
+                    saved_chunk_size, chunk_size,
+                )
+                state.clear()
+                resume = {}
+            else:
+                start_chunk = state.get_resume_chunk()
+                prior_findings = int(resume.get("findings_count") or 0)
+                started_at = resume.get("started_at") or started_at
+                completed_index = int(resume.get("last_completed_index") or 0)
+                logger.info(
+                    "[Resume] Задание %d: продолжаем с чанка %d/%s "
+                    "(файлов обработано: %d, находок ранее: %d)",
+                    task_id,
+                    start_chunk + 1,
+                    resume.get("total_chunks"),
+                    completed_index + 1 if resume.get("last_completed_index") is not None else 0,
+                    prior_findings,
+                )
+
+        logger.info(
+            "[Scanner] Построчное сканирование %s (task %d, source_type=%s)",
+            resource_path, task_id, self._current_source_type,
+        )
+
+        meta: Dict[str, Any] = {}
+        # 53.4p (v3.14.14, BUG-289): монотонный прогресс (resume-aware).
+        _total_scanned = [start_chunk * chunk_size]
+        run_findings = 0
+        files_with_findings: set = set()
+        category_stats: Dict[str, int] = {}
+        submit_lost = False
+        submit_failed = False
+
+        def _stats(aborted: bool) -> Dict[str, Any]:
+            return {
+                "files_scanned": int(meta.get("scanned", 0) or 0)
+                if aborted
+                else int(meta.get("total_files", 0) or 0),
+                "files_failed": 0,
+                "files_with_findings": len(files_with_findings),
+                "total_findings": prior_findings + run_findings,
+                "unique_findings": prior_findings + run_findings,
+                "category_stats": dict(category_stats),
+                "started_at": started_at or datetime.utcnow().isoformat(),
+                "completed_at": datetime.utcnow().isoformat(),
+                "encryption": "enabled" if self._enc else "legacy",
+                "aborted": aborted,
+            }
+
+        def _on_chunk(chunk_idx: int, total_chunks: int, chunk_findings: List[Finding]) -> bool:
+            nonlocal run_findings, submit_lost, submit_failed
+
+            serialized = self._serialize_chunk(chunk_findings, resource_path)
+            # Остановка пришла во время чанка — не отправляем неполный чанк.
+            if self._stop_event.is_set() or self._should_exit:
+                return False
+
+            is_last = chunk_idx == total_chunks - 1
+
+            run_findings += len(serialized)
+            for item in serialized:
+                file_path = item.get("file_path")
+                if file_path:
+                    files_with_findings.add(file_path)
+                finding_type = item.get("finding_type", "unknown")
+                category_stats[finding_type] = category_stats.get(finding_type, 0) + 1
+
+            stats = _stats(aborted=False)
+            catalog_entries = (
+                self._collect_catalog_entries(resource_path, serialized) if is_last else []
+            )
+
+            if serialized or is_last:
+                status = self.client.submit_results_status(
+                    task_id=task_id,
+                    findings=serialized,
+                    catalog_entries=catalog_entries,
+                    failed_files=[],
+                    stats=stats,
+                    final=is_last,
+                )
+                if status == SubmitStatus.LOST:
+                    submit_lost = True
+                    logger.warning(
+                        "[SubmitResults] Task %d удалён в Manager — состояние очищено",
+                        task_id,
+                    )
+                    return False
+                if status != SubmitStatus.OK:
+                    submit_failed = True
+                    logger.error(
+                        "[SubmitResults] Чанк %d/%d не отправлен — задание будет "
+                        "продолжено с этого чанка",
+                        chunk_idx + 1,
+                        total_chunks,
+                    )
+                    return False
+
+            _total_scanned[0] = max(
+                _total_scanned[0], int(meta.get("scanned", 0) or 0)
+            )
+            state.save(
+                root_path=resource_path,
+                chunk_size=chunk_size,
+                total_chunks=total_chunks,
+                total_files=int(meta.get("total_files", 0) or 0),
+                last_completed_chunk=chunk_idx,
+                last_completed_index=(chunk_idx + 1) * chunk_size - 1,
+                findings_count=prior_findings + run_findings,
+                files_scanned=_total_scanned[0],
+                started_at=started_at,
+            )
+            logger.info(
+                "[Resume] Чанк %d/%d обработан, состояние сохранено "
+                "(находок в задании: %d)",
+                chunk_idx + 1,
+                total_chunks,
+                prior_findings + run_findings,
+            )
+            return True
+
+        # 53.4o (v3.14.13, BUG-286): один ProcessPoolExecutor на все чанки
+        # (создаётся один раз, переиспользуется — spaCy грузится 4 раза, а не 40).
+        from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor
+        from scanner.classifiers.factory import classifier_specs, worker_specs
+        from scanner.connectors.filesystem import _process_worker_init
+
+        _perf = self._get_performance_dict()
+        _maxw = int(_perf.get("max_workers") or 4)
+        _specs = None
+        try:
+            _specs = worker_specs(classifier_specs(line_capable))
+        except Exception:
+            _specs = None
+
+        if str(_perf.get("executor") or "process").lower() == "process" and _specs is not None:
+            with ProcessPoolExecutor(
+                max_workers=_maxw,
+                initializer=_process_worker_init,
+                initargs=(self._connector, _specs),
+            ) as _executor:
+                # for chunk_idx in range(start_chunk, total_chunks):
+                scan_result = self._scan_line_by_line(
+                    resource_path,
+                    start_chunk=start_chunk,
+                    chunk_size=chunk_size,
+                    on_chunk=_on_chunk,
+                    meta=meta,
+                    executor=_executor,
+                )
+        else:
+            _executor = ThreadPoolExecutor(max_workers=_maxw)
             try:
-                await asyncio.sleep(10)
-                response = await self.stub.Heartbeat(manager_pb2.HeartbeatRequest(
-                    scanner_id=str(self.scanner_id)  # ← СТРОКА!
-                ))
-                if not response.success:
-                    logger.warning(f"⚠️ Heartbeat failed: {response.message}")
-            except Exception as e:
-                logger.warning(f"⚠️ Heartbeat error: {e}")
+                # for chunk_idx in range(start_chunk, total_chunks):
+                scan_result = self._scan_line_by_line(
+                    resource_path,
+                    start_chunk=start_chunk,
+                    chunk_size=chunk_size,
+                    on_chunk=_on_chunk,
+                    meta=meta,
+                    executor=_executor,
+                )
+            finally:
+                try:
+                    _executor.shutdown(wait=True)
+                except Exception:
+                    pass
+        total_chunks = int(scan_result.get("total_chunks") or 0)
+
+        if submit_lost:
+            state.clear()
+            return {
+                "findings": [],
+                "catalog_entries": [],
+                "failed_files": [],
+                "stats": _stats(aborted=True),
+                "already_submitted": True,
+                "resumable": False,
+                "lost": True,
+            }
+
+        # Пустой каталог: как раньше — пустой финальный батч завершает задание.
+        if total_chunks == 0:
+            stats = _stats(aborted=False)
+            status = self.client.submit_results_status(
+                task_id=task_id,
+                findings=[],
+                catalog_entries=[],
+                failed_files=[],
+                stats=stats,
+                final=True,
+            )
+            if status == SubmitStatus.OK:
+                state.clear()
+                logger.info("[Scanner] Task %d completed (linewise): файлов нет", task_id)
+            return {
+                "findings": [],
+                "catalog_entries": [],
+                "failed_files": [],
+                "stats": stats,
+                "already_submitted": True,
+                "resumable": False,
+            }
+
+        completed = (
+            not submit_failed
+            and not self._should_exit
+            and not self._stop_event.is_set()
+            and int(scan_result.get("chunks_done") or 0) >= total_chunks
+        )
+
+        if completed:
+            state.clear()
+            stats = _stats(aborted=False)
+            self._update_metrics(stats)
+            logger.info(f"[Scanner] Task {task_id} completed (linewise):")
+            logger.info(f"  - Files scanned: {stats['files_scanned']}")
+            logger.info(f"  - Files with findings: {stats['files_with_findings']}")
+            logger.info(f"  - Total findings: {stats['total_findings']}")
+            logger.info(f"  - Chunks: {total_chunks}/{total_chunks}")
+            logger.info(f"  - Failed files: {stats['files_failed']}")
+            return {
+                "findings": [],
+                "catalog_entries": [],
+                "failed_files": [],
+                "stats": stats,
+                "already_submitted": True,
+                "resumable": False,
+            }
+
+        # Остановка/ошибка отправки: задание остаётся в очереди Manager и будет
+        # продолжено с последнего успешно отправленного чанка.
+        stats = _stats(aborted=True)
+        saved_chunk = state.get_resume_chunk()
+        released = self.client.release_task(
+            task_id,
+            reason="submit failed (resume)" if submit_failed else "scanner stopped (resume)",
+        )
+        if released:
+            logger.info(
+                "[Resume] Задание %d приостановлено: обработано чанков %d/%d, "
+                "находок %d — продолжим с чанка %d при следующем запуске",
+                task_id,
+                saved_chunk,
+                total_chunks,
+                prior_findings + run_findings,
+                saved_chunk + 1,
+            )
+        else:
+            logger.warning(
+                "[Resume] Не удалось вернуть задание %d в очередь — Manager "
+                "вернёт его по таймауту (сохранено чанков: %d/%d)",
+                task_id,
+                saved_chunk,
+                total_chunks,
+            )
+        return {
+            "findings": [],
+            "catalog_entries": [],
+            "failed_files": [],
+            "stats": stats,
+            "already_submitted": True,
+            "resumable": True,
+        }
+
+    def _execute_task(self, task: Dict[str, Any]) -> Dict[str, Any]:
+        task_id = task["id"]
+        resource_path = task["path"]
+        scan_config = task.get("scan_config", {})
+        
+        # День 53.1b (BACKLOG-097): тип источника из payload Manager.
+        # Fallback на filesystem — если задача создана до 53.1a.
+        self._current_source_type = (task.get("source_type") or "filesystem").lower()
+        # День 53.2 (BACKLOG-097): scan_config приходит per-task, а
+        # _init_line_pipeline вызывается из _execute_task_linewise, где
+        # scan_config — локальная переменная. Сохраняем в поле.
+        self._current_scan_config = scan_config or {}
+        # Коннектор пересоздаём на каждой задаче: дешёво (только конфиг) и
+        # исключает переиспользование коннектора от другого source_type.
+        self._connector = None
+
+        logger.info(
+            f"[Scanner] Executing task {task_id} on {resource_path} "
+            f"(source_type={self._current_source_type})"
+        )
+        
+        collector = FindingCollector()
+        collector_config = self._get_collector_config()
+        collector.configure(collector_config)
+        collector.start_collection()
+        
+        orchestrator = None
+        connector = None
+        progress_poller = None
+        
+        try:
+            # ===== День 40.2: построчный конвейер — приоритетный путь =====
+            if self._connector is None:
+                self._init_line_pipeline()
+            if self._connector is not None:
+                scanner_metrics.set_current_task(self.scanner_id, task_id)
+                return self._execute_task_linewise(task, resource_path, scan_config)
+
+            # ===== Fallback: классический конвейер (Orchestrator) =====
+            orchestrator_config = self._get_orchestrator_config()
+            orchestrator = Orchestrator(
+                config=orchestrator_config,
+                shared_classifiers=self.classifiers,
+                shared_handlers=[collector]
+            )
+            
+            connector = FileSystemConnector()
+            connector_config = self._get_connector_config()
+            connector.configure(connector_config)
+            
+            orchestrator.configure(connector)
+            
+            logger.info(f"[Scanner] Checking connector on {resource_path}")
+            test_files = list(connector.list_files(resource_path))
+            logger.info(f"[Scanner] Connector found {len(test_files)} files")
+            
+            if not test_files:
+                logger.warning(f"[Scanner] No files found!")
+                return {
+                    "findings": [],
+                    "catalog_entries": [],
+                    "failed_files": [{"path": resource_path, "error": "No files found", "error_type": "connection"}],
+                    "stats": {"files_scanned": 0, "files_failed": 1, "total_findings": 0}
+                }
+            
+            # Прогресс + метрики перед сканированием (День 39)
+            if self.heartbeat_thread is not None:
+                self.heartbeat_thread.set_task(task_id)
+                self.heartbeat_thread.set_progress(0, len(test_files))
+                progress_poller = ProgressPoller(
+                    orchestrator_config["state_file"],
+                    len(test_files),
+                    self.heartbeat_thread,
+                )
+                progress_poller.start()
+            scanner_metrics.set_current_task(self.scanner_id, task_id)
+            
+            logger.info(f"[Scanner] Starting scan of {resource_path}")
+            
+            if hasattr(orchestrator, 'process_source'):
+                orchestrator.process_source(resource_path)
+            else:
+                logger.warning("[Scanner] process_source not available, using manual processing")
+                self._manual_scan(resource_path, orchestrator, connector)
+            
+            collector.finish_collection()
+            
+            results = collector.get_results()
+            
+            findings = results.get("findings", [])
+            failed_files = results.get("failed_files", [])
+            stats = results.get("stats", {})
+            
+            # Собираем каталог (папки с находками)
+            catalog_entries = self._collect_catalog_entries(resource_path, findings)
+            
+            stats["started_at"] = task.get("assigned_at", datetime.utcnow().isoformat())
+            stats["completed_at"] = datetime.utcnow().isoformat()
+            
+            self._update_metrics(stats)
+            
+            logger.info(f"[Scanner] Task {task_id} completed:")
+            logger.info(f"  - Files scanned: {stats.get('files_scanned', 0)}")
+            logger.info(f"  - Files with findings: {stats.get('files_with_findings', 0)}")
+            logger.info(f"  - Total findings: {stats.get('total_findings', 0)}")
+            logger.info(f"  - Folders with findings: {len(catalog_entries)}")
+            logger.info(f"  - Failed files: {stats.get('files_failed', 0)}")
+            
+            if findings:
+                logger.info(f"[Scanner] Sample findings (first 5):")
+                for i, f in enumerate(findings[:5]):
+                    logger.info(f"  {i+1}. [{f.get('category')}] {f.get('value', '')[:50]} in {f.get('file_path', '')}")
+            
+            return {
+                "findings": findings,
+                "catalog_entries": catalog_entries,
+                "failed_files": failed_files,
+                "stats": stats
+            }
+            
+        except Exception as e:
+            logger.error(f"[Scanner] Task {task_id} failed: {e}", exc_info=True)
+            if collector:
+                try:
+                    collector.finish_collection()
+                except:
+                    pass
+            
+            results = collector.get_results() if collector else {"findings": [], "failed_files": [], "stats": {}}
+            findings = results.get("findings", [])
+            
+            catalog_entries = []
+            if findings:
+                catalog_entries = self._collect_catalog_entries(resource_path, findings)
+            
+            self._update_metrics(results.get("stats", {}))
+            
+            return {
+                "findings": findings,
+                "catalog_entries": catalog_entries,
+                "failed_files": results.get("failed_files", []) + [{
+                    "path": resource_path,
+                    "error": str(e),
+                    "error_type": "scan_exception"
+                }],
+                "stats": {
+                    "files_scanned": results.get("stats", {}).get("files_scanned", 0),
+                    "files_failed": results.get("stats", {}).get("files_failed", 0) + 1,
+                    "total_findings": results.get("stats", {}).get("total_findings", 0),
+                    "started_at": task.get("assigned_at", datetime.utcnow().isoformat()),
+                    "completed_at": datetime.utcnow().isoformat(),
+                    "error": str(e)
+                }
+            }
+        finally:
+            if progress_poller is not None:
+                progress_poller.stop()
+            if self.heartbeat_thread is not None:
+                self.heartbeat_thread.set_task(None)
+                self.heartbeat_thread.set_progress(0)
+            try:
+                scanner_metrics.clear_current_task(self.scanner_id)
+            except Exception:
+                pass
+            if orchestrator:
+                try:
+                    if hasattr(orchestrator, 'stop'):
+                        orchestrator.stop()
+                except Exception as e:
+                    logger.debug(f"Error stopping orchestrator: {e}")
     
-    async def run(self):
-        """Основной цикл Scanner"""
+    def _get_offline_dir(self) -> Path:
+        """Директория для оффлайн-режима (scanner/data/offline)"""
+        offline_dir = Path("scanner") / "data" / "offline"
+        offline_dir.mkdir(parents=True, exist_ok=True)
+        return offline_dir
+
+    def _save_offline(self, task_id: int, result: Dict[str, Any]) -> bool:
+        """Сохранить результат задания в оффлайн-хранилище при недоступности Manager"""
+        try:
+            offline_dir = self._get_offline_dir()
+            payload = {
+                "task_id": task_id,
+                "scanner_id": self.scanner_id,
+                "saved_at": datetime.utcnow().isoformat(),
+                "result": result
+            }
+            file_path = offline_dir / f"task_{task_id}.json"
+            with open(file_path, 'w', encoding='utf-8') as f:
+                json.dump(payload, f, ensure_ascii=False, indent=2)
+            logger.info(f"[Offline] Результаты задания {task_id} сохранены: {file_path}")
+            return True
+        except Exception as e:
+            logger.error(f"[Offline] Ошибка сохранения результатов: {e}")
+            return False
+
+    def _flush_offline(self) -> int:
+        """Попытаться отправить сохранённые оффлайн-результаты в Manager.
+
+        Возвращает количество успешно отправленных заданий.
+
+        BUG-097 (TASK-066, v3.13.25): если Manager больше не знает задание
+        (404/410 — задача удалена вручную, очищена E2E-фикстурой или
+        удалена политикой хранения), пачка отбрасывается, а не ретраится
+        бесконечно. Раньше такой файл ждал своей очереди часами, засоряя
+        лог 404-ошибками на каждом цикле main().
+        """
+        offline_dir = self._get_offline_dir()
+        flushed = 0
+        for file_path in sorted(offline_dir.glob("task_*.json")):
+            try:
+                with open(file_path, 'r', encoding='utf-8') as f:
+                    payload = json.load(f)
+                task_id = payload["task_id"]
+                result = payload.get("result", {})
+
+                status = self.client.submit_results_status(
+                    task_id=task_id,
+                    findings=result.get("findings", []),
+                    catalog_entries=result.get("catalog_entries", []),
+                    failed_files=result.get("failed_files", []),
+                    stats=result.get("stats", {})
+                )
+                if status == SubmitStatus.OK:
+                    file_path.unlink()
+                    flushed += 1
+                    logger.info(f"[Offline] Задание {task_id} отправлено из оффлайн-очереди")
+                elif status == SubmitStatus.LOST:
+                    file_path.unlink()
+                    logger.warning(
+                        f"[Offline] Задание {task_id} удалено в Manager — "
+                        "оффлайн-пачка отброшена"
+                    )
+                else:
+                    logger.warning(f"[Offline] Не удалось отправить задание {task_id} из очереди")
+                    break
+            except Exception as e:
+                logger.error(f"[Offline] Ошибка обработки {file_path}: {e}")
+                break
+        return flushed
+
+    def _manual_scan(self, resource_path: str, orchestrator, connector):
+        logger.info(f"[ManualScan] Starting manual scan of {resource_path}")
+        
+        try:
+            files = list(connector.list_files(resource_path))
+            logger.info(f"[ManualScan] Found {len(files)} files")
+            
+            for i, file_ctx in enumerate(files):
+                try:
+                    file_with_content = connector.get_content(file_ctx)
+                    if not file_with_content or not file_with_content.content:
+                        continue
+                    
+                    from scanner.core.base import ProcessingContext
+                    context = ProcessingContext(file_context=file_with_content)
+                    
+                    if hasattr(orchestrator, '_process_file'):
+                        orchestrator._process_file(context, len(files))
+                    
+                    if (i + 1) % 10 == 0:
+                        logger.info(f"[ManualScan] Processed {i + 1}/{len(files)} files")
+                        
+                except Exception as e:
+                    logger.debug(f"[ManualScan] Error processing file: {e}")
+            
+            logger.info(f"[ManualScan] Completed: {len(files)} files processed")
+            
+        except Exception as e:
+            logger.error(f"[ManualScan] Error: {e}")
+    
+    def run_loop(self):
         print("=" * 60)
-        print("🔍 DCAP MANAGED SCANNER")
+        print("[X] DCAP MANAGED SCANNER (REST API)")
+        print("=" * 60)
+        print(f"   Имя: {self.name}")
+        print(f"   Manager: {self.manager_url}")
+        print(f"   Scanner ID: {self.scanner_id or 'auto-register'}")
+        print(f"   Интервал: {self.interval} сек")
+        print("   Для остановки: Ctrl+C")
         print("=" * 60)
         
-        if not await self.connect():
+        self.client = ManagerClient(
+            base_url=self.manager_url,
+            scanner_id=self.scanner_id,
+            config=self.config
+        )
+        
+        if not self._register_scanner():
+            logger.error("[ERROR] Ошибка регистрации сканера")
             return
         
-        asyncio.create_task(self.heartbeat_loop())
+        logger.info(f"[X] Сканер {self.name} запущен (ID: {self.scanner_id})")
         
-        logger.info("⏳ Ожидание заданий...")
+        self.client.heartbeat(status="idle")
         
-        while True:
+        # Метрики на :9101 (fail-open) + выделенный поток heartbeat (День 39)
+        scanner_metrics.start_metrics_server(self.scanner_id, port=9101)
+        self.heartbeat_thread = HeartbeatThread(
+            manager_url=self.manager_url,
+            scanner_id=self.scanner_id,
+            interval=30,
+        )
+        self.heartbeat_thread.start()
+        
+        while not self._should_exit:
             try:
-                task = await self.get_task()
+                heartbeat_ok = False
+                for attempt in range(3):
+                    if self.client.heartbeat(status="idle"):
+                        heartbeat_ok = True
+                        break
+                    if attempt < 2:
+                        time.sleep(1)
+                
+                if not heartbeat_ok:
+                    logger.warning("[WARN] Heartbeat не удался после 3 попыток")
+
+                # Попытка отправить накопленные оффлайн-результаты
+                if heartbeat_ok:
+                    self._flush_offline()
+
+                task = self.client.get_task()
                 
                 if task:
-                    await self.execute_task(task)
-                    await asyncio.sleep(2)
+                    self.client.heartbeat(status="busy", task_id=task["id"])
+                    
+                    # BUG-097 (TASK-066, v3.13.25): раньше исключение внутри
+                    # _execute_task гасилось внешним except, и задание оставалось
+                    # в статусе assigned до срабатывания stale-таймаута Manager
+                    # (TASK_TIMEOUT_MINUTES = 30) — очередь вставала, все
+                    # последующие задания копились в assigned. Теперь задание
+                    # сразу переводится в failed, а причина логируется со стеком.
+                    try:
+                        result = self._execute_task(task)
+                    except Exception as e:
+                        logger.exception(
+                            f"[ERROR] Task {task['id']} failed during execution: {e}"
+                        )
+                        self._fail_task_safely(task["id"], f"scanner error: {e}")
+                        self.client.heartbeat(status="idle")
+                        continue
+                    
+                    if self._should_exit or self._stop_event.is_set():
+                        if result.get("resumable"):
+                            # 53.4n: задание уже возвращено в очередь (release),
+                            # продолжение — при следующем запуске.
+                            logger.info(
+                                "[STOP] Задача %s приостановлена — продолжение с ",
+                                task["id"],
+                            )
+                        else:
+                            logger.warning(
+                                "[STOP] Задача прервана пользователем — уведомляем Manager"
+                            )
+                            try:
+                                self.client.fail_task(
+                                    task["id"], reason="scanner aborted (Ctrl+C)"
+                                )
+                            except Exception as e:
+                                logger.error(f"[STOP] Не удалось уведомить Manager: {e}")
+                        break
+
+                    if result.get("already_submitted"):
+                        # 53.4n: результаты отправлены по чанкам внутри
+                        # _execute_task_linewise — повторно не отправляем.
+                        logger.info(
+                            f"[OK] Task {task['id']}: результаты отправлены по чанкам"
+                        )
+                        self.client.heartbeat(status="idle")
+                        continue
+
+                    submit_status = self.client.submit_results_status(
+                        task_id=task["id"],
+                        findings=result.get("findings", []),
+                        catalog_entries=result.get("catalog_entries", []),
+                        failed_files=result.get("failed_files", []),
+                        stats=result.get("stats", {})
+                    )
+                    
+                    if submit_status == SubmitStatus.OK:
+                        logger.info(f"[OK] Task {task['id']} completed successfully")
+                    elif submit_status == SubmitStatus.LOST:
+                        # BUG-097: задание удалено в Manager — оффлайн-пачку не
+                        # создаём, иначе получим вечный цикл 404.
+                        logger.warning(
+                            f"[WARN] Task {task['id']} удалён в Manager — результаты отброшены"
+                        )
+                    else:
+                        logger.error(f"[ERROR] Failed to submit results for task {task['id']}")
+                        self._save_offline(task["id"], result)
+                    
+                    self.client.heartbeat(status="idle")
                 else:
-                    await asyncio.sleep(5)
+                    time.sleep(self.interval)
                     
             except KeyboardInterrupt:
+                logger.warning("[STOP] Ctrl+C — останавливаемся, состояние сохраняем")
+                try:
+                    if "task" in locals() and task:
+                        # 53.4n: сначала пробуем вернуть задание в очередь
+                        # (resume), fail — только если release не удался.
+                        if not self.client.release_task(
+                            task["id"], reason="scanner aborted (Ctrl+C)"
+                        ):
+                            self.client.fail_task(
+                                task["id"], reason="scanner aborted (Ctrl+C)"
+                            )
+                except Exception as e:
+                    logger.error(f"[STOP] Не удалось уведомить Manager: {e}")
                 break
             except Exception as e:
-                logger.error(f"❌ Ошибка: {e}")
-                await asyncio.sleep(5)
+                logger.error(f"[ERROR] Ошибка в основном цикле: {e}")
+                time.sleep(5)
+        
+        self.client.heartbeat(status="offline")
+        if self.heartbeat_thread is not None:
+            self.heartbeat_thread.stop()
+        self._shutdown_classifiers()
+        logger.info("[X] Сканер остановлен")
+
+    def _fail_task_safely(self, task_id: int, reason: str) -> bool:
+        """Сообщить Manager об ошибке задания, не роняя основной цикл.
+
+        BUG-097 (TASK-066, v3.13.25): без этого задание оставалось в статусе
+        assigned и блокировало очередь на TASK_TIMEOUT_MINUTES.
+        """
+        try:
+            ok = self.client.fail_task(task_id, reason=reason)
+            if ok:
+                logger.info(f"[Task] Task {task_id} marked as failed: {reason}")
+            else:
+                logger.warning(f"[Task] Не удалось перевести задание {task_id} в failed")
+            return ok
+        except Exception as e:
+            logger.error(f"[Task] Ошибка при переводе задания {task_id} в failed: {e}")
+            return False
+
+    def _shutdown_classifiers(self):
+        """Корректное завершение классификаторов (OCRWorker и др. процессы) —
+        иначе после остановки сканера остаются осиротевшие дочерние процессы.
+        Идемпотентно (PiiClassifier._stop_ocr_worker имеет guard _ocr_started).
+        """
+        for clf in self.classifiers:
+            shutdown = getattr(clf, "shutdown", None)
+            if callable(shutdown):
+                try:
+                    shutdown()
+                except Exception as e:
+                    logger.debug("Classifier shutdown error %s: %s", getattr(clf, "classifier_name", clf), e)
+
+    def _handle_sigint(self, signum, frame):
+        """BUG-081 (TASK-052): SIGINT → graceful shutdown (Windows-совместимо)."""
+        logger.warning("[Scanner] SIGINT received, stopping...")
+        self._should_exit = True
+        self._stop_event.set()
+
+    def stop(self):
+        """Graceful shutdown — вызывается из SIGINT-handler, KeyboardInterrupt или извне.
+
+        BUG-081 (TASK-052): останавливает heartbeat, затем классификаторы
+        (OCRWorker): None в request_queue → join(5) → terminate → join(2) → kill.
+        """
+        logger.info("[Scanner] Stopping...")
+        self._should_exit = True
+        self._stop_event.set()
+
+        logger.info("[Scanner] Stopping heartbeat...")
+        if self.heartbeat_thread is not None:
+            try:
+                self.heartbeat_thread.stop()
+            except Exception as e:
+                logger.debug("Heartbeat stop error: %s", e)
+
+        logger.info("[Scanner] Stopping OCRWorker/classifiers...")
+        self._shutdown_classifiers()
+
+        logger.info("[Scanner] Stopped")
+
+
+def main():
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+    )
     
-    async def stop(self):
-        """Остановка Scanner"""
-        if self.channel:
-            await self.channel.close()
-        logger.info("👋 Scanner остановлен")
-
-
-async def main():
-    """Точка входа"""
+    for name in logging.root.manager.loggerDict:
+        if 'presidio' in name.lower() or 'pypdf' in name.lower():
+            logging.getLogger(name).setLevel(logging.WARNING)
+            logging.getLogger(name).disabled = True
+    
+    config_path = "scanner/config/scanner_config.json"
+    if len(sys.argv) > 1:
+        config_path = sys.argv[1]
+    
+    try:
+        from scanner.src.config_loader import load_config
+        config = load_config(config_path)
+    except Exception as e:
+        logger.error(f"Ошибка загрузки конфигурации: {e}")
+        config = None
+    
+    if config:
+        name = config.scanner.name
+        manager_url = config.scanner.manager_url
+        scanner_id = config.scanner.scanner_id
+        interval = config.scanner.scan_interval
+    else:
+        name = "scanner-1"
+        manager_url = "http://localhost:8000"
+        scanner_id = None
+        interval = 10
+    
     scanner = ManagedScanner(
-        name="real-scanner-1",
-        manager_endpoint="localhost:50051"
+        name=name,
+        manager_url=manager_url,
+        scanner_id=scanner_id,
+        interval=interval,
+        config=config
     )
     
     try:
-        await scanner.run()
+        scanner.run_loop()
     except KeyboardInterrupt:
-        print("\n⏹️ Остановка...")
-        await scanner.stop()
+        print("\n[STOP] Прервано пользователем")
+    finally:
+        scanner.stop()
 
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    main()

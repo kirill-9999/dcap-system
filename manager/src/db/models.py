@@ -1,320 +1,651 @@
-# -*- coding: utf-8 -*-
-"""
-DCAP Manager - Database Models (SQLite compatible)
-"""
+# manager/src/db/models.py
 
+from sqlalchemy import Column, Integer, String, DateTime, Boolean, ForeignKey, Text, JSON, Float, Index, UniqueConstraint, LargeBinary
+from sqlalchemy.orm import relationship
+from sqlalchemy.ext.declarative import declarative_base
 from datetime import datetime
-from typing import Optional, List, Dict, Any
-
-from sqlalchemy import (
-    Column, String, DateTime, Integer, Boolean, 
-    JSON, Enum as SQLEnum, BigInteger, ForeignKey,
-    Text, Float, Index
-)
-from sqlalchemy.orm import declarative_base, relationship
-import enum
 
 Base = declarative_base()
 
 
-class ScannerStatus(str, enum.Enum):
-    """Статус сканера"""
-    ACTIVE = "active"
-    IDLE = "idle"
-    OFFLINE = "offline"
-    ERROR = "error"
+class Resource(Base):
+    __tablename__ = "resources"
+    __table_args__ = (
+        # BUG-059: уникальность по (path, type), а не только path — нормализуем
+        # type в lowercase при создании; индекс создаётся на новых БД.
+        UniqueConstraint("path", "type", name="uq_resources_path_type"),
+        Index("ix_resources_path", "path"),
+    )
 
+    # Существующие поля
+    id = Column(Integer, primary_key=True)
+    path = Column(String(500), nullable=False)
+    type = Column(String(50), default="FILESYSTEM")
+    status = Column(String(20), default="ACTIVE")
+    last_scanned_at = Column(DateTime, nullable=True)
+    enabled = Column(Boolean, default=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    scan_config = Column(JSON, nullable=True)
+    scan_interval = Column(Integer, default=3600)
+    schedule_enabled = Column(Boolean, default=False)
+    cron_expression = Column(String(100), nullable=True)
 
-class TaskStatus(str, enum.Enum):
-    """Статус задания"""
-    PENDING = "pending"
-    ASSIGNED = "assigned"
-    RUNNING = "running"
-    COMPLETED = "completed"
-    FAILED = "failed"
+    # [X] НОВЫЕ ПОЛЯ ДЛЯ УПРАВЛЕНИЯ ДОСТУПОМ (День 9)
+    # Владелец ресурса
+    owner = Column(String(200), nullable=True)  # DOMAIN\User или LOCAL\User
+    owner_sid = Column(String(100), nullable=True)  # SID владельца
+
+    # Права доступа в упрощенном формате
+    permissions = Column(JSON, default={})  # {"user": "read", "group": "write"}
+
+    # Время последней синхронизации прав
+    permission_last_synced = Column(DateTime, nullable=True)
+
+    # Классификация ресурса по чувствительности
+    is_sensitive = Column(Boolean, default=False)  # Флаг чувствительности
+    classification_level = Column(
+        String(20), default="public"
+    )  # public, internal, confidential, restricted
+
+    # Источник прав доступа
+    permission_source = Column(String(50), default="local")  # local, ad, custom
+
+    # Домен (для будущей AD интеграции)
+    domain = Column(String(100), nullable=True)
+
+    # [X] СВЯЗИ (День 9)
+    access_entries = relationship(
+        "AccessEntry", back_populates="resource", cascade="all, delete-orphan", lazy="select"
+    )
+    permission_changes = relationship(
+        "PermissionChange", back_populates="resource", cascade="all, delete-orphan", lazy="select"
+    )
+    access_alerts = relationship(
+        "AccessAlert", back_populates="resource", cascade="all, delete-orphan", lazy="select"
+    )
+
+    def __repr__(self):
+        return f"<Resource(id={self.id}, path='{self.path}', owner='{self.owner}')>"
 
 
 class Scanner(Base):
-    """Модель агента сканирования"""
     __tablename__ = "scanners"
-    
-    id = Column(Integer, primary_key=True, autoincrement=True)
-    name = Column(String(100), unique=True, nullable=False)
-    endpoint = Column(String(255), nullable=False)
-    public_cert = Column(Text, nullable=True)
-    
-    status = Column(SQLEnum(ScannerStatus), default=ScannerStatus.OFFLINE)
+
+    id = Column(Integer, primary_key=True)
+    name = Column(String(100), unique=True)
+    status = Column(String(20), default="offline")
     last_heartbeat = Column(DateTime, nullable=True)
-    
-    total_files_scanned = Column(BigInteger, default=0)
-    total_findings = Column(BigInteger, default=0)
-    
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
-    
-    # Relationships
-    tasks = relationship("ScanTask", back_populates="scanner")
-    findings = relationship("Finding", back_populates="scanner")
-    catalog_entries = relationship("CatalogEntry", back_populates="scanner")
-    failed_files = relationship("FailedFile", back_populates="scanner")
-    
-    def to_dict(self) -> Dict[str, Any]:
-        return {
-            "id": self.id,
-            "name": self.name,
-            "endpoint": self.endpoint,
-            "status": self.status.value,
-            "last_heartbeat": self.last_heartbeat.isoformat() if self.last_heartbeat else None,
-            "total_files_scanned": self.total_files_scanned,
-            "total_findings": self.total_findings,
-            "created_at": self.created_at.isoformat() if self.created_at else None,
-        }
-    
-    def __repr__(self) -> str:
-        return f"<Scanner(id={self.id}, name={self.name}, status={self.status.value})>"
+    registered_at = Column(DateTime, default=datetime.utcnow)
+    hostname = Column(String(100), nullable=True)
+    ip_address = Column(String(45), nullable=True)
+    scan_interval = Column(Integer, default=10)
 
-
-class Resource(Base):
-    """Модель ресурса для сканирования"""
-    __tablename__ = "resources"
-    
-    id = Column(Integer, primary_key=True, autoincrement=True)
-    type = Column(String(20), nullable=False)
-    path = Column(String(500), nullable=False)
-    
-    credentials_encrypted = Column(JSON, nullable=True)
-    credentials_nonce = Column(JSON, nullable=True)
-    
-    enabled = Column(Boolean, default=True)
-    config = Column(JSON, nullable=True)
-    
-    last_scan_start = Column(DateTime, nullable=True)
-    last_scan_end = Column(DateTime, nullable=True)
-    
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
-    
-    # Relationships
-    schedules = relationship("Schedule", back_populates="resource")
-    tasks = relationship("ScanTask", back_populates="resource")
-    
-    def to_dict(self) -> Dict[str, Any]:
-        return {
-            "id": self.id,
-            "type": self.type,
-            "path": self.path,
-            "enabled": self.enabled,
-            "config": self.config or {},
-            "last_scan_start": self.last_scan_start.isoformat() if self.last_scan_start else None,
-            "last_scan_end": self.last_scan_end.isoformat() if self.last_scan_end else None,
-            "created_at": self.created_at.isoformat() if self.created_at else None,
-        }
-    
-    def get_full_path(self) -> str:
-        if self.type in ("S3", "MINIO"):
-            return f"{self.type.lower()}://{self.path}"
-        return self.path
-
-
-class Schedule(Base):
-    """Модель расписания сканирования"""
-    __tablename__ = "schedules"
-    
-    id = Column(Integer, primary_key=True, autoincrement=True)
-    resource_id = Column(Integer, ForeignKey("resources.id"), nullable=False)
-    
-    cron_expression = Column(String(100), nullable=False)
-    priority = Column(Integer, default=0)
-    max_files_per_batch = Column(Integer, default=500)
-    
-    enabled = Column(Boolean, default=True)
-    
-    last_run = Column(DateTime, nullable=True)
-    next_run = Column(DateTime, nullable=True)
-    
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
-    
-    # Relationships
-    resource = relationship("Resource", back_populates="schedules")
-    
-    def to_dict(self) -> Dict[str, Any]:
-        return {
-            "id": self.id,
-            "resource_id": self.resource_id,
-            "cron_expression": self.cron_expression,
-            "priority": self.priority,
-            "max_files_per_batch": self.max_files_per_batch,
-            "enabled": self.enabled,
-            "last_run": self.last_run.isoformat() if self.last_run else None,
-            "next_run": self.next_run.isoformat() if self.next_run else None,
-        }
+    def __repr__(self):
+        return f"<Scanner(id={self.id}, name='{self.name}', status='{self.status}')>"
 
 
 class ScanTask(Base):
-    """Модель задания на сканирование"""
     __tablename__ = "scan_tasks"
-    
-    id = Column(Integer, primary_key=True, autoincrement=True)
-    resource_id = Column(Integer, ForeignKey("resources.id"), nullable=False)
+
+    id = Column(Integer, primary_key=True)
+    resource_id = Column(Integer, ForeignKey("resources.id"))
     scanner_id = Column(Integer, ForeignKey("scanners.id"), nullable=True)
-    
-    path_filter = Column(String(500), nullable=True)
-    
-    status = Column(SQLEnum(TaskStatus), default=TaskStatus.PENDING)
-    
-    files_total = Column(Integer, default=0)
-    files_scanned = Column(Integer, default=0)
-    findings_count = Column(Integer, default=0)
-    
+    source_path = Column(String(500), nullable=False)
+    # День 53.1a (BACKLOG-097): тип источника — сканер выбирает коннектор
+    # по source_type, не угадывая по префиксу source_path ('s3://...').
+    # filesystem | s3 | minio (lowercase — как Resource.type).
+    source_type = Column(String(20), default="filesystem", nullable=False, index=True)
+    status = Column(String(20), default="pending")
+    created_at = Column(DateTime, default=datetime.utcnow)
     assigned_at = Column(DateTime, nullable=True)
     started_at = Column(DateTime, nullable=True)
     completed_at = Column(DateTime, nullable=True)
-    
-    created_at = Column(DateTime, default=datetime.utcnow)
-    
-    # Relationships
-    resource = relationship("Resource", back_populates="tasks")
-    scanner = relationship("Scanner", back_populates="tasks")
-    findings = relationship("Finding", back_populates="task")
-    failed_files = relationship("FailedFile", back_populates="task")
-    
-    def to_dict(self) -> Dict[str, Any]:
-        return {
-            "id": self.id,
-            "resource_id": self.resource_id,
-            "scanner_id": self.scanner_id,
-            "path_filter": self.path_filter,
-            "status": self.status.value,
-            "files_total": self.files_total,
-            "files_scanned": self.files_scanned,
-            "findings_count": self.findings_count,
-            "assigned_at": self.assigned_at.isoformat() if self.assigned_at else None,
-            "started_at": self.started_at.isoformat() if self.started_at else None,
-            "completed_at": self.completed_at.isoformat() if self.completed_at else None,
-            "created_at": self.created_at.isoformat() if self.created_at else None,
-        }
+    files_scanned = Column(Integer, default=0)
+    files_failed = Column(Integer, default=0)
+    findings_count = Column(Integer, default=0)
+    error_message = Column(Text, nullable=True)
+    progress = Column(JSON, nullable=True)
+
+    def __repr__(self):
+        return f"<ScanTask(id={self.id}, resource_id={self.resource_id}, status='{self.status}')>"
 
 
 class Finding(Base):
-    """Находка (результат сканирования)"""
+    """Находка = конкретное совпадение (строка/фрагмент), а не файл.
+
+    Хранение: гибрид — маскированное (по умолчанию) + зашифрованное (AES-256-GCM).
+    Расшифровка — только Auditor, с аудитом.
+    """
     __tablename__ = "findings"
 
-    id = Column(Integer, primary_key=True, autoincrement=True)
-    scanner_id = Column(Integer, ForeignKey("scanners.id"), nullable=False)
-    task_id = Column(Integer, ForeignKey("scan_tasks.id"), nullable=False)
+    id = Column(Integer, primary_key=True)
 
+    # Связи
+    resource_id = Column(Integer, ForeignKey("resources.id"), nullable=False, index=True)
+    task_id = Column(Integer, ForeignKey("scan_tasks.id"), nullable=True, index=True)
+
+    # Классификация
+    finding_type = Column(String(50), nullable=False, index=True)   # pii, credentials, code
+    category = Column(String(100), nullable=False, index=True)      # phone, email, api_key
+    severity = Column(String(20), default="medium")                 # low, medium, high, critical
+
+    # Где найдено
+    fragment_type = Column(String(20), nullable=False)
+    # text_line | text_context | image_region | byte_range
+
+    line_number = Column(Integer, nullable=True)
+    line_text_masked = Column(Text, nullable=True)
+    line_text_encrypted = Column(Text, nullable=True)
+    match_text_masked = Column(Text, nullable=True)
+    match_text_encrypted = Column(Text, nullable=True)
+    context_before_masked = Column(Text, nullable=True)
+    context_after_masked = Column(Text, nullable=True)
+
+    # Не-текстовые
+    fragment_path = Column(String(500), nullable=True)     # путь к вырезанному фрагменту
+    bounding_box = Column(JSON, nullable=True)             # {x, y, width, height}
+    byte_offset = Column(Integer, nullable=True)
+    byte_length = Column(Integer, nullable=True)
+    hex_preview = Column(Text, nullable=True)
+
+    # BACKLOG-086 (TASK-045, v3.13.19): встроенный фрагмент (доказательная база).
+    # Только для image_region. text_line — данные в line_text_encrypted.
+    # byte_range — отложено до v3.1.0.
+    fragment_data = Column(LargeBinary, nullable=True)      # base64-decoded bytes
+    fragment_mime = Column(String(50), nullable=True)       # image/png, image/jpeg
+    fragment_hash = Column(String(64), nullable=True)       # SHA-256 (целостность)
+    fragment_size = Column(Integer, nullable=True)          # bytes
+    fragment_embedded_at = Column(DateTime, nullable=True)  # когда встроен
+
+    # Дедупликация
+    fingerprint = Column(String(64), nullable=False, index=True)   # HMAC-SHA256
+    encryption_key_id = Column(String(50), nullable=False)
+
+    # Время
+    first_seen_at = Column(DateTime, default=datetime.utcnow)
+    last_seen_at = Column(DateTime, default=datetime.utcnow)
+
+    # Статус
+    status = Column(String(20), default="new", index=True)
+    # new | confirmed | false_positive | archived
+
+    reviewed_by = Column(Integer, ForeignKey("users.id"), nullable=True)
+    reviewed_at = Column(DateTime, nullable=True)
+    comment = Column(Text, nullable=True)
+
+    # Метаданные
+    confidence = Column(Float, nullable=True)
+    detector = Column(String(50), nullable=True)           # presidio, regex, entropy, ocr
+
+    # Связи (relationships)
+    resource = relationship("Resource", backref="findings")
+    task = relationship("ScanTask", backref="findings")
+    reviewer = relationship("User", foreign_keys=[reviewed_by])
+
+    # Индексы
+    __table_args__ = (
+        Index("ix_findings_resource_status", "resource_id", "status"),
+        Index("ix_findings_type_category", "finding_type", "category"),
+        Index("ix_findings_status_first_seen", "status", "first_seen_at"),
+    )
+
+    def __repr__(self):
+        return f"<Finding(id={self.id}, type={self.finding_type}, category={self.category}, line={self.line_number})>"
+
+
+class CatalogEntry(Base):
+    __tablename__ = "catalog_entries"
+
+    id = Column(Integer, primary_key=True)
+    resource_id = Column(Integer, ForeignKey("resources.id"))
+    task_id = Column(Integer, ForeignKey("scan_tasks.id"), nullable=True)
+    path = Column(String(500), nullable=False, unique=True, index=True)
+    entry_metadata = Column(JSON, default={})
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    def __repr__(self):
+        return f"<CatalogEntry(id={self.id}, path='{self.path}')>"
+
+
+class FailedFile(Base):
+    __tablename__ = "failed_files"
+
+    id = Column(Integer, primary_key=True)
+    task_id = Column(Integer, ForeignKey("scan_tasks.id"))
+    resource_id = Column(Integer, ForeignKey("resources.id"))
     file_path = Column(String(500), nullable=False)
-    file_hash = Column(String(64), nullable=True)
-    file_size = Column(BigInteger, nullable=False)
-    file_modified = Column(DateTime, nullable=True)
-
-    classifier_name = Column(String(50), nullable=False)
-    category = Column(String(50), nullable=False)
-    subcategory = Column(String(50), nullable=False)
-    value = Column(Text, nullable=False)
-    confidence = Column(Float, nullable=False)
-    detection_method = Column(String(50), nullable=False)
-    context = Column(Text, nullable=True)
-
+    error_type = Column(String(50), nullable=False)
+    error_message = Column(Text, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
 
-    # Relationships
-    scanner = relationship("Scanner", back_populates="findings")
-    task = relationship("ScanTask", back_populates="findings")
+    def __repr__(self):
+        return f"<FailedFile(id={self.id}, file='{self.file_path}', error='{self.error_type}')>"
 
-    def to_dict(self) -> Dict[str, Any]:
+
+class Schedule(Base):
+    __tablename__ = "schedules"
+
+    id = Column(Integer, primary_key=True)
+    resource_id = Column(Integer, ForeignKey("resources.id"), unique=True)
+    cron_expression = Column(String(100), nullable=False)
+    enabled = Column(Boolean, default=True)
+    last_run_at = Column(DateTime, nullable=True)
+    next_run_at = Column(DateTime, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    def __repr__(self):
+        return f"<Schedule(id={self.id}, resource_id={self.resource_id}, cron='{self.cron_expression}')>"
+
+
+# [X] НОВЫЕ МОДЕЛИ ДЛЯ УПРАВЛЕНИЯ ДОСТУПОМ (День 9)
+
+
+class AccessEntry(Base):
+    """
+    Модель для хранения информации о правах доступа к ресурсу.
+    Поддерживает локальных пользователей/группы и будущую AD интеграцию.
+    """
+
+    __tablename__ = "access_entries"
+
+    id = Column(Integer, primary_key=True)
+    resource_id = Column(Integer, ForeignKey("resources.id"), nullable=False, index=True)
+
+    # Субъект доступа
+    principal_type = Column(
+        String(20), nullable=False
+    )  # user, group, local_user, ad_user, ad_group, system
+    principal_name = Column(String(200), nullable=False)  # DOMAIN\User или GROUP_NAME
+    principal_sid = Column(String(100), nullable=True)  # SID субъекта
+
+    # Для будущей AD интеграции
+    principal_domain = Column(String(100), nullable=True)  # Домен субъекта
+    principal_upn = Column(String(200), nullable=True)  # User Principal Name (user@domain.com)
+
+    # Права
+    permission_type = Column(
+        String(50), nullable=False
+    )  # read, write, delete, modify, full_control
+    permission_source = Column(String(50), default="direct")  # direct, inherited, group_membership
+
+    # Наследование
+    inherited_from = Column(String(500), nullable=True)  # Путь или группа-источник
+    is_inherited = Column(Boolean, default=False)
+
+    # Аудит
+    granted_at = Column(DateTime, default=datetime.utcnow)
+    granted_by = Column(String(200), nullable=True)
+    last_verified_at = Column(DateTime, default=datetime.utcnow)
+    is_active = Column(Boolean, default=True)
+
+    # Источник коллектора
+    collector_source = Column(String(50), default="local")  # local, ad, custom
+
+    # Связь с ресурсом
+    resource = relationship("Resource", back_populates="access_entries")
+
+    def __repr__(self):
+        return (
+            f"<AccessEntry(id={self.id}, resource_id={self.resource_id}, "
+            f"principal='{self.principal_name}', permission='{self.permission_type}')>"
+        )
+
+    def to_dict(self):
+        """Удобный метод для сериализации"""
         return {
             "id": self.id,
-            "scanner_id": self.scanner_id,
-            "task_id": self.task_id,
+            "resource_id": self.resource_id,
+            "principal_type": self.principal_type,
+            "principal_name": self.principal_name,
+            "principal_sid": self.principal_sid,
+            "principal_domain": self.principal_domain,
+            "principal_upn": self.principal_upn,
+            "permission_type": self.permission_type,
+            "permission_source": self.permission_source,
+            "inherited_from": self.inherited_from,
+            "is_inherited": self.is_inherited,
+            "granted_at": self.granted_at.isoformat() if self.granted_at else None,
+            "granted_by": self.granted_by,
+            "last_verified_at": (
+                self.last_verified_at.isoformat() if self.last_verified_at else None
+            ),
+            "is_active": self.is_active,
+            "collector_source": self.collector_source,
+        }
+
+
+class PermissionChange(Base):
+    """
+    Модель для хранения истории изменений прав доступа.
+    Позволяет отслеживать кто, когда и что изменил.
+    """
+
+    __tablename__ = "permission_changes"
+
+    id = Column(Integer, primary_key=True)
+    resource_id = Column(Integer, ForeignKey("resources.id"), nullable=False, index=True)
+
+    # Что изменилось
+    change_type = Column(String(50), nullable=False)  # grant, revoke, modify
+    principal_name = Column(String(200), nullable=False)
+    permission_type = Column(String(50), nullable=False)
+
+    # Старое и новое состояние
+    old_value = Column(String(50), nullable=True)
+    new_value = Column(String(50), nullable=True)
+
+    # Кто изменил
+    changed_by = Column(String(200), nullable=True)
+    changed_at = Column(DateTime, default=datetime.utcnow)
+
+    # Источник изменения
+    change_source = Column(String(50), default="manual")  # manual, ad_sync, api, system
+
+    # Связь с ресурсом
+    resource = relationship("Resource", back_populates="permission_changes")
+
+    def __repr__(self):
+        return (
+            f"<PermissionChange(id={self.id}, resource_id={self.resource_id}, "
+            f"type='{self.change_type}', principal='{self.principal_name}')>"
+        )
+
+    def to_dict(self):
+        """Удобный метод для сериализации"""
+        return {
+            "id": self.id,
+            "resource_id": self.resource_id,
+            "change_type": self.change_type,
+            "principal_name": self.principal_name,
+            "permission_type": self.permission_type,
+            "old_value": self.old_value,
+            "new_value": self.new_value,
+            "changed_by": self.changed_by,
+            "changed_at": self.changed_at.isoformat() if self.changed_at else None,
+            "change_source": self.change_source,
+        }
+
+
+class AccessAlert(Base):
+    """
+    Модель для хранения алертов по доступам.
+    Помогает выявлять проблемы безопасности: избыточные права, опасные наследования и т.д.
+    """
+
+    __tablename__ = "access_alerts"
+
+    id = Column(Integer, primary_key=True)
+    resource_id = Column(Integer, ForeignKey("resources.id"), nullable=True)
+
+    # Тип и важность
+    alert_type = Column(
+        String(50), nullable=False
+    )  # excessive_permissions, inherited_risk, orphaned, sensitive_access
+    severity = Column(String(20), default="warning")  # critical, warning, info
+
+    # Детали
+    principal_name = Column(String(200), nullable=True)
+    description = Column(Text, nullable=False)
+    recommendation = Column(Text, nullable=True)
+
+    # Статус обработки
+    status = Column(String(20), default="open")  # open, acknowledged, resolved, ignored
+
+    # Аудит
+    created_at = Column(DateTime, default=datetime.utcnow)
+    resolved_at = Column(DateTime, nullable=True)
+    resolved_by = Column(String(200), nullable=True)
+
+    # Связь с ресурсом
+    resource = relationship("Resource", back_populates="access_alerts")
+
+    def __repr__(self):
+        return (
+            f"<AccessAlert(id={self.id}, type='{self.alert_type}', "
+            f"severity='{self.severity}', status='{self.status}')>"
+        )
+
+    def to_dict(self):
+        """Удобный метод для сериализации"""
+        return {
+            "id": self.id,
+            "resource_id": self.resource_id,
+            "alert_type": self.alert_type,
+            "severity": self.severity,
+            "principal_name": self.principal_name,
+            "description": self.description,
+            "recommendation": self.recommendation,
+            "status": self.status,
+            "created_at": self.created_at.isoformat() if self.created_at else None,
+            "resolved_at": self.resolved_at.isoformat() if self.resolved_at else None,
+            "resolved_by": self.resolved_by,
+        }
+
+
+class AuditAgent(Base):
+    __tablename__ = "audit_agents"
+
+    id = Column(Integer, primary_key=True)
+    name = Column(String(100), unique=True, nullable=False)  # например: server01-audit
+    hostname = Column(String(200), nullable=False)
+    ip_address = Column(String(45), nullable=True)
+    status = Column(String(20), default="offline")  # offline, online, error, updating
+
+    version = Column(String(20), default="1.0.0")
+
+    # Конфигурация агента (передается из Manager)
+    config = Column(
+        JSON,
+        default={
+            "read_interval": 60,  # секунд между чтением Security Log
+            "batch_size": 100,  # сколько событий за раз
+            "buffer_size": 10000,  # сколько хранить локально при потере связи
+            "event_filters": [],  # список Event ID для сбора
+            "paths": [],  # какие папки аудировать (SACL)
+        },
+    )
+
+    # Мониторинг
+    last_heartbeat = Column(DateTime, nullable=True)
+    registered_at = Column(DateTime, default=datetime.utcnow)
+    last_error = Column(Text, nullable=True)
+
+    # Статистика
+    events_sent = Column(Integer, default=0)
+    events_failed = Column(Integer, default=0)
+    last_event_at = Column(DateTime, nullable=True)
+
+    # Связи
+    audit_logs = relationship("AuditLog", back_populates="agent", cascade="all, delete-orphan")
+
+    def __repr__(self):
+        return f"<AuditAgent(id={self.id}, name='{self.name}', status='{self.status}')>"
+
+
+class AuditLog(Base):
+    __tablename__ = "audit_logs"
+
+    # Индексы для поиска. Партиционирование audit_logs по месяцам выполняется
+    # на PostgreSQL через Alembic-миграцию (001_initial_postgres.py):
+    # на SQLite DDL PARTITION OF не применяется, поэтому здесь только индексы.
+    __table_args__ = (
+        Index("idx_audit_source_created", "event_source", "created_at"),
+    )
+
+    id = Column(Integer, primary_key=True)
+    agent_id = Column(Integer, ForeignKey("audit_agents.id"), nullable=True, index=True)
+
+    event_type = Column(String(50), nullable=False)  # read, write, delete, move, rename
+    event_source = Column(String(50), default="agent")  # agent, scanner, api, system
+    user = Column(String(200), nullable=True)
+    user_sid = Column(String(100), nullable=True)
+    file_path = Column(String(500), nullable=False)
+    old_path = Column(String(500), nullable=True)  # для move/rename
+    source_host = Column(String(100), nullable=True)  # откуда пришло событие
+
+    metadata_json = Column("metadata", JSON, default={})
+    created_at = Column(DateTime, default=datetime.utcnow, index=True)
+
+    # Связи
+    agent = relationship("AuditAgent", back_populates="audit_logs")
+
+    def __repr__(self):
+        return f"<AuditLog(id={self.id}, event_type='{self.event_type}', file='{self.file_path}')>"
+
+
+# [X] АРХИВНЫЕ МОДЕЛИ (День 35)
+class AuditLogArchive(Base):
+    """Архивная таблица для аудит-событий"""
+
+    __tablename__ = "audit_logs_archive"
+
+    id = Column(Integer, primary_key=True)
+    agent_id = Column(Integer, nullable=True, index=True)
+    event_type = Column(String(50), nullable=False)
+    event_source = Column(String(50), default="agent")
+    user = Column(String(200), nullable=True)
+    user_sid = Column(String(100), nullable=True)
+    file_path = Column(String(500), nullable=False)
+    old_path = Column(String(500), nullable=True)
+    source_host = Column(String(100), nullable=True)
+    metadata_json = Column("metadata", JSON, default={})
+    created_at = Column(DateTime, default=datetime.utcnow, index=True)
+    archived_at = Column(DateTime, default=datetime.utcnow)
+
+    def to_dict(self):
+        """Удобный метод для сериализации"""
+        return {
+            "id": self.id,
+            "agent_id": self.agent_id,
+            "event_type": self.event_type,
+            "event_source": self.event_source,
+            "user": self.user,
+            "user_sid": self.user_sid,
             "file_path": self.file_path,
-            "file_hash": self.file_hash,
-            "file_size": self.file_size,
-            "file_modified": self.file_modified.isoformat() if self.file_modified else None,
-            "classifier_name": self.classifier_name,
+            "old_path": self.old_path,
+            "source_host": self.source_host,
+            "metadata": self.metadata_json,
+            "created_at": self.created_at.isoformat() if self.created_at else None,
+            "archived_at": self.archived_at.isoformat() if self.archived_at else None,
+        }
+
+
+class FindingArchive(Base):
+    """Архивная таблица для находок"""
+
+    __tablename__ = "findings_archive"
+
+    id = Column(Integer, primary_key=True)
+    task_id = Column(Integer, nullable=True, index=True)
+    resource_id = Column(Integer, nullable=True, index=True)
+    file_path = Column(String(500), nullable=False)
+    line_number = Column(Integer, default=0)
+    category = Column(String(50), nullable=False)
+    subcategory = Column(String(50), nullable=True)
+    value = Column(Text, nullable=False)
+    confidence = Column(Float, default=1.0)
+    context = Column(Text, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow, index=True)
+    archived_at = Column(DateTime, default=datetime.utcnow)
+
+    def to_dict(self):
+        """Удобный метод для сериализации"""
+        return {
+            "id": self.id,
+            "task_id": self.task_id,
+            "resource_id": self.resource_id,
+            "file_path": self.file_path,
+            "line_number": self.line_number,
             "category": self.category,
             "subcategory": self.subcategory,
             "value": self.value,
             "confidence": self.confidence,
-            "detection_method": self.detection_method,
             "context": self.context,
             "created_at": self.created_at.isoformat() if self.created_at else None,
+            "archived_at": self.archived_at.isoformat() if self.archived_at else None,
         }
 
 
-class CatalogEntry(Base):
-    """Запись каталога (папка с находками)"""
-    __tablename__ = "catalog_entries"
-
-    id = Column(Integer, primary_key=True, autoincrement=True)
-    scanner_id = Column(Integer, ForeignKey("scanners.id"), nullable=False)
-
-    folder_path = Column(String(500), nullable=False)
-    source_type = Column(String(20), nullable=False)
-    classifiers = Column(JSON, default=list)
-    subcategories = Column(JSON, default=list)
-    findings_count = Column(Integer, default=0)
-
-    first_seen = Column(DateTime, default=datetime.utcnow)
-    last_seen = Column(DateTime, default=datetime.utcnow)
-
-    # Relationships
-    scanner = relationship("Scanner", back_populates="catalog_entries")
-
-    def to_dict(self) -> Dict[str, Any]:
-        return {
-            "id": self.id,
-            "scanner_id": self.scanner_id,
-            "folder_path": self.folder_path,
-            "source_type": self.source_type,
-            "classifiers": self.classifiers,
-            "subcategories": self.subcategories,
-            "findings_count": self.findings_count,
-            "first_seen": self.first_seen.isoformat() if self.first_seen else None,
-            "last_seen": self.last_seen.isoformat() if self.last_seen else None,
-        }
+# Словарь для удобного импорта всех моделей
+__all__ = [
+    "Base",
+    "Resource",
+    "Scanner",
+    "ScanTask",
+    "Finding",
+    "CatalogEntry",
+    "FailedFile",
+    "Schedule",
+    "AccessEntry",
+    "PermissionChange",
+    "AccessAlert",
+    "AuditAgent",
+    "AuditLog",
+    "AuditLogArchive",
+    "FindingArchive",
+]
 
 
-class FailedFile(Base):
-    """Файлы, которые не удалось обработать"""
-    __tablename__ = "failed_files"
+def create_monthly_partition(engine, year: int, month: int) -> str:
+    """Создание партиции audit_logs для указанного месяца (PostgreSQL).
 
-    id = Column(Integer, primary_key=True, autoincrement=True)
-    scanner_id = Column(Integer, ForeignKey("scanners.id"), nullable=False)
-    task_id = Column(Integer, ForeignKey("scan_tasks.id"), nullable=False)
+    Возвращает имя созданной партиции. На SQLite — no-op.
+    """
+    if engine.dialect.name != "postgresql":
+        return ""
+    from sqlalchemy import text
 
-    file_path = Column(String(500), nullable=False)
-    error = Column(Text, nullable=False)
-    error_type = Column(String(50), nullable=False)
+    partition_name = f"audit_logs_{year}_{month:02d}"
+    start_date = f"{year}-{month:02d}-01"
+    end_month = month + 1
+    end_year = year
+    if end_month > 12:
+        end_month = 1
+        end_year = year + 1
+    end_date = f"{end_year}-{end_month:02d}-01"
 
-    created_at = Column(DateTime, default=datetime.utcnow)
-
-    # Relationships
-    scanner = relationship("Scanner", back_populates="failed_files")
-    task = relationship("ScanTask", back_populates="failed_files")
-
-    def to_dict(self) -> Dict[str, Any]:
-        return {
-            "id": self.id,
-            "scanner_id": self.scanner_id,
-            "task_id": self.task_id,
-            "file_path": self.file_path,
-            "error": self.error,
-            "error_type": self.error_type,
-            "created_at": self.created_at.isoformat() if self.created_at else None,
-        }
+    with engine.begin() as conn:
+        conn.execute(
+            text(  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text
+                f"""
+                CREATE TABLE IF NOT EXISTS {partition_name} PARTITION OF audit_logs
+                FOR VALUES FROM ('{start_date}') TO ('{end_date}')
+                """
+            )
+        )
+    return partition_name
 
 
-# Индексы
-Index("idx_scanners_status", Scanner.status)
-Index("idx_scanners_last_heartbeat", Scanner.last_heartbeat)
-Index("idx_resources_enabled", Resource.enabled)
-Index("idx_resources_type", Resource.type)
-Index("idx_schedules_next_run", Schedule.next_run)
-Index("idx_schedules_enabled", Schedule.enabled)
-Index("idx_tasks_status", ScanTask.status)
-Index("idx_tasks_assigned_at", ScanTask.assigned_at)
-Index("idx_findings_file_path", Finding.file_path)
-Index("idx_findings_category", Finding.category)
-Index("idx_catalog_folder_path", CatalogEntry.folder_path)
+def ensure_audit_log_partitions(engine, months_ahead: int = 12) -> list:
+    """Создание партиций аудита на текущий месяц + N вперёд (PostgreSQL).
+
+    SQLite — возвращает пустой список (партиционирование недоступно).
+    """
+    if engine.dialect.name != "postgresql":
+        return []
+    from datetime import date
+    from sqlalchemy import text
+
+    # Проверяем, что audit_logs — партиционированная таблица
+    # (иначе DDL «PARTITION OF» упадёт).
+    with engine.connect() as conn:
+        is_partitioned = conn.execute(
+            text(
+                "SELECT 1 FROM pg_partitioned_table "
+                "WHERE partrelid = to_regclass('audit_logs')"
+            )
+        ).fetchone()
+    if not is_partitioned:
+        return []
+
+    created = []
+    today = date.today()
+    year, month = today.year, today.month
+    for i in range(months_ahead + 1):
+        y = year + (month - 1 + i) // 12
+        m = (month - 1 + i) % 12 + 1
+        created.append(create_monthly_partition(engine, y, m))
+    return created

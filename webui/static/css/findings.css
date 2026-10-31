@@ -1,0 +1,100 @@
+/* Находки — карточки списка (День 40.3). */
+
+.finding-row {
+    transition: border-color .15s ease;
+}
+
+.finding-row:hover {
+    border-color: var(--color-primary, #3b82f6);
+    cursor: pointer;
+}
+
+.finding-id {
+    font-family: var(--font-mono, ui-monospace, SFMono-Regular, Consolas, monospace);
+    font-size: var(--font-size-xs, 12px);
+    color: var(--color-text-secondary, #6b7280);
+    margin-right: .5rem;
+}
+
+.finding-match {
+    font-family: var(--font-mono, ui-monospace, SFMono-Regular, Consolas, monospace);
+    font-size: 13px;
+    color: var(--color-text, #1f2937);
+    white-space: pre-wrap;
+    word-break: break-all;
+}
+
+.finding-context {
+    font-family: var(--font-mono, ui-monospace, SFMono-Regular, Consolas, monospace);
+    font-size: 12px;
+    margin: 0;
+    border-radius: 4px;
+    white-space: pre-wrap;
+}
+
+#pagination-wrap .page-link {
+    cursor: pointer;
+}
+
+/* Фрагменты изображений и hex-дампы (День 40.4). */
+.finding-image {
+    max-width: 100%;
+    border: 1px solid #dee2e6;
+    border-radius: 4px;
+}
+
+.finding-hex {
+    font-family: var(--font-mono, ui-monospace, SFMono-Regular, Consolas, monospace);
+    font-size: 12px;
+    line-height: 1.4;
+    white-space: pre;
+    overflow-x: auto;
+}
+
+@media (min-width: 992px) {
+    .finding-id { margin-right: 1rem; }
+}
+
+/* BUG-140: reveal-блок в тёмной теме (замена bg-light) */
+.reveal-block {
+    background: var(--color-deep-coal);
+    color: var(--color-snow);
+    border-radius: var(--radius-tags);
+    white-space: pre-wrap;
+    word-break: break-all;
+}
+.reveal-block mark {
+    background: var(--color-blue-cornflower);
+    color: var(--color-page-ink);
+    padding: 0 2px;
+    border-radius: 2px;
+}
+
+/* BUG-205 (v3.14.0): placeholder не вылезает за край поля */
+.form-control-sm::placeholder {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+/* BUG-206 (v3.14.0): кнопки действий находки — иконка+подпись, Dovetail */
+.finding-act {
+    gap: 6px;
+}
+.finding-act i {
+    font-size: 12px;
+    width: 12px;
+    text-align: center;
+}
+@media (max-width: 480px) {
+    .finding-act .act-label { display: none; }
+}
+
+/* BACKLOG-324 (v3.14.4): на мобильном панель фильтров свёрнута под кнопкой
+   «Фильтры» и не закрывает список находок. На ≥769px фильтры всегда видны. */
+#filters-toggle { display: none; }
+@media (max-width: 768px) {
+    #filters-toggle { display: inline-flex; align-items: center; }
+    #filtersCollapse { display: none; }
+    #filtersCollapse.open { display: block; }
+}

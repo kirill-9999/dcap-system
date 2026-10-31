@@ -1,0 +1,60 @@
+{% extends "base.html" %}
+{% block title %}DCAP — Ресурсы{% endblock %}
+{% block content %}
+<h2 class="mb-4"><i class="fas fa-database text-primary"></i> Ресурсы</h2>
+<button class="btn btn-primary mb-3" id="add-resource-btn" onclick="ResourcesPage.showCreate()"><i class="fas fa-plus"></i> Добавить ресурс</button>
+
+<div class="table-wrapper" id="resources-table"><div class="text-center p-4 text-muted">Загрузка...</div></div>
+<div class="d-flex align-items-center justify-content-between mt-2">
+    <span class="text-muted small" id="resources-count"></span>
+    <button class="btn btn-outline-primary btn-sm" id="resources-more" style="display:none" onclick="ResourcesPage.loadMore()">
+        <i class="fas fa-ellipsis-h"></i> Показать ещё
+    </button>
+</div>
+
+<div class="modal" id="create-resource-modal">
+    <div class="modal-content">
+        <div class="modal-header"><h3>Добавить ресурс</h3><button class="btn btn-sm" onclick="closeModal('create-resource-modal')">&times;</button></div>
+        <div class="modal-body">
+            <div class="mb-3">
+                <label class="form-label">Тип</label>
+                <select class="form-select" id="resource-type" onchange="ResourcesPage.onTypeChange()">
+                    <option value="filesystem">Filesystem — локальный каталог / сетевой диск</option>
+                    <option value="minio">MinIO — S3-совместимое объектное хранилище</option>
+                </select>
+            </div>
+            <div class="mb-3">
+                <label class="form-label">Путь *</label>
+                <input type="text" class="form-control" id="resource-path" list="resource-path-list" placeholder="D:\data или /home/user/data">
+                <datalist id="resource-path-list"></datalist>
+                <div class="form-text" id="resource-path-hint">Локальный путь или UNC (<code>\\server\share</code>). Выбор каталога на сервере — в v3.1.0.</div>
+            </div>
+            <div id="s3-fields" style="display:none;">
+                <div class="mb-3">
+                    <label class="form-label">Endpoint *</label>
+                    <input type="text" class="form-control" id="resource-endpoint" placeholder="host.docker.internal:9000">
+                    <div class="form-text">Оставьте пустым, если на Manager-хосте задан <code>S3_DEFAULT_ENDPOINT</code></div>
+                </div>
+                <div class="form-check mb-2">
+                    <input class="form-check-input" type="checkbox" id="resource-secure">
+                    <label class="form-check-label" for="resource-secure">Secure (HTTPS)</label>
+                </div>
+                <div class="form-check mb-3">
+                    <input class="form-check-input" type="checkbox" id="resource-path-style" checked>
+                    <label class="form-check-label" for="resource-path-style">Path-style addressing</label>
+                </div>
+                <div class="alert alert-info small mb-0">
+                    Секреты (<code>S3_ACCESS_KEY</code>, <code>S3_SECRET_KEY</code>) задаются на хосте сканера в ENV — в форму не вводятся.
+                </div>
+            </div>
+            <div class="d-flex gap-2 mt-3">
+                <button class="btn btn-primary" id="resource-save-btn" onclick="ResourcesPage.create()">Создать</button>
+                <button class="btn btn-outline-secondary" onclick="closeModal('create-resource-modal')">Отмена</button>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script src="/static/js/resources.js"></script>
+{% endblock %}

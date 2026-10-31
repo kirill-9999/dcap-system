@@ -1,0 +1,60 @@
+@import 'tokens.css';
+@import 'base.css';
+@import 'components.css';
+@import 'grid-wireframe.css';
+@import 'components/sidebar.css';
+@import 'components/header.css';
+@import 'components/cards.css';
+@import 'components/tables.css';
+@import 'components/forms.css';
+@import 'components/modals.css';
+@import 'components/badges.css';
+.app { display: flex; min-height: 100vh; }
+.main-content { flex: 1; margin-left: var(--sidebar-width); min-height: 100vh; display: flex; flex-direction: column; transition: margin-left var(--transition-base); }
+.main-content.expanded { margin-left: var(--sidebar-collapsed-width); }
+.page-content { flex: 1; padding: var(--spacing-6); }
+.text-center { text-align: center; }
+.text-muted { color: var(--color-text-muted) !important; }
+
+/* ============================================================
+ * Responsive sidebar + гамбургер (BUG-228/233, v3.14.0)
+ * ============================================================ */
+
+/* Оверлей под офканвас-панелью (виден только ≤768px) */
+.sidebar-overlay {
+    display: none;
+    position: fixed;
+    top: 0; left: 0; right: 0; bottom: 0;
+    background: rgba(0, 0, 0, 0.5);
+    z-index: 999;
+}
+.sidebar-overlay.open { display: block; }
+
+/* Кнопка-гамбургер в шапке контента — видна только на мобильном */
+.sidebar-open-btn {
+    display: none;
+    background: none;
+    border: none;
+    color: var(--color-ash);
+    font-size: 18px;
+    padding: 4px 8px;
+    margin-right: 8px;
+    border-radius: var(--radius-sm);
+    cursor: pointer;
+}
+.sidebar-open-btn:hover { background: var(--color-border); }
+
+/* 769–1024px: сайдбар в виде «рельсов» (иконки без подписей) */
+@media (min-width: 769px) and (max-width: 1024px) {
+    .sidebar { width: 60px; }
+    .sidebar .nav-label,
+    .sidebar .hide-on-collapse { display: none !important; }
+    .main-content { margin-left: 60px; }
+}
+
+
+@media (max-width: 480px) {
+    .kpi-grid { grid-template-columns: 1fr; }
+    .kpi-card { width: 100%; max-width: 100%; }
+    body, .main-content, .content-wrapper, .page-content { overflow-x: hidden; }
+}

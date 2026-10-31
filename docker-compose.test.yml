@@ -1,0 +1,96 @@
+﻿name: dcap-test
+
+version: '3.8'
+
+# BACKLOG-317: явное имя проекта. Без него Compose использует имя каталога
+# (dcap-system) — то же, что у основного docker-compose.yml, и
+# `down --remove-orphans` тестового стенда сносит контейнеры dcap-* основного стека.
+#
+# Изолированный стек для тестов (не трогает prod-данные).
+# Использует dcap_test БД, tmpfs (без persistence), отдельные порты и сеть.
+# Запуск: scripts/run-tests.sh stand   (down -v + up -d --wait, ждёт healthcheck)
+#         или scripts/test-up.sh --build (то же + пересборка образов).
+# Компоненты MANAGER/WEBUI — те же образы, что и production (manager/Dockerfile, webui/Dockerfile).
+
+services:
+  postgres_test:
+    image: postgres:15-alpine
+    environment:
+      POSTGRES_DB: dcap_test
+      POSTGRES_USER: dcap_test
+      POSTGRES_PASSWORD: dcap_test
+    ports: ["15432:5432"]
+    volumes:
+      - postgres_test_data:/var/lib/postgresql/data  # переживает stop/start (chaos-тесты)
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U dcap_test"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  redis_test:
+    image: redis:7-alpine
+    ports: ["16379:6379"]
+    tmpfs: /data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  manager_test:
+    build:
+      context: .
+      dockerfile: manager/Dockerfile
+    environment:
+      DATABASE_URL: postgresql://dcap_test:dcap_test@postgres_test:5432/dcap_test
+      REDIS_URL: redis://redis_test:6379/0
+      AUTH_MODE: local
+      MTLS_ENABLED: "false"
+      RATE_LIMIT_MAX_REQUESTS: "100000"
+      AUTH_LOGIN_MAX_ATTEMPTS: "100000"
+      # 53.3-test-stand-fix: иначе /api/health отдаёт version=unknown
+      # (main.py: env VERSION → config.json version → unknown).
+      VERSION: ${VERSION:-3.0.0}
+    ports: ["18000:8000"]
+    depends_on:
+      postgres_test: { condition: service_healthy }
+      redis_test: { condition: service_healthy }
+    # TEST-NOTE-10.6 (закрыт, 53.3-test-stand-fix): curl есть в образе
+    # (manager/Dockerfile → HEALTHCHECK). Healthcheck ждёт не только доступность
+    # порта, но и завершившиеся миграции: entrypoint = `alembic upgrade head &&
+    # uvicorn ...`, поэтому до конца миграций /api/health не отвечает.
+    # start_period 30s (uvicorn + alembic), retries 30 x 5s — до ~180 с.
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/api/health"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+      start_period: 30s
+
+  webui_test:
+    build:
+      context: ./webui
+      dockerfile: Dockerfile
+    environment:
+      MANAGER_URL: http://manager_test:8000
+      # webui/config.py по умолчанию отдаёт 3.13.11 — переопределяем env.
+      VERSION: ${VERSION:-3.0.0}
+    ports: ["18001:8001"]
+    depends_on:
+      manager_test:
+        condition: service_healthy
+    # curl есть в образе (webui/Dockerfile → HEALTHCHECK); /health без auth.
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8001/health"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+      start_period: 15s
+
+networks:
+  default:
+    name: dcap-test-network
+
+volumes:
+  postgres_test_data:

@@ -1,0 +1,353 @@
+/* DCAP WebUI — components.css
+ * Override Bootstrap-компонентов под Dovetail (dark-only).
+ * Bootstrap 5.x. CSS-переменные --bs-* переопределены там, где возможно;
+ * иначе — прямые правила.
+ */
+
+/* ============================================================
+ * Bootstrap CSS variables (5.3+, безопасно для 5.0–5.2)
+ * ============================================================ */
+:root {
+    --bs-body-bg:        var(--color-page-ink);
+    --bs-body-color:     var(--color-snow);
+    --bs-border-color:   var(--color-steel-border);
+    --bs-primary:        var(--color-blue-cornflower);
+    --bs-link-color:     var(--color-blue-cornflower);
+    --bs-link-hover-color: var(--color-primary-light);
+    --bs-secondary-color: var(--color-ash);
+    --bs-emphasis-color: var(--color-snow);
+}
+
+/* ============================================================
+ * Кнопки
+ * ============================================================ */
+.btn {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--spacing-8);
+    padding: 10px 16px;
+    border-radius: var(--radius-buttons);
+    font-family: var(--font-inter);
+    font-size: 14px;
+    font-weight: 500;
+    line-height: 1;
+    letter-spacing: var(--tracking-body-sm);
+    border: 1px solid transparent;
+    cursor: pointer;
+    transition: background var(--transition-fast), border-color var(--transition-fast),
+                color var(--transition-fast);
+    box-shadow: none;
+}
+
+/* Primary — dark carbon (не blue!) */
+.btn-primary {
+    background-color: var(--color-snow);   /* #ffffff */
+    color: var(--color-page-ink);         /* #0a0a0a */
+    border: none;
+    /* BUG-255 (v3.14.3): явный Dovetail-профиль кнопки (login и модалки). */
+    border-radius: 8px;
+    padding: 10px 16px;
+    font-weight: 500;
+    font-size: 14px;
+    transition: background-color 0.15s ease;
+}
+.btn-primary:hover {
+    background-color: var(--color-ash);   /* #a7a7a7 */
+    color: var(--color-page-ink);
+    border: none;
+}
+.btn-primary:focus,
+.btn-primary:active {
+    background-color: var(--color-snow);
+    color: var(--color-page-ink);
+    border: none;
+    box-shadow: none;
+    outline: none;
+}
+.btn-primary:disabled,
+.btn-primary.disabled {
+    background-color: var(--color-fog);   /* #7c7c7c */
+    color: var(--color-page-ink);
+    border: none;
+    cursor: not-allowed;
+}
+
+/* Secondary / outline */
+.btn-outline-secondary,
+.btn-outline-primary {
+    background: transparent;
+    border: 1px solid var(--color-graphite);
+    color: var(--color-snow);
+}
+.btn-outline-secondary:hover,
+.btn-outline-primary:hover {
+    background: var(--color-deep-coal);
+    border-color: var(--color-ash);
+    color: var(--color-snow);
+}
+
+.btn-outline-danger {
+    background: transparent;
+    border: 1px solid var(--color-danger);
+    color: var(--color-danger);
+}
+.btn-outline-danger:hover {
+    background: var(--color-danger-bg);
+    color: var(--color-danger);
+}
+
+/* Danger solid */
+.btn-danger {
+    background: var(--color-danger);
+    color: var(--color-snow);
+    border-color: transparent;
+}
+.btn-danger:hover { background: #b85a5a; }
+
+.btn-success {
+    background: var(--color-success);
+    color: var(--color-snow);
+    border-color: transparent;
+}
+.btn-success:hover { background: #3f8862; }
+
+/* Размеры */
+.btn-sm { padding: 6px 10px; font-size: 12px; }
+.btn-lg { padding: 12px 20px; font-size: 16px; }
+.btn-link { background: none; border: none; color: var(--color-blue-cornflower); padding: 0; }
+.btn-link:hover { color: var(--color-primary-light); text-decoration: underline; }
+
+/* ============================================================
+ * Карточки
+ * ============================================================ */
+.card {
+    background: var(--color-card-carbon);
+    border: 1px solid var(--color-card-carbon);
+    border-radius: var(--radius-cards);
+    box-shadow: none;
+    color: var(--color-snow);
+    margin-bottom: var(--spacing-16);
+}
+.card-header {
+    background: transparent;
+    border-bottom: 1px solid var(--color-steel-border);
+    padding: 16px 24px;
+    color: var(--color-snow);
+    font-weight: 600;
+}
+.card-body   { padding: 24px; color: var(--color-snow); }
+.card-footer { background: transparent; border-top: 1px solid var(--color-steel-border); padding: 16px 24px; }
+.card-title  { color: var(--color-snow); font-weight: 600; }
+
+/* ============================================================
+ * Формы
+ * ============================================================ */
+.form-control, .form-select {
+    background: var(--color-deep-coal);
+    color: var(--color-snow);
+    border: 1px solid var(--color-steel-border);
+    border-radius: var(--radius-inputs);
+    padding: 8px 12px;
+    font-family: var(--font-inter);
+    font-size: 14px;
+    transition: border-color var(--transition-fast);
+}
+.form-control:focus, .form-select:focus {
+    background: var(--color-deep-coal);
+    color: var(--color-snow);
+    border-color: var(--color-blue-cornflower);
+    box-shadow: 0 0 0 3px rgba(103, 152, 255, 0.15);
+    outline: none;
+}
+.form-control::placeholder { color: var(--color-fog); }
+.form-label { color: var(--color-ash); font-size: 13px; margin-bottom: 4px; }
+.form-text  { color: var(--color-fog); font-size: 12px; }
+.form-check-input {
+    background: var(--color-deep-coal);
+    border-color: var(--color-graphite);
+}
+.form-check-input:checked {
+    background-color: var(--color-blue-cornflower);
+    border-color: var(--color-blue-cornflower);
+    background-image: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 20'%3e%3cpath fill='none' stroke='%23fff' stroke-linecap='round' stroke-linejoin='round' stroke-width='3' d='M6 10l3 3 6-6'/%3e%3c/svg%3e");
+    background-repeat: no-repeat;
+    background-position: center;
+    background-size: 60%;
+}
+.form-check-input:focus {
+    border-color: var(--color-blue-cornflower);
+    box-shadow: 0 0 0 2px rgba(103, 152, 255, 0.3);
+}
+.form-check-label { color: var(--color-snow); }
+
+/* ============================================================
+ * Modal
+ * ============================================================ */
+.modal {
+    background: rgba(0, 0, 0, 0.6);
+    backdrop-filter: blur(2px);
+}
+.modal-content {
+    background: var(--color-card-carbon);
+    border: 1px solid var(--color-steel-border);
+    border-radius: var(--radius-cards);
+    color: var(--color-snow);
+    box-shadow: none;
+}
+.modal-header {
+    border-bottom: 1px solid var(--color-steel-border);
+    padding: 16px 24px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+}
+.modal-header h3 { font-size: var(--text-subheading); margin: 0; }
+.modal-body   { padding: 24px; }
+/* BACKLOG-138: единые отступы и порядок кнопок (Отмена → основное действие).
+   Кнопка-исключение (например, «Удалить») выносится влево через .me-auto. */
+.modal-footer {
+    border-top: 1px solid var(--color-steel-border);
+    padding: 16px 24px;
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 8px;
+}
+
+/* ============================================================
+ * Badge
+ * ============================================================ */
+.badge {
+    display: inline-flex;
+    align-items: center;
+    padding: 2px 8px;
+    border-radius: var(--radius-tags);
+    font-size: 11px;
+    font-weight: 500;
+    line-height: 1.4;
+    letter-spacing: 0.4px;
+}
+.badge-primary, .bg-primary    { background: var(--color-blue-cornflower); color: var(--color-page-ink); }
+.badge-secondary, .bg-secondary{ background: var(--color-graphite);        color: var(--color-snow); }
+.badge-success, .bg-success    { background: var(--color-success);          color: var(--color-snow); }
+.badge-warning, .bg-warning    { background: var(--color-warning);          color: var(--color-page-ink); }
+.badge-danger, .bg-danger      { background: var(--color-danger);           color: var(--color-snow); }
+.badge-info, .bg-info          { background: var(--color-info);             color: var(--color-page-ink); }
+.badge-light, .bg-light        { background: var(--color-deep-coal);        color: var(--color-ash); }
+
+/* ============================================================
+ * Таблицы
+ * ============================================================ */
+.table {
+    color: var(--color-snow);
+    border-color: var(--color-steel-border);
+}
+.table thead th {
+    background: var(--color-deep-coal);
+    color: var(--color-ash);
+    border-bottom: 1px solid var(--color-steel-border);
+    font-weight: 500;
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    padding: 10px 12px;
+}
+.table tbody td {
+    border-top: 1px solid var(--color-steel-border);
+    padding: 10px 12px;
+    color: var(--color-snow);
+}
+.table tbody tr:hover { background: var(--color-deep-coal); }
+.table-striped tbody tr:nth-of-type(odd) { background: rgba(255, 255, 255, 0.02); }
+
+/* ============================================================
+ * Alert
+ * ============================================================ */
+.alert {
+    padding: 12px 16px;
+    border-radius: var(--radius-cards);
+    border: 1px solid var(--color-steel-border);
+    background: var(--color-deep-coal);
+    color: var(--color-snow);
+    margin-bottom: 16px;
+}
+.alert-danger  { border-color: var(--color-danger);  background: var(--color-danger-bg); }
+.alert-warning { border-color: var(--color-warning); background: var(--color-warning-bg); }
+.alert-info    { border-color: var(--color-info);    background: var(--color-info-bg); }
+.alert-success { border-color: var(--color-success); background: var(--color-success-bg); }
+
+/* ============================================================
+ * Dropdown / nav
+ * ============================================================ */
+.dropdown-menu {
+    background: var(--color-card-carbon);
+    border: 1px solid var(--color-steel-border);
+    border-radius: var(--radius-cards);
+}
+.dropdown-item { color: var(--color-snow); }
+.dropdown-item:hover { background: var(--color-deep-coal); color: var(--color-snow); }
+
+/* ============================================================
+ * Pagination
+ * ============================================================ */
+.page-link {
+    background: var(--color-deep-coal);
+    color: var(--color-snow);
+    border-color: var(--color-steel-border);
+}
+.page-link:hover {
+    background: var(--color-card-carbon);
+    color: var(--color-blue-cornflower);
+    border-color: var(--color-steel-border);
+}
+.page-item.active .page-link {
+    background: var(--color-blue-cornflower);
+    border-color: var(--color-blue-cornflower);
+    color: var(--color-page-ink);
+}
+.page-item.disabled .page-link {
+    background: var(--color-deep-coal);
+    color: var(--color-fog);
+    border-color: var(--color-steel-border);
+}
+
+/* ============================================================
+ * Progress
+ * ============================================================ */
+.progress { background: var(--color-deep-coal); border-radius: 8px; height: 8px; overflow: hidden; }
+.progress-bar { background: var(--color-blue-cornflower); }
+
+/* ============================================================
+ * Modal — адаптив (BUG-232, v3.14.0)
+ * ============================================================ */
+@media (max-width: 480px) {
+    .modal-dialog {
+        max-width: 100%;
+        margin: 0;
+    }
+    .modal .modal-content,
+    .modal-dialog .modal-content {
+        width: 100%;
+        max-width: 100%;
+        border-radius: 0;
+        max-height: 100vh;
+        overflow-y: auto;
+    }
+    .modal .modal-body,
+    .modal-dialog .modal-body {
+        max-height: calc(100vh - 200px);
+        overflow-y: auto;
+    }
+}
+
+/* ============================================================
+ * Utilities
+ * ============================================================ */
+.text-muted { color: var(--color-ash) !important; }
+.text-secondary { color: var(--color-ash) !important; }
+.text-body { color: var(--color-snow) !important; }
+.border { border-color: var(--color-steel-border) !important; }
+.bg-body { background: var(--color-page-ink) !important; }
+.bg-light { background: var(--color-deep-coal) !important; }
+.bg-white { background: var(--color-card-carbon) !important; }

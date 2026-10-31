@@ -15,3 +15,30 @@ python_version = "3.10"
 warn_return_any = true
 warn_unused_configs = true
 ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+asyncio_mode = "auto"
+timeout = 300
+markers = [
+    "unit: Unit-тесты (без стека)",
+    "e2e: End-to-end тесты (полный цикл)",
+    "e2e_offline: E2E-тесты ротации ключей (offline, Manager не нужен)",
+    "chaos: Chaos-тесты (отказоустойчивость)",
+    "load: Нагрузочные тесты",
+    "slow: Медленные тесты (>30 сек)",
+    "requires_manager: Требует запущенный Manager",
+    "requires_docker: Требует Docker",
+    "requires_scanner: Требует запущенный Scanner",
+    "requires_minio: Требует запущенный MinIO (S3-совместимое хранилище)",
+]
+# --import-mode=importlib обязателен: tests/unit/test_scanner_findings.py и
+# tests/e2e/test_scanner_findings.py (а также test_webui_block5_v31322.py)
+# имеют одинаковые базовые имена. В режиме prepend pytest импортирует первый
+# файл под общим именем модуля, и сборка второго падает с "import file
+# mismatch" — голый `pytest` (testpaths = tests) не запускался вовсе.
+# sys.path для `fixtures.*` добавляется в tests/conftest.py.
+addopts = "-v --strict-markers --tb=short --import-mode=importlib"

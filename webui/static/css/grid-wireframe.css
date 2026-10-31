@@ -1,0 +1,34 @@
+/* DCAP WebUI — grid-wireframe.css
+ * Тонкая сетка 1px #1e1e1e на фоне #0a0a0a — blueprint-мотив Dovetail.
+ * Рисуется через body::before, не мешает контенту (z-index: -1).
+ */
+
+body::before {
+    content: "";
+    position: fixed;
+    inset: 0;
+    pointer-events: none;
+    z-index: 0;
+    background-image:
+        repeating-linear-gradient(
+            to right,
+            #1e1e1e 0,
+            #1e1e1e 1px,
+            transparent 1px,
+            transparent 40px
+        ),
+        repeating-linear-gradient(
+            to bottom,
+            #1e1e1e 0,
+            #1e1e1e 1px,
+            transparent 1px,
+            transparent 40px
+        );
+    opacity: 0.6;
+}
+
+/* Контент — поверх сетки */
+.app, .main-content, .sidebar {
+    position: relative;
+    z-index: 1;
+}

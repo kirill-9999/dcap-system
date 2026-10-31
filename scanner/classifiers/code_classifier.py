@@ -11,6 +11,8 @@ import threading
 from pathlib import Path
 from typing import Dict, Any, List, Optional, Tuple
 
+from scanner.src.finding import Finding
+
 from core.base import (
     IClassifier, DataCategory, FileContext,
     ProcessingContext, ClassificationResult, ClassificationFinding
@@ -46,6 +48,23 @@ class CodeClassifier(IClassifier):
         self.stats = {"files": 0, "findings": 0, "time": 0.0}
         self._initialized = True
         self.enabled = True
+
+    def scan_line(self, line: str, line_num: int) -> List[Finding]:
+        """
+        Сканирует одну строку (день 40.2).
+
+        Code-классификатор работает на уровне файлов (определение типа кода),
+        построчное детектирование секретов для него не используется.
+        """
+        return []
+    
+    def file_prefilter(self, content: str) -> bool:
+        """Префильтр уровня файла (день 42).
+
+        Code-классификатор не детектирует секреты построчно (scan_line — no-op),
+        поэтому не должен блокировать пропуск файла.
+        """
+        return False
     
     @property
     def classifier_name(self) -> str:

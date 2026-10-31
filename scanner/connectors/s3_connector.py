@@ -4,6 +4,7 @@
 DCAP Agent - S3/MinIO Connector
 """
 
+import logging
 import os
 from datetime import datetime
 from pathlib import Path
@@ -11,6 +12,8 @@ from typing import Dict, Any, Iterator, Optional
 
 from core.base import SourceType, FileContext
 from connectors.base import BaseConnector
+
+logger = logging.getLogger("dcap-scanner")
 
 try:
     import boto3
@@ -49,8 +52,23 @@ class S3Connector(BaseConnector):
         # Все параметры ТОЛЬКО из конфига
         self.endpoint = config.get("endpoint")
         self.bucket = config.get("bucket")
-        self.access_key = config.get("access_key")
-        self.secret_key = config.get("secret_key")
+        # День 53.2 (BUG-136/TASK-120): секреты — сначала ENV (политика TASK-018).
+        # Оставлено чтение из config для обратной совместимости (этот коннектор
+        # используется не только сканером).
+        env_access = os.environ.get("S3_ACCESS_KEY")
+        env_secret = os.environ.get("S3_SECRET_KEY")
+        if config.get("access_key") and not env_access:
+            logger.warning(
+                "[S3] access_key в config — устаревший способ, используйте "
+                "ENV S3_ACCESS_KEY"
+            )
+        if config.get("secret_key") and not env_secret:
+            logger.warning(
+                "[S3] secret_key в config — устаревший способ, используйте "
+                "ENV S3_SECRET_KEY"
+            )
+        self.access_key = env_access or config.get("access_key")
+        self.secret_key = env_secret or config.get("secret_key")
         self.secure = config.get("secure")
         self.use_path_style = config.get("use_path_style")
         self._extensions = config.get("extensions")
@@ -112,27 +130,27 @@ class S3Connector(BaseConnector):
             
             # Проверяем подключение
             self.client.list_objects_v2(Bucket=self.bucket, MaxKeys=1)
-            print(f"[S3] ✅ Подключено успешно")
+            print(f"[S3] [OK] Подключено успешно")
             
         except ConnectTimeoutError as e:
-            print(f"[S3] ❌ Таймаут подключения к {endpoint_url}")
+            print(f"[S3] [ERROR] Таймаут подключения к {endpoint_url}")
             print(f"[S3] Проверьте доступность сервера {self.endpoint}")
             self.client = None
         except ClientError as e:
             error_code = e.response['Error']['Code']
             if error_code == 'InvalidAccessKeyId':
-                print(f"[S3] ❌ Неверный Access Key")
+                print(f"[S3] [ERROR] Неверный Access Key")
             elif error_code == 'SignatureDoesNotMatch':
-                print(f"[S3] ❌ Неверный Secret Key")
+                print(f"[S3] [ERROR] Неверный Secret Key")
             elif error_code == 'NoSuchBucket':
-                print(f"[S3] ❌ Бакет не найден: {self.bucket}")
+                print(f"[S3] [ERROR] Бакет не найден: {self.bucket}")
             elif error_code == 'AccessDenied':
-                print(f"[S3] ❌ Доступ запрещен к бакету {self.bucket}")
+                print(f"[S3] [ERROR] Доступ запрещен к бакету {self.bucket}")
             else:
-                print(f"[S3] ❌ Ошибка: {error_code}")
+                print(f"[S3] [ERROR] Ошибка: {error_code}")
             self.client = None
         except Exception as e:
-            print(f"[S3] ❌ Ошибка подключения: {e}")
+            print(f"[S3] [ERROR] Ошибка подключения: {e}")
             self.client = None
     
     def test_connection(self) -> bool:
@@ -221,7 +239,7 @@ class S3Connector(BaseConnector):
             print(f"[S3] Бакет '{bucket}': найдено {total_objects} объектов, отфильтровано {filtered_objects} файлов")
             
         except Exception as e:
-            print(f"[S3] ❌ Ошибка при сканировании: {e}")
+            print(f"[S3] [ERROR] Ошибка при сканировании: {e}")
     
     def get_content(self, file_context: FileContext) -> Optional[FileContext]:
         """Загрузка содержимого файла"""

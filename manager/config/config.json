@@ -1,0 +1,83 @@
+{
+    "server": {
+        "host": "127.0.0.1",
+        "port": 8000
+    },
+    "database": {
+        "url": "sqlite:///manager/dcap.db"
+    },
+    "redis": {
+        "url": "${REDIS_URL:-redis://localhost:6379/0}",
+        "password": "${REDIS_PASSWORD:-}",
+        "enabled": "${REDIS_ENABLED:-true}",
+        "cache_ttl": 300,
+        "rate_limit": {
+            "max_requests": 300,
+            "window_seconds": 60
+        }
+    },
+    "auth": {
+        "mode": "${AUTH_MODE:-hybrid}",
+        "jwt_secret_key": "${JWT_SECRET_KEY:-change-me-in-production-32-chars-long}",
+        "jwt_access_ttl_minutes": "${JWT_ACCESS_TTL_MINUTES:-1440}",
+        "jwt_refresh_ttl_days": "${JWT_REFRESH_TTL_DAYS:-7}",
+        "cookie_secure": "${AUTH_COOKIE_SECURE:-false}",
+        "bcrypt_rounds": 12,
+        "local_users_enabled": true,
+        "auto_create_ad_users": true,
+        "default_role": "viewer",
+        "windows_auth": {
+            "enabled": true,
+            "ad_domain": "SAMDOM",
+            "ad_server": "127.0.0.1",
+            "ad_base_dn": "DC=samdom,DC=example,DC=com",
+            "ad_ldap_port": 389,
+            "ad_use_ssl": false,
+            "service_account": "administrator",
+            "service_password": "Passw0rd",
+            "group_mapping": {
+                "DCAP_Admins": "admin",
+                "DCAP_Auditors": "auditor",
+                "DCAP_Scanners": "scanner"
+            }
+        }
+    },
+    "webui": {
+        "enabled": true,
+        "host": "127.0.0.1",
+        "port": 8001
+    },
+    "security": {
+        "mtls_enabled": "${MTLS_ENABLED:-false}",
+        "mtls_strict": "${MTLS_STRICT:-false}",
+        "certs_dir": "${CERTS_DIR:-certs}"
+    },
+    "retention": {
+        "enabled": true,
+        "interval_hours": 24,
+        "audit_events": {
+            "ttl_days": 90,
+            "archive_ttl_days": 365,
+            "archive_enabled": true,
+            "archive_table": "audit_logs_archive"
+        },
+        "findings": {
+            "ttl_days": 180
+        },
+        "tasks": {
+            "ttl_days": 30
+        },
+        "logs": {
+            "rotate_days": 30,
+            "max_size_mb": 100
+        },
+        "export": {
+            "enabled": true,
+            "format": "json",
+            "path": "data/archive/"
+        }
+    },
+    "logging": {
+        "level": "INFO"
+    }
+}

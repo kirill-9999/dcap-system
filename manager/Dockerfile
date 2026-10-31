@@ -1,38 +1,65 @@
-FROM python:3.10-slim
+# DCAP Manager — production-образ (multi-stage, День 38).
+# Запуск: docker build -f manager/Dockerfile -t dcap/manager:3.5.0 .
+#
+# ВАЖНО: build-контекст — КОРЕНЬ репозитория (нужен пакет shared/ + root requirements.txt).
+
+# ===== STAGE 1: Builder =====
+FROM python:3.11-slim AS builder
+
+WORKDIR /build
+
+# Системные зависимости для сборки
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    gcc \
+    libpq-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+# Копирование зависимостей (root requirements.txt покрывает Manager)
+COPY requirements.txt .
+
+# Установка в отдельный префикс (нейтральный путь, доступен непривилегированному пользователю)
+RUN pip install --no-cache-dir --prefix=/opt/dcapdeps -r requirements.txt
+
+# ===== STAGE 2: Runtime =====
+FROM python:3.11-slim
 
 WORKDIR /app
 
-# Установка системных зависимостей (wget для healthcheck)
-RUN apt-get update && apt-get install -y \
-    gcc \
-    libpq-dev \
-    wget \
+# Runtime-зависимости (libpq5 для psycopg2, curl для HEALTHCHECK)
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    libpq5 \
+    curl \
     && rm -rf /var/lib/apt/lists/*
 
-# Копируем shared модуль
-COPY shared /shared
-RUN pip install -e /shared
+# Копирование установленных пакетов
+COPY --from=builder /opt/dcapdeps /opt/dcapdeps
+ENV PATH=/opt/dcapdeps/bin:$PATH
+ENV PYTHONPATH=/opt/dcapdeps/lib/python3.11/site-packages:/app
 
-# Копируем manager
-COPY manager/pyproject.toml manager/pyproject.toml
-COPY manager/src /app/src
+# Копирование кода (пакеты manager.* и shared.* — namespace-импорты из корня)
+COPY manager/ ./manager/
+COPY shared/ ./shared/
+COPY alembic.ini .
+# Утилита переноса данных SQLite -> PostgreSQL
+COPY scripts/migrate_sqlite_to_postgres.py ./scripts/migrate_sqlite_to_postgres.py
 
-# Установка зависимостей
-RUN pip install --no-cache-dir \
-    "fastapi>=0.104.0" \
-    "uvicorn[standard]>=0.24.0" \
-    "grpcio>=1.60.0" \
-    "grpcio-tools>=1.60.0" \
-    "alembic>=1.12.0" \
-    "sqlalchemy>=2.0.25" \
-    "psycopg2-binary>=2.9.9" \
-    "asyncpg>=0.29.0"
+# Создание непривилегированного пользователя + рабочие каталоги
+RUN groupadd -r dcap && useradd -r -g dcap dcap \
+    && mkdir -p /app/data /app/logs /app/certs \
+    && chown -R dcap:dcap /app
 
-# Скрипт ожидания PostgreSQL (адаптирован для Windows/WSL)
-COPY manager/wait-for-postgres.sh /wait-for-postgres.sh
-RUN chmod +x /wait-for-postgres.sh
+USER dcap
 
-EXPOSE 50051
+# Переменные окружения
+ENV PYTHONUNBUFFERED=1
+ENV PYTHONDONTWRITEBYTECODE=1
+ENV LOG_LEVEL=INFO
 
-# Используем wget вместо nc для проверки порта
-CMD ["/wait-for-postgres.sh", "postgres", "5432", "--", "python", "-m", "src.main"]
+# Healthcheck (Manager отдаёт /api/health)
+HEALTHCHECK --interval=30s --timeout=10s --start-period=15s --retries=3 \
+    CMD curl -f http://localhost:8000/api/health || exit 1
+
+EXPOSE 8000
+
+# Старт: применённые миграции (Alembic) + Manager
+CMD ["sh", "-c", "alembic upgrade head && uvicorn manager.src.main:app --host 0.0.0.0 --port 8000"]

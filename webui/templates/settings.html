@@ -1,0 +1,126 @@
+{% extends "base.html" %}
+{% block title %}DCAP — Настройки{% endblock %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <h2 class="mb-0"><i class="fas fa-cog text-primary"></i> Настройки</h2>
+    <button class="btn btn-outline-secondary" onclick="openModal('passwordModal')"><i class="fas fa-key me-1"></i>Сменить пароль</button>
+</div>
+
+<div class="row g-3">
+    <div class="col-md-6">
+        <div class="card h-100">
+            <div class="card-body">
+                <h5 class="card-title"><i class="fas fa-shield-alt text-primary"></i> Режим аутентификации</h5>
+                <div class="mb-2">
+                    <span class="text-muted">Текущий режим:</span>
+                    <b id="authModeValue">Загрузка…</b>
+                </div>
+                <div class="alert alert-info mb-0" style="font-size:13px;">
+                    Режим задаётся в конфигурации Manager (<code>manager/config/config.json &rarr; auth.mode</code>)
+                    или переменной окружения <code>AUTH_MODE</code>. Изменение применяется только после
+                    перезапуска Manager. Смена режима на <code>windows_integrated</code> без настроенного
+                    домена приведёт к невозможности входа (lockout).
+                </div>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-6">
+        <div class="card h-100">
+            <div class="card-body">
+                <h5 class="card-title"><i class="fas fa-user-circle text-primary"></i> Текущая учётная запись</h5>
+                <div class="text-muted" style="font-size:13px;" id="settingsInfo">Загрузка…</div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="card mt-4">
+    <div class="card-body">
+        <h5 class="card-title"><i class="fas fa-database text-primary"></i> Хранение данных (архивация/очистка)</h5>
+        <p class="text-muted" style="font-size:13px;">
+            Политики хранения управляются конфигом Manager (<code>manager/config/config.json &rarr; retention</code>).
+            Устаревшие данные переносятся в архивные таблицы основной БД
+            (<code>audit_logs_archive</code>, <code>findings_archive</code>), затем удаляются по истечении
+            срока хранения архива. Экспорт сохраняется в файл на хосте Manager (путь — ниже).
+        </p>
+        <div class="row g-3">
+            <div class="col-md-3">
+                <div class="card border-secondary h-100">
+                    <div class="card-body">
+                        <h6>События аудита</h6>
+                        <div class="mb-2"><span class="text-muted">TTL:</span> <b id="retAuditTtl">—</b> дн.</div>
+                        <div class="mb-2"><span class="text-muted">Архив TTL:</span> <b id="retAuditArchiveTtl">—</b> дн.</div>
+                        <div class="mb-0"><span class="text-muted">Архивация:</span> <b id="retAuditArchiveOn">—</b></div>
+                        <div class="mt-2 small text-muted">Последний запуск: <span id="lastRun">—</span></div>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="card border-secondary h-100">
+                    <div class="card-body">
+                        <h6>Находки</h6>
+                        <div class="mb-2"><span class="text-muted">TTL:</span> <b id="retFindingsTtl">—</b> дн.</div>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="card border-secondary h-100">
+                    <div class="card-body">
+                        <h6>Задачи</h6>
+                        <div class="mb-2"><span class="text-muted">TTL:</span> <b id="retTasksTtl">—</b> дн.</div>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="card border-secondary h-100">
+                    <div class="card-body">
+                        <h6>Экспорт</h6>
+                        <div class="mb-2"><span class="text-muted">Формат:</span> <b id="retExportFormat">—</b></div>
+                        <div class="mb-0"><span class="text-muted">Путь:</span> <b id="retExportPath">—</b></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div class="row g-3 mt-1">
+            <div class="col-md-3"><div class="stat-item"><span class="stat-label me-2">События аудита</span><span class="stat-value" id="statAuditCount">0</span></div></div>
+            <div class="col-md-3"><div class="stat-item"><span class="stat-label me-2">Архивные события</span><span class="stat-value" id="statArchiveCount">0</span></div></div>
+            <div class="col-md-3"><div class="stat-item"><span class="stat-label me-2">Находки</span><span class="stat-value" id="statFindingsCount">0</span></div></div>
+            <div class="col-md-3"><div class="stat-item"><span class="stat-label me-2">Завершённые задачи</span><span class="stat-value" id="statTasksCount">0</span></div></div>
+        </div>
+        <div class="mt-3 d-flex flex-wrap gap-2">
+            <button class="btn btn-warning" onclick="runRetention(false)" title="Выполнить архивацию и очистку по политикам хранения"><i class="fas fa-play"></i> Запустить архивацию</button>
+            <button class="btn btn-outline-warning" onclick="runRetention(true)" title="Пробный прогон: показать, что было бы заархивировано и удалено, без реальных изменений"><i class="fas fa-eye"></i> Dry-run (пробный прогон)</button>
+            <button class="btn btn-info" onclick="exportArchive('audit')" title="Экспортировать архивные события аудита в файл"><i class="fas fa-file-export"></i> Экспорт аудита</button>
+            <button class="btn btn-info" onclick="exportArchive('findings')" title="Экспортировать архивные находки в файл"><i class="fas fa-file-export"></i> Экспорт находок</button>
+        </div>
+        <div class="mt-2 text-muted" style="font-size:13px;" id="retentionStatus">Загрузка…</div>
+    </div>
+</div>
+
+<div class="modal" id="passwordModal">
+    <div class="modal-content">
+        <div class="modal-header"><h3>Смена пароля</h3><button type="button" class="btn btn-sm" onclick="closeModal('passwordModal')">&times;</button></div>
+        <form id="passwordForm" onsubmit="event.preventDefault(); changePassword();">
+            <div class="modal-body">
+                <!-- BACKLOG-320 (v3.14.4): скрытое username для a11y/autofill (Chrome warn). -->
+                <input type="text" name="username" autocomplete="username" value="admin" style="display:none" readonly>
+                <div class="mb-3"><label class="form-label">Текущий пароль *</label><input type="password" id="curPassword" class="form-control" required autocomplete="current-password"></div>
+                <div class="mb-3">
+                    <label class="form-label">Новый пароль *</label>
+                    <input type="password" id="newPassword" class="form-control" required autocomplete="new-password" minlength="6">
+                    <div class="form-text">Минимум 6 символов.</div>
+                </div>
+                <div class="mb-3"><label class="form-label">Подтверждение нового пароля *</label><input type="password" id="newPassword2" class="form-control" required autocomplete="new-password"></div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-outline-secondary" onclick="closeModal('passwordModal')">Отмена</button>
+                <button type="submit" class="btn btn-primary">Сменить пароль</button>
+            </div>
+        </form>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="/static/js/settings.js"></script>
+{% endblock %}
