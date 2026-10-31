@@ -128,3 +128,28 @@ scanner/config/scanner_config.test.json
 
 # prompts (ТЗ — архив, не в релиз)
 prompts/tz/
+
+# Internal development artifacts
+prompts/
+backups/
+*.sql
+dcap_sources_*.txt
+temp_patch.py
+test_access_management.py
+test_models.py
+test_parse.py
+init_db_data.py
+03_create_data.py
+create_test_data.py
+scan_folder.py
+
+# Local state and logs
+logs/
+*.log
+.env
+scanner/state_test/
+scanner/config/scanner_config.test.json
+
+# OS generated
+.DS_Store
+Thumbs.db
