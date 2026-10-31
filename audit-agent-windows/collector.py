@@ -223,8 +223,8 @@ class WindowsAuditCollector:
                 ["icacls", path],
                 capture_output=True,
                 text=True,
-                encoding="utf-8",
-                errors="ignore",
+                encoding="cp866",
+                errors="replace",
                 timeout=30,
             )
         except Exception:
@@ -232,11 +232,17 @@ class WindowsAuditCollector:
         entries = []
         for line in (result.stdout or "").splitlines():
             line = line.rstrip()
-            if not line or line.endswith(":") or "\t" not in line:
+            line = line.strip()
+            if not line or line.lower().startswith("успешно") or line.lower().startswith("processed") or line.endswith(":"):
                 continue
-            parts = line.split("\t")
-            principal = parts[0].strip()
-            rights = parts[1].strip() if len(parts) > 1 else ""
+            if "(" not in line:
+                continue
+            idx = line.find("(")
+            principal = line[:idx].strip()
+            rights = line[idx:].strip()
+            if principal.lower().startswith(path.lower()):
+                principal = principal[len(path):].strip()
+            principal = principal.rstrip(":").strip()
             if not principal or not rights:
                 continue
             perms = []
