@@ -45,17 +45,17 @@ cp .env.example .env
 python -c "import base64, os; print(base64.b64encode(os.urandom(32)).decode())"
 # повторить дважды — для FINDINGS_ENCRYPTION_KEY и FINDINGS_HMAC_KEY
 ```
-2. Поднять стек
+### 2. Поднять стек
 ```bash
 docker compose up -d --build --wait
 # Manager :8000, WebUI :8001, Grafana :3000, Prometheus :9090
 ```
-3. Первый вход
+### 3. Первый вход
 WebUI: http://localhost:8001
 
 Логин: admin / admin123 — сменить при первом запуске (Settings → Password).
 
-4. Запустить сканер (на хосте)
+### 4. Запустить сканер (на хосте)
 ```bash
 export FINDINGS_ENCRYPTION_KEY="<base64>"
 export FINDINGS_HMAC_KEY="<base64>"
@@ -65,13 +65,14 @@ python run_scanner.py scanner/config/scanner_config.json
 ⚠️ В production сканер без ключей не стартует (fail-fast).
 DCAP_ALLOW_LEGACY_SCANNER=true — только dev.
 
-5. Создать ресурс и запустить скан
+### 5. Создать ресурс и запустить скан
 WebUI → Resources → New (filesystem path или s3://bucket/prefix).
 
 Или API: POST /api/resources?path=...&type=filesystem → POST /api/resources/{id}/scan.
 
-🏗️ Архитектура
-docs/architecture-overview.png
+### 🏗️ Архитектура
+
+![Архитектура DCAP](docs/architecture-overview.png)
 
 Общая схема взаимодействия компонентов DCAP (Manager, Scanner, агенты, хранилища).
 
@@ -88,7 +89,7 @@ scripts/run-tests.sh e2e
 scripts/security_scan.ps1   # Bandit, Semgrep, Gitleaks, pip-audit, Trivy, ZAP
 ```
 Подробнее — docs/testing.md.
-📚 Документация
+## 📚 Документация
 ARCHITECTURE.md — архитектура, модели, API, SIEM.
 
 ROADMAP.md — план и бэклог.
@@ -103,7 +104,7 @@ SECURITY.md — политика безопасности.
 
 docs/security_checklist.md.
 
-🔒 Безопасность
+## 🔒 Безопасность
 Findings: AES-256-GCM + HMAC-SHA256 fingerprint; маскирование по умолчанию.
 Расшифровка — только Auditor, с аудитом (finding_reveal).
 mTLS relaxed/strict + CRL; machine-эндпоинты проверяют сертификат в strict.
@@ -113,7 +114,8 @@ ZAP 0 HIGH, CapDrop=[ALL], non-root.
 ⚠️ /metrics публичный (BACKLOG-044) — закрыть в production.
 ⚠️ admin/admin123 — сменить при первом запуске.
 Найденные уязвимости — см. SECURITY.md.
-🤝 Contributing
+
+## 🤝 Contributing
 Fork → branch → PR.
 
 Тесты: pytest tests/unit -q + scripts/run-tests.sh e2e (при предусловиях).
@@ -124,17 +126,17 @@ Security-правки — с # nosemgrep + комментарием (если о
 
 CI — GitHub Actions (BACKLOG-046, день 55).
 
-📄 Лицензия
+## 📄 Лицензия
 Apache License 2.0. Сторонние компоненты — см. NOTICE.md.
 
-🙏 Acknowledgements
+## 🙏 Acknowledgements
 Inter (rsms/inter) — SIL OFL 1.1
 
 JetBrains Mono — SIL OFL 1.1
 
 Bootstrap, Chart.js, Font Awesome — MIT / BSD (см. NOTICE.md)
 
-📬 Контакты
+## 📬 Контакты
 Issues: https://github.com/kirill-9999/dcap-system/issues
 
 Security: см. SECURITY.md
