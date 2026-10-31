@@ -120,3 +120,11 @@ scanner/state/
 # Security scan artifacts (53.5)
 reports/
 dcap_sources_*.txt
+
+# scanner test artifacts
+scanner/state_test/
+scanner/config/scanner_config.test.json
+
+
+# prompts (ТЗ — архив, не в релиз)
+prompts/tz/

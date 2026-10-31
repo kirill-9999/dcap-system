@@ -7,6 +7,258 @@
 
 ---
 
+# Changelog
+
+Все значимые изменения проекта DCAP.
+Формат: [Keep a Changelog](https://keepachangelog.com/ru/1.1.0/).
+Версионирование: [SemVer](https://semver.org/lang/ru/).
+
+## [3.0.0] — 2026-10-31 (дата тега)
+
+Первый публичный релиз **Enterprise Ready**. Закрывает вехи v3.0.0:
+Enterprise-функциональность (S3/MinIO, Retention, SIEM-каркас), WebUI-редизайн
+(Dovetail), security-hardening (53.5), мультипроцессинговый сканер.
+
+### Added — Enterprise Ready
+
+**S3/MinIO-коннектор сканера (BACKLOG-097, v3.13.29–35)**
+- Явный `ScanTask.source_type` (`filesystem` / `s3` / `minio`), миграция 006.
+- `S3LineConnector` — построчное чтение S3/MinIO (`Body.iter_chunks`),
+  streaming + временный файл для документов/OCR.
+- Общий построчный пайплайн `_text_scanner.py` + `factory.create_line_connector`.
+- `POST /api/resources?type=s3&path=s3://...&endpoint=...` — endpoint обязателен
+  (query → `S3_DEFAULT_ENDPOINT` → 400).
+- Bucket фиксируется при создании ресурса; `path` — суффикс префикса (v3.13.35).
+- Секреты S3 — только ENV на хосте сканера (`S3_ACCESS_KEY` / `S3_SECRET_KEY`,
+  TASK-018). Manager никогда не передаёт секреты в payload задачи.
+- BUG-149 (v3.13.41): S3-скан возвращал 0 files для ресурсов из legacy WebUI —
+  добавлены bucket-фолбэк из path, `connector.s3` в `/api/tasks/create` и
+  `/api/resources/create`, DEBUG-логи `list_objects_v2`.
+- BUG-136 (v3.13.31): strict-декод utf-8 → cp1251 (cp1251-ветка была
+  недостижимой из-за `errors="ignore"`).
+
+**Retention (Блок 18, v3.14.4)**
+- `GET /api/retention/status`, `/policies`, `/stats`; `POST /run` (sync),
+  `/start` (Celery), `/export` (JSON/CSV).
+- Dry-run, ручной запуск, Celery-путь (`run_retention.delay`) + Beat-schedule.
+- Политики: audit_events (90д → архив), findings (180д → архив), tasks (30д).
+- Партиционирование `audit_logs` (RANGE по `created_at`).
+- BUG-102 (v3.13.27): импорт `User` в 6 модулях + `configure_mappers()` в
+  celery_app.py (Mapper init).
+
+**Мультипроцессинговый сканер (53.4j–p, v3.14.8–14)**
+- `ProcessPoolExecutor` — реальный параллелизм (×2.09 на 4 ядрах: 63.7 → 132.9 ф/мин).
+- Ленивая инициализация spaCy/OCR в воркерах (память ×1.54).
+- `performance.executor`: `"process"` / `"thread"` (fallback); `max_workers`,
+  `chunk_size` (bounded submit).
+- **Resume** (BUG-280): `ScanState` chunk-aware; `Ctrl+C` → save → release (pending,
+  не failed) → `[Resume] с чанка N+1/M`.
+- Pool reuse (BUG-286): `ProcessPoolExecutor` 1 раз на задачу.
+- **Дедуп** по `(category, match_text)` (BUG-281), `metadata["locations"]` —
+  finding-взрыв 609 → 0.6/файл.
+- NER off (BUG-282): PERSON/LOCATION/ORG/DATE_TIME/NRP — 99.9% FP.
+- Логи: `logs/scanner.log` (INFO, ротация) + консоль (DEBUG); reconnect (BUG-284).
+- `final=True` только последний чанк (BUG-287); `release` completed → 204 (BUG-288);
+  `ScanProgress` монотонный (BUG-289).
+
+**WebUI-редизайн Dovetail (BACKLOG-093, 53.4a–f, v3.13.37–3.14.7)**
+- Dark-only тема, Inter Variable + JetBrains Mono (локально, кириллица — BUG-212).
+- #6798ff, 8px радиусы, zero-shadow, grid-wireframe (blueprint).
+- Страницы: login, dashboard, resources, findings, finding_detail, catalog, audit,
+  scanners, access, roles, users, settings + footer.
+- RBAC-фронт (BUG-265/267): viewer/scanner не вызывают `/api/audit/*`, KPI «—» +
+  «Нет прав».
+- Responsive `/users` и `/findings` (BUG-270/271, BACKLOG-320/321/324).
+- 53.4i (BUG-278): чекбоксы неактивных сканеров.
+- ⚠️ Light-тема и stroke-SVG иконки — v3.1.0 (BACKLOG-101/102).
+
+**Аудит-агенты (Блок 6, v3.13.28; TEST-AUDIT-AGENTS 56.5, v3.14.17)**
+- Windows-агент (1017 событий), Linux-агент (inotify/watchdog, 25 событий),
+  S3-агент (9 событий).
+- WebUI `/audit` + stats + RBAC + кодировка.
+- `POST /api/audit/agents/register`, `/heartbeat`, `/events`, `/permissions` —
+  machine-эндпоинты (mTLS опционально; strict без сертификата → 401, BUG-106).
+
+**RBAC-hotfix (53.4e-rbac-hotfix, v3.14.3)**
+- BUG-253: нельзя снять роль `admin` с себя (чекбокс disabled + 400).
+- BUG-254: создание пользователя без ролей → 400.
+- BUG-257: системные роли immutable по `name`/`ad_group`.
+- BUG-258: кастомные роли отключены до v3.1.0 (`POST /roles` → 403).
+- BACKLOG-316: машинная роль `scanner` скрыта в `/users`.
+
+**Мониторинг (Блок 8, v3.14.2)**
+- Grafana протестирована: datasource provisioned, 2 дашборда (dcap-overview 11
+  панелей, dcap-scanner 5), 4 alert rules (fire + resolve).
+- Prometheus targets 5/5 up.
+- BUG-246: `dcap_findings_total` — Gauge из БД; `dcap_findings_created_total` —
+  Counter сессии.
+- BUG-245: `dcap_scanner_heartbeat_age_seconds` — hardening.
+- ⚠️ Grafana RBAC (BACKLOG-307) — v3.1.0.
+
+### Security — 53.5 (v3.14.16, 10/10)
+
+- **Bandit**: 0 HIGH (убран `shell=True` в `local.py`, 9 `# nosemgrep`).
+- **Semgrep**: 0 findings (3 `shell=True` убраны; `sqlalchemy.text`, CORS, logger,
+  md5 → `# nosemgrep`).
+- **Gitleaks**: 0 leaks (190 commits; allowlist для tests/reports).
+- **pip-audit**: 0 vulns (manager + scanner).
+- **Trivy (vuln)**: 0 CRITICAL (manager + webui; Pillow 13.0.0, certifi 2026.10.19).
+- **ZAP WebUI**: 0 HIGH (7 WARN — триаж).
+- **ZAP API**: 0 HIGH (5 WARN; заголовки → BACKLOG-346/347).
+- **Trivy config**: 0 misconfig; `cap_drop: [ALL]` → `--force-recreate` → `CapDrop=[ALL]`.
+- **docker inspect**: non-root (`dcap`), `CapDrop=[ALL]`.
+- **Dogfooding**: DCAP-сканер на собственном репо — 11718 файлов, 0 findings.
+
+### Fixed — security/masking
+
+- **BUG-117** (v3.14.17): Manager не маскировал контексты сам. Введён
+  `mask_context` (22 паттерна, `_CONTEXT_PATTERNS`) + `MASK_RULES` 19 категорий
+  в `manager/src/core/encryption.py`; маскирование при записи и чтении.
+  Специфичные токены (`ghp_`, `xox[baprs]-`, `AKIA`) — раньше generic.
+  Generic `KEY=VALUE` маскирует только значение, сохраняя маркер категории.
+  `person` и `high_entropy` в контекст не попадают (осознанно).
+- **BUG-292** (v3.14.15): `finding_detail.js` — CP1251 → UTF-8 (без BOM).
+- **BUG-201** (v3.13.39): `POST /api/auth/change-password` возвращал 200, но не
+  менял пароль (мутация `request.state.user` из чужой сессии). Фикс — пере-запрос
+  user в сессии хендлера + commit/refresh + аудит после commit.
+- **BUG-202** (v3.13.39): `with_audit` — единая транзакция «бизнес-изменение +
+  аудит»; исключение → rollback + raise.
+- **BUG-168** (v3.13.39): системные роли (admin/auditor/scanner/viewer) иммутабельны
+  по `name`/`ad_group`; редактируется только `description`.
+- **BUG-181** (v3.13.39): аудит всех операций с ролями (`role_created` /
+  `role_updated` / `role_deleted`).
+- **BUG-150** (v3.13.41): `DELETE /api/resources/{id}` → 500 (FK NO ACTION);
+  миграция 007_add_cascade_deletes (11 FK).
+- **BUG-214/223** (v3.13.39): `GET /api/audit*` — Auditor+ (viewer/scanner → 403);
+  деталь события с `metadata_json`, 404.
+- **BUG-106** (v3.13.28): machine-эндпоинты не входят в `public_paths`; в strict
+  без клиентского сертификата → 401.
+
+### Fixed — scanner/infra
+
+- **BUG-136**: cp1251 (см. S3).
+- **BUG-149**: S3 bucket из path (см. S3).
+- **BUG-280/283/284** (53.4n): resume + логи + reconnect.
+- **BUG-286** (53.4o): pool reuse.
+- **BUG-287/288/289** (53.4p): `final`/`release`/`ScanProgress`.
+- **BUG-259/260/261/263** (v3.14.3): тест-инфра (conftest basetemp, regular-пакет
+  connectors, фикстура Finding, `loadFilterOptions`).
+- **BACKLOG-317** (v3.14.3): `docker-compose.test.yml` — `name: dcap-test` (раньше
+  сносило основной стек).
+
+### Changed
+
+- Версия Docker-образов: `3.14.17` (manager + webui пересобраны с Pillow 13.0.0,
+  certifi 2026.10.19, `mask_context`).
+- `ScanTask.source_type` — явный тип источника (миграция 006, идемпотентна).
+- WebUI: `.btn-primary` — белый фон (#ffffff) / текст #0a0a0a (BACKLOG-121,
+  отменяет отклонение 53.4a).
+- Badge режима на `/login` — только для `windows_integrated` (BACKLOG-119).
+
+### Known Limitations (v3.0.0)
+
+- S3: `s3://*` (все bucket'ы одной задачей) — не поддерживается (на каждый bucket
+  свой Resource).
+- S3: `recursive=false`, `skip_prefixes`, параллелизм (BACKLOG-100/099) — v3.1.0.
+- S3: fallback на config-секреты и endpoint `host.docker.internal:9000` в коннекторе
+  (BACKLOG-103) — v3.1.0.
+- Grafana RBAC (BACKLOG-307) — v3.1.0.
+- SIEM, Cython, Rust, DLP — не реализованы (план v3.1.0+).
+- E2E-эталон (53/7) требует внешних предусловий (сканер + MinIO + seed-findings +
+  auditor); BUG-262 этап B — до 57, CI — BACKLOG-046 (55).
+- Кастомные роли без `permissions` (BUG-258) — v3.1.0.
+- `/metrics` публичный (BACKLOG-044) — production.
+
+### Migration Notes (v2.x → v3.0.0)
+
+- **Обязательные миграции Alembic**: `alembic upgrade head` (001–007).
+  - 003_findings_refactor (переименование findings → findings_old, только PG).
+  - 005_add_fragment_columns (5 колонок fragment_*).
+  - 006_add_source_type (ScanTask.source_type, идемпотентна).
+  - 007_add_cascade_deletes (11 FK, BUG-150).
+- **ENV**: `FINDINGS_ENCRYPTION_KEY`, `FINDINGS_HMAC_KEY` — обязательны для сканера
+  (fail-fast; `DCAP_ALLOW_LEGACY_SCANNER=true` — только dev).
+- **S3**: `S3_ACCESS_KEY` / `S3_SECRET_KEY` — на хосте сканера (ENV-only, TASK-018);
+  `S3_DEFAULT_ENDPOINT` — на Manager (fallback для endpoint).
+- **Пароль admin**: `admin/admin123` создаётся при первом запуске — **сменить**.
+
+## [v3.14.17] — 2026-10-31
+
+### Fixed (56.5 — TEST-AUDIT-AGENTS)
+
+- **Windows-агент (icacls, cp866)** — `a537f95`: парсинг `icacls` в cp866
+  (раньше — кракозябры в именах групп/пользователей). Отчёт audit agents:
+  registered + heartbeat, 0 events.
+- **WebUI `/audit` + stats + RBAC + кодировка** — приёмка событий аудита от агентов
+  (Windows — 1017 событий, Linux — 25, S3 — 9; `WebUI /audit total` — 2108).
+  RBAC: viewer/scanner → 403; кодировка — UTF-8.
+
+### Fixed (BUG-117 — Manager маскирует контексты)
+
+- **BUG-117** — Manager не маскировал контексты сам (полагался на сканер).
+  Введён `mask_context` (22 паттерна, `_CONTEXT_PATTERNS`) + `MASK_RULES`
+  (19 категорий) в `manager/src/core/encryption.py`; маскирование при записи
+  **и** чтении. Специфичные токены (`ghp_`, `xox[baprs]-`, `AKIA`, `sk-`) —
+  раньше generic; generic `KEY=VALUE` маскирует только значение, сохраняя
+  маркер категории (`GITHUB_TOKEN=ghp_***`). `person` и `high_entropy` в
+  контекст не попадают (осознанно).
+- Тесты: `manager/tests/test_mask_context_v31417.py` — **16 passed**.
+
+### Tests
+
+- Unit: **544 passed** (528 + 16 BUG-117).
+- WebUI `/audit`: total 2108; агенты — Windows 1017, Linux 25, S3 9.
+- E2E: стенд `:18000/:18001`; эталон 53/7 — при предусловиях.
+
+### Changed
+
+- `.env`, `docker-compose.yml`, `docker-compose.test.yml` — `VERSION=3.14.17`
+  (manager + webui пересобраны: Pillow 13.0.0, certifi 2026.10.19, `mask_context`).
+
+---
+
+## [v3.14.16] — 2026-10-30
+
+### Security (53.5 — security_scan, 10/10)
+
+- **Bandit**: 0 HIGH (убран `shell=True` в `local.py`, 9 `# nosemgrep` + комментарии).
+- **Semgrep**: 0 findings (3 `shell=True` убраны; `sqlalchemy.text`, CORS, logger,
+  md5 → `# nosemgrep`).
+- **Gitleaks**: 0 leaks (190 commits; allowlist для `tests/`/`reports/`;
+  `reports/` → `.gitignore`).
+- **pip-audit**: 0 vulns (manager + scanner).
+- **Trivy (vuln)**: 0 CRITICAL (manager + webui; Pillow 13.0.0, certifi 2026.10.19;
+  `--scanners vuln`, `--timeout 30m`, `docker.sock`).
+- **ZAP WebUI**: 0 HIGH (7 WARN — триаж; `username` в URL → BACKLOG-344;
+  XSS — ложное Jinja2).
+- **ZAP API**: 0 HIGH (5 WARN; 500-е → BUG-298 low; заголовки → BACKLOG-346/347).
+- **Trivy config**: 0 misconfig; `cap_drop: [ALL]` → `--force-recreate` →
+  `CapDrop=[ALL]`.
+- **docker inspect**: non-root (`dcap`), `CapDrop=[ALL]`, `ReadonlyRootfs=false`
+  (v3.1.0).
+- **Dogfooding**: DCAP-сканер на собственном репозитории — 11718 файлов,
+  0 findings (gap=0, FP=0; маскирование — 56.5, закрыто в v3.14.17).
+
+### Added
+
+- `scripts/security_scan.ps1` — единый прогон (Bandit, Semgrep, Gitleaks,
+  pip-audit, Trivy, ZAP, docker inspect, dogfooding).
+- `reports/` → `.gitignore` (артефакты 53.5).
+
+### Known Limitations (53.5)
+
+- `username` в URL на `/settings` — BACKLOG-344 (v3.0.1).
+- `X-Content-Type-Options: nosniff` не установлен — BACKLOG-346 (v3.0.1).
+- `Cross-Origin-Resource-Policy` не установлен — BACKLOG-347 (v3.0.1).
+- 500 на `/api/audit/*` (ZAP-фаззинг; не воспроизвелось после пересоздания) —
+  BUG-298 (low, v3.0.1).
+
+### Changed
+
+- `.env`, `docker-compose.yml`, `docker-compose.test.yml` — `VERSION=3.14.16`.
+
+---
+
 ## [v3.14.15] — 2026-10-25
 
 ### Fixed (53.4n/53.4o/53.4p — Scanner Resume/Pool/Progress + UI)
@@ -468,18 +720,18 @@
 
 ---
 
-## [v3.0.0-v3.11.0] — 2026-06..08
+## [v3.0.0-v3.11.0] — 2026-07..08
 
 ### Added (Обнаружение, классификация, WebUI, Linux-агент, Finding, RBAC, mTLS, Retention, аудит)
 
 ---
 
-## [v1.0.0-v2.1.0] — 2025-2026
+## [v1.0.0-v2.1.0] — 2026-07
 
 ### Added (MVP, Блок 1 Smoke, Блок 2 Auth/RBAC)
 
 ---
 
-**Актуально на:** 25.10.2026
-**Версия:** v3.14.15
-**Следующая версия:** 53.5 (security_scan) → 55 (GitHub) → 56 (BUG-117) → 57 (релиз v3.0.0) → v3.1.0
+**Актуально на:** 31.10.2026
+**Версия:** v3.0.0
+**Следующая версия:** v3.0.1 (BUG-293, BUG-298, BACKLOG-344/346/347, BACKLOG-339) → v3.1.0 (13 направлений + Cython/Rust + SIEM + Security Gateway v4.0.0)
