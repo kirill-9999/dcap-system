@@ -26,12 +26,6 @@ jobs:
           - name: webui
             context: ./webui
             file: webui/Dockerfile
-          - name: s3-agent
-            context: ./audit-agent-s3
-            file: audit-agent-s3/Dockerfile
-          - name: linux-agent
-            context: ./audit-agent-linux
-            file: audit-agent-linux/Dockerfile
 
     steps:
       - name: Checkout repository
