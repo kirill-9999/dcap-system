@@ -1,172 +1,112 @@
-# DCAP System
+# DCAP — Data Classification & Audit Platform
 
-Система сканирования и аудита данных (PII/credentials/code) для Windows и Linux.
+[![Version](https://img.shields.io/badge/version-3.0.0-blue)](CHANGELOG.md)
+[![License](https://img.shields.io/badge/license-Apache%202.0-green)](LICENSE)
+[![Python](https://img.shields.io/badge/python-3.10%2B-blue)](pyproject.toml)
+[![Docker](https://img.shields.io/badge/docker-compose-blue)](docker-compose.yml)
+[![Tests](https://img.shields.io/badge/tests-544%20passed-brightgreen)](tests/)
 
-## Компоненты
+> **DCAP** — �латформа аудита данных на предмет конфиденциальной информации (PII, credentials,
+> code secrets) и разрешений на файловых хранилищах и S3/MinIO. Enterprise-ready: RBAC, mTLS,
+> соответствие регуляторам (152-ФЗ / GDPR / PCI DSS), retention, Prometheus/Grafana.
 
-| Компонент | Описание | Порт |
-|-----------|----------|------|
-| `manager/` | FastAPI control-plane | :8000 |
-| `webui/` | Дашборд (Jinja2, прокси API на Manager) | :8001 |
-| `scanner/` | Агент сканирования | — |
-| `audit-agent-windows/` | Windows-агент аудита (wevtutil) | — |
-| `audit-agent-linux/` | Linux-агент аудита (watchdog) | — |
-| `audit-agent-s3/` | S3/MinIO агент аудита (polling) | — |
-| `shared/` | Единая схема событий (UnifiedEvent) | — |
+## ✨ Возможности
 
-## Запуск
+- **Сканер** — PII (FИО, email, телефоны, паспорта, СНИЛС, ИНН, банковские карты), credentials
+  (API-ключи, пароли, SSH, токены), code secrets. OCR для изображений/PDF.
+- **Аудит разрешений** — файловые хранилища (Windows/Linux), S3/MinIO (streaming, multipart).
+- **Шифрование** — AES-256-GCM; расшифровка только Auditor, с аудитом.
+  HMAC-SHA256 fingerprint (защита от brute-force). Маскирование контекстов
+  на стороне Manager (BUG-117).
+- **Дашборд** — фильтры по findings, статистика, экспорт; аудит Windows/Linux/S3.
+- **RBAC** — admin / auditor / scanner / viewer; AD-интеграция; mTLS relaxed/strict.
+- **Retention** — политики TTL, очистка, архивирование, Celery Beat.
+- **Мониторинг** — Prometheus /metrics, Grafana (2 дашборда, 4 алерта).
+- **WebUI** — Dovetail dark, RBAC-гейты, responsive.
+
+## ⚙️ Реквизиты<c/br>
+
+- Docker + Docker Compose v2 (`--wait`)
+- Python 3.10+ (для сканера на хосте)
+- 16 ГБ RAM (сканер: `max_workers=2`; 32 ГБ → 4; 128 ГБ → 8)
+
+<h3>1. Клонировать и настроить</h3>
 
 ```bash
-# Инициализация БД
-python init_db.py
+git clone https://github.com/kirill-9999/dcap-system.git
+cd dcap-system
+cp .env.example .env
+# Заполнить: FINDINGS_ENCRYPTION_KEY, FINDINGS_HMAC_KEY (base64, 32 bytes),
+#           S3_ACCESS_KEY, S3_SECRET_KEY (если S3), POSTGRES_PASSWORD
+```
 
-# Единый запуск Manager + WebUI (порты из конфигов)
-python run_all.py
+Генерация ключей findings:
 
-# или по отдельности:
-python run_manager.py        # Manager API (порт из manager/config/config.json, :8000)
-python run_webui.py          # WebUI (порт из webui/config/config.json, :8001)
+```bash
+python -c "import base64, os; print(base64.b64encode(os.urandom(32)).decode())"
+# повторить дважды — для FINDINGS_ENCRYPTION_KEY и FINDINGS_HMAC_KEY
+```
 
-# Сканер
+<h3>2. Поднять стек</h3>
+
+```bash
+docker compose up -d --build --wait
+# Manager :8000, WebUI :8001, Grafana :3000, Prometheus :9090
+```
+
+<h3>3. Первый вход</h3>
+
+WebUI: http://localhost:8001
+
+Логин: admin / admin123 — сменить при первом запуске (Settings → Password).
+
+<h3>4. Запустить сканер (на хосте)</h3>
+
+```bash
+export FINDINGS_ENCRYPTION_KEY="<base64>"
+export FINDINGS_HMAC_KEY="<base64>"
+export MANAGER_URL="http://127.0.0.1:8000"
 python run_scanner.py scanner/config/scanner_config.json
-
-# Windows-агент аудита
-cd audit-agent-windows && python main.py config.json
-
-# Linux-агент аудита
-cd audit-agent-linux && ./start.sh --daemon
-
-# S3/MinIO агент аудита
-cd audit-agent-s3 && python -m src.main --config config/config.json
 ```
 
-## Масштабирование (День 36-37): PostgreSQL + Redis + Celery
+❗️ В production сканер без ключей не стартует (fail-fast).
+DCAP_ALLOW_LEGACY_SCANNER=true — только dev.
 
-Production-стек поднимается одной командой:
+<h3>5. Создать ресурс и запустить скан</h3>
+
+WebUI → Resources → New (filesystem path или s3://bucket/prefix).
+
+Или API: `POST /api/resources?path=...&type=filesystem` → `POST /api/resources/{id}/scan`.
+
+## 🏗️ Архитектура
+
+![Архиектура DCAP](docs/architecture-overview.png)
+
+Общая схема взаимодействия компонентов DCAP (Manager, Scanner, агенты, хранилища).
+
+P�дробное описание (модели данных, API, SIEM)— в ARCHITECTURE.md и docs/architecture.mermaid.
+
+## 🧤 Тестирование
 
 ```bash
-docker compose up -d     # postgres(5432) + redis(6379) + manager(8000) + webui(8001) + celery worker/beat + flower(5555)
+# Unit (544 passed)
+pytest tests/unit -q
+
+# E2E (тестовый стенд :18000/:18001)
+scripts/test-up.sh
+scripts/run-tests.sh e2e
+
+# Security (53.5)
+scripts/security_scan.ps1   # Bandit, Semgrep, Gitleaks, pip-audit, Trivy, ZAP
 ```
 
-- **PostgreSQL 16** — основная БД (`postgres:16-alpine`). Миграции — Alembic:
-  ```bash
-  alembic upgrade head
-  python scripts/migrate_sqlite_to_postgres.py  # перенос данных из SQLite (все таблицы + архивы)
-  ```
-- **Партиционирование** `audit_logs` по месяцам (RANGE on `created_at`), создаётся миграцией `001_initial_postgres` для PostgreSQL; SQLite-режим не затронут.
-- **Redis 7** — брокер Celery + кэш + rate-limit. При недоступности Redis Manager работает в no-op режиме (rate-limit fail-open в памяти).
-- **Celery** — очереди: `audit_events`, `scanner_tasks`, `retention`, `reports`. Периодическая архивация — Celery Beat (заменила фоновый поток дня 35).
-  ```bash
-  celery -A manager.src.workers.celery_app:app worker --queues=audit_events,scanner_tasks,retention,reports
-  celery -A manager.src.workers.celery_app:app beat
-  ```
-- **Flower** — мониторинг задач на :5555.
+Подробнее — docs/testing.md.
 
-Локальный запуск (без Docker) остаётся прежним: SQLite + без RabbitMQ/Celery (асинхронные задачи опциональны).
+## 📚 Документация
 
-## Контейнеризация и деплой (День 38)
-
-Полная контейнеризация всех компонентов — одна команда поднимает весь стек.
-
-```bash
-cp .env.example .env    # настроить пароли и ключи
-./scripts/deploy.sh     # сборка образов + запуск всех сервисов + healthcheck
-```
-
-- **Dockerfile** (multi-stage, непривилегированный пользователь, healthcheck): `manager/` (Manager + Celery worker/beat), `webui/`, `audit-agent-s3/`, `audit-agent-linux/`; `.dockerignore` для каждого (build-контекст Manager/S3 — корень репо; webui — `./webui`).
-- **docker-compose.yml** — полный стек: postgres(5432) + redis(6379) + manager(8000) + webui(8001) + celery worker/beat + flower(5555). Агенты — profile: `--profile agents` (S3).
-- **Scanner — НЕ в Docker** (в контейнере нельзя динамически примонтировать папки из заданий): запускается на хосте через `python run_scanner.py scanner/config/scanner_config.json` и видит любые пути напрямую (см. `docs/deployment.md`).
-- **docker-compose.prod.yml** — production overrides (лимиты CPU/RAM, mTLS, репликация worker).
-- **Скрипты**: `scripts/deploy.sh`, `stop.sh`, `logs.sh`, `status.sh`, `healthcheck.sh`.
-- **Документация**: `docs/deployment.md`.
-
-## Тестирование (День 40-41): E2E + Chaos + Load
-
-Тесты построены на **pytest** (изолированный тестовый стек `docker-compose.test.yml`,
-Manager :18000, WebUI :18001, БД `dcap_test`, tmpfs). Полная инструкция —
-**`docs/testing.md`**.
-
-```bash
-pip install -r requirements-dev.txt
-./scripts/test-up.sh        # поднять изолированный тестовый стек
-pytest tests/               # все тесты
-./scripts/run-tests.sh e2e  # только E2E (или chaos / load / quick / all)
-./scripts/test-down.sh      # остановить стек
-```
-
-- **E2E** — `tests/e2e/`: полный цикл (задание → сканирование → находки), auth, heartbeat сканера, агенты, WebUI-прокси, retention
-- **Chaos** — `tests/chaos/`: падение Manager / Redis (fail-open) / PostgreSQL / Scanner, обрыв сети
-- **Load** — `tests/load/`: 1000 заданий, 10 000 событий, конкурентные сканеры (базовые; глубокие — в v3.1.0)
-
-## Мониторинг (День 39): Prometheus + Grafana + Alertmanager
-
-Стек мониторинга поднимается вместе с docker-compose:
-
-```bash
-docker compose up -d prometheus grafana alertmanager \
-  postgres_exporter redis_exporter celery_exporter
-```
-
-- **Grafana** — http://localhost:3000 (`admin` / `${GRAFANA_PASSWORD}`, дефолт `admin`); provisioning дашбордов из `monitoring/grafana/provisioning/`
-- **Prometheus** — http://localhost:9090; таргеты в `monitoring/prometheus/prometheus.yml`
-- **Alertmanager** — http://localhost:9093; уведомления (webhook/email/Slack/Telegram)
-- **Алерты** — `monitoring/prometheus/alerts.yml` (ScannerInactive, TaskFailed, HighErrorRate, CeleryQueueBacklog)
-- **Метрики**:
-  - Manager — `GET /metrics` (HTTP, tasks, findings, scanner heartbeat age, celery queues)
-  - Scanner (хост, :9101) — files/findings/duration/errors, собирается через `host.docker.internal`
-  - Linux-агент (:9102), S3-агент (:9103), экспортеры Celery/PostgreSQL/Redis
-- **Heartbeat-тред сканера**: фоновый поток шлёт heartbeat каждые 30 с (в т.ч. прогресс длинных заданий) — сканер больше не помечается "inactive" во время сканирования
-- **Статус**: `./scripts/monitoring-status.sh` (полный) и `-q` (только проблемы)
-- **Документация**: `docs/monitoring.md`
-
-## Архитектура
-
-```
-┌─────────────┐     ┌─────────────┐     ┌─────────────┐
-│ audit-agent │────▶│   Manager   │◀────│ audit-agent │
-│  (Windows)  │     │   :8000     │     │   (Linux)   │
-└─────────────┘     └──────┬──────┘     └─────────────┘
-                           │
-                    ┌──────▼──────┐
-                    │    WebUI    │
-                    │   :8001     │
-                    └─────────────┘
-```
-
-- **Manager** — REST API, прием событий от агентов, хранение в PostgreSQL (или SQLite в dev-режиме)
-- **WebUI** — дашборд с фильтрацией по источнику (Windows/Linux), удаление агентов/сканеров. Все `/api/*` запросы проксируются в Manager (нет прямого доступа к БД)
-- **Агенты** — легкие компоненты, буферизуют события в SQLite, отправляют батчами
-
-## Единый формат событий
-
-Все агенты (Windows, Linux, S3, scanner) используют формат `UnifiedEvent`:
-
-- `event_type`: read, write, delete, move, rename
-- `event_source`: windows_agent, linux_agent, scanner, s3_agent
-- `user`, `user_sid`, `file_path`, `source_host`, `metadata`
-
-## Версии
-
-| Версия | Описание |
-|--------|----------|
-| v1.0.0 | Базовый функционал (обнаружение + классификация + каталог) |
-| v2.0.0 | Управление доступом + Аудит Windows (ядро) |
-| v2.0.1 | Windows-стек полностью готов |
-| v2.1.0 | Linux-агент + унифицированный формат + WebUI фильтр |
-| v3.0.0 | Унификация Manager и WebUI: WebUI — Jinja2 + прокси API на Manager, конфиги портов, run_all.py |
-| v3.1.0 | Гибридная аутентификация (JWT+Bcrypt/SPNEGO) + роли; S3/MinIO агент аудита (polling, буфер, heartbeat, JWT); Windows + Linux аудит |
-| v3.2.0 | Безопасность: mTLS (relaxed/strict), CertificateManager, SecretsManager, CRL, generate_certs.py/rotate_certs.py |
-| v3.3.0 | Архивация данных: retention, политики хранения, экспорт JSON/CSV, WebUI настройки хранения |
-| v3.4.0 | Интеграция Secret Scanner (FP-фильтры, префильтр, буферизация, расширенные типы, лог-отчёт) |
-| v3.5.0 | Масштабирование: PostgreSQL + Alembic, партиционирование audit_logs, Redis (кэш/брокер/rate-limit), Celery worker/beat + Flower, docker-compose полный стек |
-| v3.6.0 | Контейнеризация и деплой: multi-stage Dockerfile для Manager/WebUI/S3/Linux-агент, .dockerignore, docker-compose полный стек + prod overrides, скрипты deploy/stop/logs/status/healthcheck, docs/deployment.md |
-| v3.6.1 (день 38.5) | Scanner в Docker: scanner/Dockerfile (multi-stage, Tesseract + spaCy + Presidio), profile `scanner` в compose, монтирование SCAN_PATH:/scanned:ro, лимиты CPU/RAM в prod-override |
-| v3.6.2 (день 38.5+) | Scanner возвращён на хост (Docker-контейнер не может динамически монтировать папки из заданий): `python run_scanner.py scanner/config/scanner_config.json`, фикс сохранения `failed_files.error_type` (500 при отправке результатов) |
-| v3.7.0 (день 39) | Мониторинг: heartbeat-тред сканера (не "inactive" при длинных заданиях), прогресс заданий из heartbeat (`scan_tasks.progress`), метрики Manager (HTTP/tasks/findings/celery) и агентов, Prometheus + Grafana (provisioning) + Alertmanager + экспортеры (celery/postgres/redis), docs/monitoring.md, scripts/monitoring-status.sh |
-
-## Требования
-
-- Python 3.8+
-- Windows: wevtutil (встроен), права администратора для аудита
-- Linux: watchdog, optional: paramiko (SSH-мониторинг)
-- Production: Docker (PostgreSQL 16, Redis 7)
+-ARCHITECTUDE.md — архитектура, модели, API, SIEM.
+-ROADMAP.md — план и бэклог.
+-CHANGELOG.md — история изменений.
+-docs/admin-guide/ — 04-authentication, 05-security, 06-scanner, 10-troubleshooting.
+-docs/DESIGN.md — WebUI style reference (Dovetail).
+-QMUI%Qd�����P�B�B�B�B�FB�B�B��B�B�B�B�B�B�FB�B�FFB�(����͕̽��ɥ��}��������й���((����~RP�BGB�B�B�B�B�FB�B�FFF0((���������L���ص4���!5�M!��؁�������ɥ���B�B�FB�B�FB�B�B�B�B�BԃB�B��FB�B�B�FB�B�B�F8�(�B�B�FF#B�FFB�B�B�B���P�FB�B�F3B�B��Ց�ѽȰ�F�B�FB�B�FB�B����������}ɕٕ����(��Q1L�ɕ��ᕐ���ɥ�Ѐ��I0쁵�������F7B�B�B�B�B�B�FF,�B�FB�B�B�FF?F;F�FB�FFB�FB�B�B�F�Bȁ��ɥ�и(�BCFB�B�F聙������̰���Ѡ��FB�B�Bఁɕѕ�ѥ����P��ȁ�Ց��}���̀�B�B�FFB�FB�B�B�B�FB�B�B�B�B�BԤ�(��̸��	����Ѐ��!% ��M���ɕ������ѱ���̀��������Ց�Ѐ���Qɥ����I%Q%0�(��i@���!% ����ɽ��m11t������ɽ�и(��j���<�����ɥ�̃B�FB�B�B�FB�F/B䀡	-1=���Ф��P�B�B�B�FF/FF0�Bȁ�ɽ�Սѥ���(��j���<��������������̃�P�FB�B�B�B�FF0�B�FB��B�B�FB�B�B��B�B�B�FFB�BԸ(�roB�B�B�B�B�F/BԃFF?B�B�B�B�B�FFB���P�FB�MUI%Qd����((����~�T����ɥ��ѥ��()�ɬ��H��Ʌ�����H�AH�(+B�B�FFF,聁��ѕ�Ёѕ��̽չ�Ѐ�ŀ����͍ɥ��̽�ո�ѕ��̹͠��ɕ���B�FB��B�FB�B�FFB�B�B�B�F?F��(+B�FB�B�F0�A@�ఁ���������̰������ȃB�B�B�FFB���ɥ�и()M���ɥ��B�FB�B�B�B���P�̀����͕��ɕ����B�B�B�B�B�B�FB�FB�B�B���B�FB�B��B�FB�B�B�B�B�B�B����()$��P���!Ո��ѥ��̀�	-1=���ذ�B�B�B�F0��Ԥ�((����~N�BoB�FB�B�B�B�F<()������1����͔�ȸ���B�FB�FB�B�B�B�BԃB�B�B�B�B�B�B�B�FF,��P�FB�9=Q%����((����~f<�����ݱ���������((��%�ѕȀ��͵̽��ѕȤ��P�M%0�=0�ĸ�(��WFBGB�FB�B�FF,�5�����P�M%0�=0�ĸ�(��	�����Ʌ������й�̰���Ёݕͽ����P�5%P���	M��FB�9=Q%����((����~N��BkB�B�FB�B�FF,()%��Օ�聡����輽��ѡՈ�������ɥ������佑�������ѕ�����Օ�()M���ɥ���FB�MUI%Qd��
