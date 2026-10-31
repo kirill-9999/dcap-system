@@ -6,13 +6,13 @@
 [![Docker](https://img.shields.io/badge/docker-compose-blue)](docker-compose.yml)
 [![Tests](https://img.shields.io/badge/tests-544%20passed-brightgreen)](tests/)
 
-> **DCAP** — �латформа аудита данных на предмет конфиденциальной информации (PII, credentials,
+> **DCAP** — платформа аудита данных на предмет конфиденциальной информации (PII, credentials,
 > code secrets) и разрешений на файловых хранилищах и S3/MinIO. Enterprise-ready: RBAC, mTLS,
 > соответствие регуляторам (152-ФЗ / GDPR / PCI DSS), retention, Prometheus/Grafana.
 
 ## ✨ Возможности
 
-- **Сканер** — PII (FИО, email, телефоны, паспорта, СНИЛС, ИНН, банковские карты), credentials
+- **Сканер** — PII (ФИО, email, телефоны, паспорта, СНИЛС, ИНН, банковские карты), credentials
   (API-ключи, пароли, SSH, токены), code secrets. OCR для изображений/PDF.
 - **Аудит разрешений** — файловые хранилища (Windows/Linux), S3/MinIO (streaming, multipart).
 - **Шифрование** — AES-256-GCM; расшифровка только Auditor, с аудитом.
@@ -24,13 +24,13 @@
 - **Мониторинг** — Prometheus /metrics, Grafana (2 дашборда, 4 алерта).
 - **WebUI** — Dovetail dark, RBAC-гейты, responsive.
 
-## ⚙️ Реквизиты<c/br>
+## ⚙️ Требования
 
 - Docker + Docker Compose v2 (`--wait`)
 - Python 3.10+ (для сканера на хосте)
 - 16 ГБ RAM (сканер: `max_workers=2`; 32 ГБ → 4; 128 ГБ → 8)
 
-<h3>1. Клонировать и настроить</h3>
+### 1. Клонировать и настроить
 
 ```bash
 git clone https://github.com/kirill-9999/dcap-system.git
@@ -38,57 +38,43 @@ cd dcap-system
 cp .env.example .env
 # Заполнить: FINDINGS_ENCRYPTION_KEY, FINDINGS_HMAC_KEY (base64, 32 bytes),
 #           S3_ACCESS_KEY, S3_SECRET_KEY (если S3), POSTGRES_PASSWORD
-```
-
 Генерация ключей findings:
 
-```bash
+bash
 python -c "import base64, os; print(base64.b64encode(os.urandom(32)).decode())"
 # повторить дважды — для FINDINGS_ENCRYPTION_KEY и FINDINGS_HMAC_KEY
-```
-
-<h3>2. Поднять стек</h3>
-
-```bash
+2. Поднять стек
+bash
 docker compose up -d --build --wait
 # Manager :8000, WebUI :8001, Grafana :3000, Prometheus :9090
-```
-
-<h3>3. Первый вход</h3>
-
+3. Первый вход
 WebUI: http://localhost:8001
 
 Логин: admin / admin123 — сменить при первом запуске (Settings → Password).
 
-<h3>4. Запустить сканер (на хосте)</h3>
-
-```bash
+4. Запустить сканер (на хосте)
+bash
 export FINDINGS_ENCRYPTION_KEY="<base64>"
 export FINDINGS_HMAC_KEY="<base64>"
 export MANAGER_URL="http://127.0.0.1:8000"
 python run_scanner.py scanner/config/scanner_config.json
-```
-
-❗️ В production сканер без ключей не стартует (fail-fast).
+⚠️ В production сканер без ключей не стартует (fail-fast).
 DCAP_ALLOW_LEGACY_SCANNER=true — только dev.
 
-<h3>5. Создать ресурс и запустить скан</h3>
-
+5. Создать ресурс и запустить скан
 WebUI → Resources → New (filesystem path или s3://bucket/prefix).
 
-Или API: `POST /api/resources?path=...&type=filesystem` → `POST /api/resources/{id}/scan`.
+Или API: POST /api/resources?path=...&type=filesystem → POST /api/resources/{id}/scan.
 
-## 🏗️ Архитектура
-
-![Архиектура DCAP](docs/architecture-overview.png)
+🏗️ Архитектура
+https://docs/architecture-overview.png
 
 Общая схема взаимодействия компонентов DCAP (Manager, Scanner, агенты, хранилища).
 
-P�дробное описание (модели данных, API, SIEM)— в ARCHITECTURE.md и docs/architecture.mermaid.
+Подробное описание (модели данных, API, SIEM) — в ARCHITECTURE.md и docs/architecture.mermaid.
 
-## 🧤 Тестирование
-
-```bash
+🧪 Тестирование
+bash
 # Unit (544 passed)
 pytest tests/unit -q
 
@@ -98,15 +84,63 @@ scripts/run-tests.sh e2e
 
 # Security (53.5)
 scripts/security_scan.ps1   # Bandit, Semgrep, Gitleaks, pip-audit, Trivy, ZAP
-```
-
 Подробнее — docs/testing.md.
 
-## 📚 Документация
+📚 Документация
+ARCHITECTURE.md — архитектура, модели, API, SIEM.
 
--ARCHITECTUDE.md — архитектура, модели, API, SIEM.
--ROADMAP.md — план и бэклог.
--CHANGELOG.md — история изменений.
--docs/admin-guide/ — 04-authentication, 05-security, 06-scanner, 10-troubleshooting.
--docs/DESIGN.md — WebUI style reference (Dovetail).
--QMUI%Qd�����P�B�B�B�B�FB�B�B��B�B�B�B�B�B�FB�B�FFB�(����͕̽��ɥ��}��������й���((����~RP�BGB�B�B�B�B�FB�B�FFF0((���������L���ص4���!5�M!��؁�������ɥ���B�B�FB�B�FB�B�B�B�B�BԃB�B��FB�B�B�FB�B�B�F8�(�B�B�FF#B�FFB�B�B�B���P�FB�B�F3B�B��Ց�ѽȰ�F�B�FB�B�FB�B����������}ɕٕ����(��Q1L�ɕ��ᕐ���ɥ�Ѐ��I0쁵�������F7B�B�B�B�B�B�FF,�B�FB�B�B�FF?F;F�FB�FFB�FB�B�B�F�Bȁ��ɥ�и(�BCFB�B�F聙������̰���Ѡ��FB�B�Bఁɕѕ�ѥ����P��ȁ�Ց��}���̀�B�B�FFB�FB�B�B�B�FB�B�B�B�B�BԤ�(��̸��	����Ѐ��!% ��M���ɕ������ѱ���̀��������Ց�Ѐ���Qɥ����I%Q%0�(��i@���!% ����ɽ��m11t������ɽ�и(��j���<�����ɥ�̃B�FB�B�B�FB�F/B䀡	-1=���Ф��P�B�B�B�FF/FF0�Bȁ�ɽ�Սѥ���(��j���<��������������̃�P�FB�B�B�B�FF0�B�FB��B�B�FB�B�B��B�B�B�FFB�BԸ(�roB�B�B�B�B�F/BԃFF?B�B�B�B�B�FFB���P�FB�MUI%Qd����((����~�T����ɥ��ѥ��()�ɬ��H��Ʌ�����H�AH�(+B�B�FFF,聁��ѕ�Ёѕ��̽չ�Ѐ�ŀ����͍ɥ��̽�ո�ѕ��̹͠��ɕ���B�FB��B�FB�B�FFB�B�B�B�F?F��(+B�FB�B�F0�A@�ఁ���������̰������ȃB�B�B�FFB���ɥ�и()M���ɥ��B�FB�B�B�B���P�̀����͕��ɕ����B�B�B�B�B�B�FB�FB�B�B���B�FB�B��B�FB�B�B�B�B�B�B����()$��P���!Ո��ѥ��̀�	-1=���ذ�B�B�B�F0��Ԥ�((����~N�BoB�FB�B�B�B�F<()������1����͔�ȸ���B�FB�FB�B�B�B�BԃB�B�B�B�B�B�B�B�FF,��P�FB�9=Q%����((����~f<�����ݱ���������((��%�ѕȀ��͵̽��ѕȤ��P�M%0�=0�ĸ�(��WFBGB�FB�B�FF,�5�����P�M%0�=0�ĸ�(��	�����Ʌ������й�̰���Ёݕͽ����P�5%P���	M��FB�9=Q%����((����~N��BkB�B�FB�B�FF,()%��Օ�聡����輽��ѡՈ�������ɥ������佑�������ѕ�����Օ�()M���ɥ���FB�MUI%Qd��
+ROADMAP.md — план и бэклог.
+
+CHANGELOG.md — история изменений.
+
+docs/admin-guide/ — 04-authentication, 05-security, 06-scanner, 10-troubleshooting.
+
+docs/DESIGN.md — WebUI style reference (Dovetail).
+
+SECURITY.md — политика безопасности.
+
+docs/security_checklist.md.
+
+🔒 Безопасность
+Findings: AES-256-GCM + HMAC-SHA256 fingerprint; маскирование по умолчанию.
+
+Расшифровка — только Auditor, с аудитом (finding_reveal).
+
+mTLS relaxed/strict + CRL; machine-эндпоинты проверяют сертификат в strict.
+
+Аудит: findings, auth, роли, retention — в audit_logs (партиционирование).
+
+53.5: Bandit 0 HIGH, Semgrep 0, Gitleaks 0, pip-audit 0, Trivy 0 CRITICAL,
+ZAP 0 HIGH, CapDrop=[ALL], non-root.
+
+⚠️ /metrics публичный (BACKLOG-044) — закрыть в production.
+
+⚠️ admin/admin123 — сменить при первом запуске.
+
+Найденные уязвимости — см. SECURITY.md.
+
+🤝 Contributing
+Fork → branch → PR.
+
+Тесты: pytest tests/unit -q + scripts/run-tests.sh e2e (при предусловиях).
+
+Стиль: PEP 8, type hints, logger вместо print.
+
+Security-правки — с # nosemgrep + комментарием (если осознанно).
+
+CI — GitHub Actions (BACKLOG-046, день 55).
+
+📄 Лицензия
+Apache License 2.0. Сторонние компоненты — см. NOTICE.md.
+
+🙏 Acknowledgements
+Inter (rsms/inter) — SIL OFL 1.1
+
+JetBrains Mono — SIL OFL 1.1
+
+Bootstrap, Chart.js, Font Awesome — MIT / BSD (см. NOTICE.md)
+
+📬 Контакты
+Issues: https://github.com/kirill-9999/dcap-system/issues
+
+Security: см. SECURITY.md
