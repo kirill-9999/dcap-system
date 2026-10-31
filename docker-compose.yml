@@ -69,7 +69,7 @@ services:
     build:
       context: .
       dockerfile: manager/Dockerfile
-    image: dcap/manager:${VERSION:-3.14.17}
+    image: dcap/manager:${VERSION:-3.0.0}
     cap_drop:
       - ALL
     container_name: dcap-manager
@@ -83,7 +83,7 @@ services:
       # Р»РѕРіРёРЅР° Windows. Р‘РµСЂС‘Рј Р·РЅР°С‡РµРЅРёРµ РёР· .env (РїРѕ СѓРјРѕР»С‡Р°РЅРёСЋ local).
       AUTH_MODE: ${AUTH_MODE:-local}
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
-      VERSION: ${VERSION:-3.14.17}
+      VERSION: ${VERSION:-3.0.0}
       # РљР»СЋС‡Рё Findings вЂ” С‚РѕР»СЊРєРѕ ENV (TASK-018; РґР»СЏ dev fallback РѕС‚РєР»СЋС‡С‘РЅ)
       FINDINGS_ENCRYPTION_KEY: ${FINDINGS_ENCRYPTION_KEY}
       FINDINGS_HMAC_KEY: ${FINDINGS_HMAC_KEY}
@@ -116,7 +116,7 @@ services:
     build:
       context: .
       dockerfile: manager/Dockerfile
-    image: dcap/manager:${VERSION:-3.14.17}
+    image: dcap/manager:${VERSION:-3.0.0}
     cap_drop:
       - ALL
     environment:
@@ -125,7 +125,7 @@ services:
       REDIS_PASSWORD: ${REDIS_PASSWORD:-redis123}
       JWT_SECRET_KEY: ${JWT_SECRET_KEY:-change-me-in-production}
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
-      VERSION: ${VERSION:-3.14.17}
+      VERSION: ${VERSION:-3.0.0}
     command: celery -A manager.src.workers.celery_app:app worker -Q audit_events,scanner_tasks,retention,reports -c 4 --loglevel=info
     healthcheck: # celery-worker: Р Р…Р Вµ HTTP-РЎРѓР ВµРЎР‚Р Р†Р ВµРЎР‚, Р С—Р С•РЎРЊРЎвЂљР С•Р СРЎС“ Р СњР вЂў Р Р…Р В°РЎРѓР В»Р ВµР Т‘РЎС“Р ВµР С HEALTHCHECK manager/Dockerfile (curl :8000/api/health)
       test: ["CMD-SHELL", "celery -A manager.src.workers.celery_app:app inspect ping --timeout=10 || exit 1"]
@@ -148,7 +148,7 @@ services:
     build:
       context: .
       dockerfile: manager/Dockerfile
-    image: dcap/manager:${VERSION:-3.14.17}
+    image: dcap/manager:${VERSION:-3.0.0}
     cap_drop:
       - ALL
     container_name: dcap-celery-beat
@@ -156,7 +156,7 @@ services:
       REDIS_URL: redis://:${REDIS_PASSWORD:-redis123}@redis:6379/0
       REDIS_PASSWORD: ${REDIS_PASSWORD:-redis123}
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
-      VERSION: ${VERSION:-3.14.17}
+      VERSION: ${VERSION:-3.0.0}
     command: celery -A manager.src.workers.celery_app:app beat --loglevel=info
     healthcheck:
       # celery beat РІР‚вЂќ Р С—Р В»Р В°Р Р…Р С‘РЎР‚Р С•Р Р†РЎвЂ°Р С‘Р С”, Р В° Р Р…Р Вµ HTTP-РЎРѓР ВµРЎР‚Р Р†Р ВµРЎР‚: Р С—РЎР‚Р С•Р Р†Р ВµРЎР‚РЎРЏР ВµР С Р В±РЎР‚Р С•Р С”Р ВµРЎР‚ (redis) РЎвЂЎР ВµРЎР‚Р ВµР В· python socket.
@@ -195,14 +195,14 @@ services:
     build:
       context: ./webui
       dockerfile: Dockerfile
-    image: dcap/webui:${VERSION:-3.14.17}
+    image: dcap/webui:${VERSION:-3.0.0}
     cap_drop:
       - ALL
     container_name: dcap-webui
     environment:
       MANAGER_URL: http://manager:8000
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
-      VERSION: ${VERSION:-3.14.17}
+      VERSION: ${VERSION:-3.0.0}
     ports:
       - "${WEBUI_PORT:-8001}:8001"
     depends_on:
@@ -218,7 +218,7 @@ services:
     build:
       context: .
       dockerfile: audit-agent-s3/Dockerfile
-    image: dcap/s3-agent:${VERSION:-3.14.17}
+    image: dcap/s3-agent:${VERSION:-3.0.0}
     container_name: dcap-s3-agent
     environment:
       S3_ENDPOINT: ${S3_ENDPOINT:-https://s3.amazonaws.com}
@@ -239,7 +239,7 @@ services:
       MANAGER_MAX_RETRIES: ${MANAGER_MAX_RETRIES:-3}
       MANAGER_RETRY_DELAY: ${MANAGER_RETRY_DELAY:-5}
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
-      VERSION: ${VERSION:-3.14.17}
+      VERSION: ${VERSION:-3.0.0}
     volumes:
       - s3_agent_data:/app/audit-agent-s3/data
       - s3_agent_logs:/app/audit-agent-s3/logs
@@ -258,12 +258,12 @@ services:
     build:
       context: audit-agent-linux
       dockerfile: Dockerfile
-    image: dcap/linux-agent:${VERSION:-3.14.17}
+    image: dcap/linux-agent:${VERSION:-3.0.0}
     container_name: dcap-linux-agent
     environment:
       MANAGER_URL: http://manager:8000
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
-      VERSION: ${VERSION:-3.14.17}
+      VERSION: ${VERSION:-3.0.0}
     volumes:
       - linux_agent_data:/app/audit-agent-linux/data
       - linux_agent_logs:/app/audit-agent-linux/logs
