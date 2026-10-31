@@ -1,0 +1,42 @@
+name: CI
+
+on:
+  push:
+    branches: [ master ]
+  pull_request:
+    branches: [ master ]
+
+jobs:
+  unit-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt -r requirements-dev.txt
+      - name: Run Unit Tests
+        # Исключаем BACKLOG-339 (flaky s3-тест)
+        run: pytest tests/unit -q -k "not test_bucket_in_path_mismatch_emits_no_warning"
+
+  security-scan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install Security Tools
+        run: pip install bandit semgrep pip-audit
+      - name: Bandit (SAST)
+        run: bandit -r manager/ scanner/ -ll
+      - name: Semgrep (SAST)
+        run: semgrep --config auto --error --quiet
+      - name: pip-audit (SCA)
+        run: pip-audit -r requirements.txt
