@@ -1,6 +1,7 @@
 # DCAP — Data Classification & Audit Platform
 
 [![Version](https://img.shields.io/badge/version-3.0.0-blue)](CHANGELOG.md)
+[![CI](https://github.com/kirill-9999/dcap-system/actions/workflows/ci.yml/badge.svg)](https://github.com/kirill-9999/dcap-system/actions/workflows/ci.yml)
 [![License](https://img.shields.io/badge/license-Apache%202.0-green)](LICENSE)
 [![Python](https://img.shields.io/badge/python-3.10%2B-blue)](pyproject.toml)
 [![Docker](https://img.shields.io/badge/docker-compose-blue)](docker-compose.yml)
