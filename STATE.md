@@ -4,7 +4,8 @@
 
 **Обновлено:** 31.10.2026
 **Текущая версия:** v3.0.0
-**Статус:** 🟢 Релиз v3.0.0 завершён. Тег v3.0.0 поставлен. Следующий шаг — 55 (GitHub, open-source).
+**Статус:** 🟢 Релиз v3.0.0 опубликован на GitHub (kirill-9999/dcap-system). CI (unit + security) — зелёный. Очистка истории от секретов завершена. День 55 закрыт.
+**Следующий шаг:** v3.0.1 (BUG-293, BUG-298, BACKLOG-344/346/347, BACKLOG-339, стабилизация CI-тестов)
 ---
 
 ## 📍 Где мы сейчас
@@ -44,6 +45,7 @@
 | **53.5 (security_scan)** | Bandit/Semgrep/Gitleaks/pip-audit/Trivy/ZAP/dogfooding/inspect | **v3.14.16** |
 | **BUG-117 (Manager маскирует контексты)** | `mask_context` (22 паттерна), `MASK_RULES` 19 категорий, запись + чтение | **v3.14.17** |
 | **57 (релиз v3.0.0)** | CHANGELOG, LICENSE, README, тег v3.0.0, smoke (528 passed + 1 flaky / security 10/10) | **v3.0.0** |
+| **55 (GitHub)** | Публикация репозитория, filter-repo (очистка секретов), CI (unit+security), бейдж, About, Dependabot, .mailmap | **v3.0.0** |
 
 ---
 
