@@ -1,172 +1,172 @@
 # DCAP System
 
-╨б╨╕╤Б╤В╨╡╨╝╨░ ╤Б╨║╨░╨╜╨╕╤А╨╛╨▓╨░╨╜╨╕╤П ╨╕ ╨░╤Г╨┤╨╕╤В╨░ ╨┤╨░╨╜╨╜╤Л╤Е (PII/credentials/code) ╨┤╨╗╤П Windows ╨╕ Linux.
+Система сканирования и аудита данных (PII/credentials/code) для Windows и Linux.
 
-## ╨Ъ╨╛╨╝╨┐╨╛╨╜╨╡╨╜╤В╤Л
+## Компоненты
 
-| ╨Ъ╨╛╨╝╨┐╨╛╨╜╨╡╨╜╤В | ╨Ю╨┐╨╕╤Б╨░╨╜╨╕╨╡ | ╨Я╨╛╤А╤В |
+| Компонент | Описание | Порт |
 |-----------|----------|------|
 | `manager/` | FastAPI control-plane | :8000 |
-| `webui/` | ╨Ф╨░╤И╨▒╨╛╤А╨┤ (Jinja2, ╨┐╤А╨╛╨║╤Б╨╕ API ╨╜╨░ Manager) | :8001 |
-| `scanner/` | ╨Р╨│╨╡╨╜╤В ╤Б╨║╨░╨╜╨╕╤А╨╛╨▓╨░╨╜╨╕╤П | тАФ |
-| `audit-agent-windows/` | Windows-╨░╨│╨╡╨╜╤В ╨░╤Г╨┤╨╕╤В╨░ (wevtutil) | тАФ |
-| `audit-agent-linux/` | Linux-╨░╨│╨╡╨╜╤В ╨░╤Г╨┤╨╕╤В╨░ (watchdog) | тАФ |
-| `audit-agent-s3/` | S3/MinIO ╨░╨│╨╡╨╜╤В ╨░╤Г╨┤╨╕╤В╨░ (polling) | тАФ |
-| `shared/` | ╨Х╨┤╨╕╨╜╨░╤П ╤Б╤Е╨╡╨╝╨░ ╤Б╨╛╨▒╤Л╤В╨╕╨╣ (UnifiedEvent) | тАФ |
+| `webui/` | Дашборд (Jinja2, прокси API на Manager) | :8001 |
+| `scanner/` | Агент сканирования | — |
+| `audit-agent-windows/` | Windows-агент аудита (wevtutil) | — |
+| `audit-agent-linux/` | Linux-агент аудита (watchdog) | — |
+| `audit-agent-s3/` | S3/MinIO агент аудита (polling) | — |
+| `shared/` | Единая схема событий (UnifiedEvent) | — |
 
-## ╨Ч╨░╨┐╤Г╤Б╨║
+## Запуск
 
 ```bash
-# ╨Ш╨╜╨╕╤Ж╨╕╨░╨╗╨╕╨╖╨░╤Ж╨╕╤П ╨С╨Ф
+# Инициализация БД
 python init_db.py
 
-# ╨Х╨┤╨╕╨╜╤Л╨╣ ╨╖╨░╨┐╤Г╤Б╨║ Manager + WebUI (╨┐╨╛╤А╤В╤Л ╨╕╨╖ ╨║╨╛╨╜╤Д╨╕╨│╨╛╨▓)
+# Единый запуск Manager + WebUI (порты из конфигов)
 python run_all.py
 
-# ╨╕╨╗╨╕ ╨┐╨╛ ╨╛╤В╨┤╨╡╨╗╤М╨╜╨╛╤Б╤В╨╕:
-python run_manager.py        # Manager API (╨┐╨╛╤А╤В ╨╕╨╖ manager/config/config.json, :8000)
-python run_webui.py          # WebUI (╨┐╨╛╤А╤В ╨╕╨╖ webui/config/config.json, :8001)
+# или по отдельности:
+python run_manager.py        # Manager API (порт из manager/config/config.json, :8000)
+python run_webui.py          # WebUI (порт из webui/config/config.json, :8001)
 
-# ╨б╨║╨░╨╜╨╡╤А
+# Сканер
 python run_scanner.py scanner/config/scanner_config.json
 
-# Windows-╨░╨│╨╡╨╜╤В ╨░╤Г╨┤╨╕╤В╨░
+# Windows-агент аудита
 cd audit-agent-windows && python main.py config.json
 
-# Linux-╨░╨│╨╡╨╜╤В ╨░╤Г╨┤╨╕╤В╨░
+# Linux-агент аудита
 cd audit-agent-linux && ./start.sh --daemon
 
-# S3/MinIO ╨░╨│╨╡╨╜╤В ╨░╤Г╨┤╨╕╤В╨░
+# S3/MinIO агент аудита
 cd audit-agent-s3 && python -m src.main --config config/config.json
 ```
 
-## ╨Ь╨░╤Б╤И╤В╨░╨▒╨╕╤А╨╛╨▓╨░╨╜╨╕╨╡ (╨Ф╨╡╨╜╤М 36-37): PostgreSQL + Redis + Celery
+## Масштабирование (День 36-37): PostgreSQL + Redis + Celery
 
-Production-╤Б╤В╨╡╨║ ╨┐╨╛╨┤╨╜╨╕╨╝╨░╨╡╤В╤Б╤П ╨╛╨┤╨╜╨╛╨╣ ╨║╨╛╨╝╨░╨╜╨┤╨╛╨╣:
+Production-стек поднимается одной командой:
 
 ```bash
 docker compose up -d     # postgres(5432) + redis(6379) + manager(8000) + webui(8001) + celery worker/beat + flower(5555)
 ```
 
-- **PostgreSQL 16** тАФ ╨╛╤Б╨╜╨╛╨▓╨╜╨░╤П ╨С╨Ф (`postgres:16-alpine`). ╨Ь╨╕╨│╤А╨░╤Ж╨╕╨╕ тАФ Alembic:
+- **PostgreSQL 16** — основная БД (`postgres:16-alpine`). Миграции — Alembic:
   ```bash
   alembic upgrade head
-  python scripts/migrate_sqlite_to_postgres.py  # ╨┐╨╡╤А╨╡╨╜╨╛╤Б ╨┤╨░╨╜╨╜╤Л╤Е ╨╕╨╖ SQLite (╨▓╤Б╨╡ ╤В╨░╨▒╨╗╨╕╤Ж╤Л + ╨░╤А╤Е╨╕╨▓╤Л)
+  python scripts/migrate_sqlite_to_postgres.py  # перенос данных из SQLite (все таблицы + архивы)
   ```
-- **╨Я╨░╤А╤В╨╕╤Ж╨╕╨╛╨╜╨╕╤А╨╛╨▓╨░╨╜╨╕╨╡** `audit_logs` ╨┐╨╛ ╨╝╨╡╤Б╤П╤Ж╨░╨╝ (RANGE on `created_at`), ╤Б╨╛╨╖╨┤╨░╤С╤В╤Б╤П ╨╝╨╕╨│╤А╨░╤Ж╨╕╨╡╨╣ `001_initial_postgres` ╨┤╨╗╤П PostgreSQL; SQLite-╤А╨╡╨╢╨╕╨╝ ╨╜╨╡ ╨╖╨░╤В╤А╨╛╨╜╤Г╤В.
-- **Redis 7** тАФ ╨▒╤А╨╛╨║╨╡╤А Celery + ╨║╤Н╤И + rate-limit. ╨Я╤А╨╕ ╨╜╨╡╨┤╨╛╤Б╤В╤Г╨┐╨╜╨╛╤Б╤В╨╕ Redis Manager ╤А╨░╨▒╨╛╤В╨░╨╡╤В ╨▓ no-op ╤А╨╡╨╢╨╕╨╝╨╡ (rate-limit fail-open ╨▓ ╨┐╨░╨╝╤П╤В╨╕).
-- **Celery** тАФ ╨╛╤З╨╡╤А╨╡╨┤╨╕: `audit_events`, `scanner_tasks`, `retention`, `reports`. ╨Я╨╡╤А╨╕╨╛╨┤╨╕╤З╨╡╤Б╨║╨░╤П ╨░╤А╤Е╨╕╨▓╨░╤Ж╨╕╤П тАФ Celery Beat (╨╖╨░╨╝╨╡╨╜╨╕╨╗╨░ ╤Д╨╛╨╜╨╛╨▓╤Л╨╣ ╨┐╨╛╤В╨╛╨║ ╨┤╨╜╤П 35).
+- **Партиционирование** `audit_logs` по месяцам (RANGE on `created_at`), создаётся миграцией `001_initial_postgres` для PostgreSQL; SQLite-режим не затронут.
+- **Redis 7** — брокер Celery + кэш + rate-limit. При недоступности Redis Manager работает в no-op режиме (rate-limit fail-open в памяти).
+- **Celery** — очереди: `audit_events`, `scanner_tasks`, `retention`, `reports`. Периодическая архивация — Celery Beat (заменила фоновый поток дня 35).
   ```bash
   celery -A manager.src.workers.celery_app:app worker --queues=audit_events,scanner_tasks,retention,reports
   celery -A manager.src.workers.celery_app:app beat
   ```
-- **Flower** тАФ ╨╝╨╛╨╜╨╕╤В╨╛╤А╨╕╨╜╨│ ╨╖╨░╨┤╨░╤З ╨╜╨░ :5555.
+- **Flower** — мониторинг задач на :5555.
 
-╨Ы╨╛╨║╨░╨╗╤М╨╜╤Л╨╣ ╨╖╨░╨┐╤Г╤Б╨║ (╨▒╨╡╨╖ Docker) ╨╛╤Б╤В╨░╤С╤В╤Б╤П ╨┐╤А╨╡╨╢╨╜╨╕╨╝: SQLite + ╨▒╨╡╨╖ RabbitMQ/Celery (╨░╤Б╨╕╨╜╤Е╤А╨╛╨╜╨╜╤Л╨╡ ╨╖╨░╨┤╨░╤З╨╕ ╨╛╨┐╤Ж╨╕╨╛╨╜╨░╨╗╤М╨╜╤Л).
+Локальный запуск (без Docker) остаётся прежним: SQLite + без RabbitMQ/Celery (асинхронные задачи опциональны).
 
-## ╨Ъ╨╛╨╜╤В╨╡╨╣╨╜╨╡╤А╨╕╨╖╨░╤Ж╨╕╤П ╨╕ ╨┤╨╡╨┐╨╗╨╛╨╣ (╨Ф╨╡╨╜╤М 38)
+## Контейнеризация и деплой (День 38)
 
-╨Я╨╛╨╗╨╜╨░╤П ╨║╨╛╨╜╤В╨╡╨╣╨╜╨╡╤А╨╕╨╖╨░╤Ж╨╕╤П ╨▓╤Б╨╡╤Е ╨║╨╛╨╝╨┐╨╛╨╜╨╡╨╜╤В╨╛╨▓ тАФ ╨╛╨┤╨╜╨░ ╨║╨╛╨╝╨░╨╜╨┤╨░ ╨┐╨╛╨┤╨╜╨╕╨╝╨░╨╡╤В ╨▓╨╡╤Б╤М ╤Б╤В╨╡╨║.
+Полная контейнеризация всех компонентов — одна команда поднимает весь стек.
 
 ```bash
-cp .env.example .env    # ╨╜╨░╤Б╤В╤А╨╛╨╕╤В╤М ╨┐╨░╤А╨╛╨╗╨╕ ╨╕ ╨║╨╗╤О╤З╨╕
-./scripts/deploy.sh     # ╤Б╨▒╨╛╤А╨║╨░ ╨╛╨▒╤А╨░╨╖╨╛╨▓ + ╨╖╨░╨┐╤Г╤Б╨║ ╨▓╤Б╨╡╤Е ╤Б╨╡╤А╨▓╨╕╤Б╨╛╨▓ + healthcheck
+cp .env.example .env    # настроить пароли и ключи
+./scripts/deploy.sh     # сборка образов + запуск всех сервисов + healthcheck
 ```
 
-- **Dockerfile** (multi-stage, ╨╜╨╡╨┐╤А╨╕╨▓╨╕╨╗╨╡╨│╨╕╤А╨╛╨▓╨░╨╜╨╜╤Л╨╣ ╨┐╨╛╨╗╤М╨╖╨╛╨▓╨░╤В╨╡╨╗╤М, healthcheck): `manager/` (Manager + Celery worker/beat), `webui/`, `audit-agent-s3/`, `audit-agent-linux/`; `.dockerignore` ╨┤╨╗╤П ╨║╨░╨╢╨┤╨╛╨│╨╛ (build-╨║╨╛╨╜╤В╨╡╨║╤Б╤В Manager/S3 тАФ ╨║╨╛╤А╨╡╨╜╤М ╤А╨╡╨┐╨╛; webui тАФ `./webui`).
-- **docker-compose.yml** тАФ ╨┐╨╛╨╗╨╜╤Л╨╣ ╤Б╤В╨╡╨║: postgres(5432) + redis(6379) + manager(8000) + webui(8001) + celery worker/beat + flower(5555). ╨Р╨│╨╡╨╜╤В╤Л тАФ profile: `--profile agents` (S3).
-- **Scanner тАФ ╨Э╨Х ╨▓ Docker** (╨▓ ╨║╨╛╨╜╤В╨╡╨╣╨╜╨╡╤А╨╡ ╨╜╨╡╨╗╤М╨╖╤П ╨┤╨╕╨╜╨░╨╝╨╕╤З╨╡╤Б╨║╨╕ ╨┐╤А╨╕╨╝╨╛╨╜╤В╨╕╤А╨╛╨▓╨░╤В╤М ╨┐╨░╨┐╨║╨╕ ╨╕╨╖ ╨╖╨░╨┤╨░╨╜╨╕╨╣): ╨╖╨░╨┐╤Г╤Б╨║╨░╨╡╤В╤Б╤П ╨╜╨░ ╤Е╨╛╤Б╤В╨╡ ╤З╨╡╤А╨╡╨╖ `python run_scanner.py scanner/config/scanner_config.json` ╨╕ ╨▓╨╕╨┤╨╕╤В ╨╗╤О╨▒╤Л╨╡ ╨┐╤Г╤В╨╕ ╨╜╨░╨┐╤А╤П╨╝╤Г╤О (╤Б╨╝. `docs/deployment.md`).
-- **docker-compose.prod.yml** тАФ production overrides (╨╗╨╕╨╝╨╕╤В╤Л CPU/RAM, mTLS, ╤А╨╡╨┐╨╗╨╕╨║╨░╤Ж╨╕╤П worker).
-- **╨б╨║╤А╨╕╨┐╤В╤Л**: `scripts/deploy.sh`, `stop.sh`, `logs.sh`, `status.sh`, `healthcheck.sh`.
-- **╨Ф╨╛╨║╤Г╨╝╨╡╨╜╤В╨░╤Ж╨╕╤П**: `docs/deployment.md`.
+- **Dockerfile** (multi-stage, непривилегированный пользователь, healthcheck): `manager/` (Manager + Celery worker/beat), `webui/`, `audit-agent-s3/`, `audit-agent-linux/`; `.dockerignore` для каждого (build-контекст Manager/S3 — корень репо; webui — `./webui`).
+- **docker-compose.yml** — полный стек: postgres(5432) + redis(6379) + manager(8000) + webui(8001) + celery worker/beat + flower(5555). Агенты — profile: `--profile agents` (S3).
+- **Scanner — НЕ в Docker** (в контейнере нельзя динамически примонтировать папки из заданий): запускается на хосте через `python run_scanner.py scanner/config/scanner_config.json` и видит любые пути напрямую (см. `docs/deployment.md`).
+- **docker-compose.prod.yml** — production overrides (лимиты CPU/RAM, mTLS, репликация worker).
+- **Скрипты**: `scripts/deploy.sh`, `stop.sh`, `logs.sh`, `status.sh`, `healthcheck.sh`.
+- **Документация**: `docs/deployment.md`.
 
-## ╨в╨╡╤Б╤В╨╕╤А╨╛╨▓╨░╨╜╨╕╨╡ (╨Ф╨╡╨╜╤М 40-41): E2E + Chaos + Load
+## Тестирование (День 40-41): E2E + Chaos + Load
 
-╨в╨╡╤Б╤В╤Л ╨┐╨╛╤Б╤В╤А╨╛╨╡╨╜╤Л ╨╜╨░ **pytest** (╨╕╨╖╨╛╨╗╨╕╤А╨╛╨▓╨░╨╜╨╜╤Л╨╣ ╤В╨╡╤Б╤В╨╛╨▓╤Л╨╣ ╤Б╤В╨╡╨║ `docker-compose.test.yml`,
-Manager :18000, WebUI :18001, ╨С╨Ф `dcap_test`, tmpfs). ╨Я╨╛╨╗╨╜╨░╤П ╨╕╨╜╤Б╤В╤А╤Г╨║╤Ж╨╕╤П тАФ
+Тесты построены на **pytest** (изолированный тестовый стек `docker-compose.test.yml`,
+Manager :18000, WebUI :18001, БД `dcap_test`, tmpfs). Полная инструкция —
 **`docs/testing.md`**.
 
 ```bash
 pip install -r requirements-dev.txt
-./scripts/test-up.sh        # ╨┐╨╛╨┤╨╜╤П╤В╤М ╨╕╨╖╨╛╨╗╨╕╤А╨╛╨▓╨░╨╜╨╜╤Л╨╣ ╤В╨╡╤Б╤В╨╛╨▓╤Л╨╣ ╤Б╤В╨╡╨║
-pytest tests/               # ╨▓╤Б╨╡ ╤В╨╡╤Б╤В╤Л
-./scripts/run-tests.sh e2e  # ╤В╨╛╨╗╤М╨║╨╛ E2E (╨╕╨╗╨╕ chaos / load / quick / all)
-./scripts/test-down.sh      # ╨╛╤Б╤В╨░╨╜╨╛╨▓╨╕╤В╤М ╤Б╤В╨╡╨║
+./scripts/test-up.sh        # поднять изолированный тестовый стек
+pytest tests/               # все тесты
+./scripts/run-tests.sh e2e  # только E2E (или chaos / load / quick / all)
+./scripts/test-down.sh      # остановить стек
 ```
 
-- **E2E** тАФ `tests/e2e/`: ╨┐╨╛╨╗╨╜╤Л╨╣ ╤Ж╨╕╨║╨╗ (╨╖╨░╨┤╨░╨╜╨╕╨╡ тЖТ ╤Б╨║╨░╨╜╨╕╤А╨╛╨▓╨░╨╜╨╕╨╡ тЖТ ╨╜╨░╤Е╨╛╨┤╨║╨╕), auth, heartbeat ╤Б╨║╨░╨╜╨╡╤А╨░, ╨░╨│╨╡╨╜╤В╤Л, WebUI-╨┐╤А╨╛╨║╤Б╨╕, retention
-- **Chaos** тАФ `tests/chaos/`: ╨┐╨░╨┤╨╡╨╜╨╕╨╡ Manager / Redis (fail-open) / PostgreSQL / Scanner, ╨╛╨▒╤А╤Л╨▓ ╤Б╨╡╤В╨╕
-- **Load** тАФ `tests/load/`: 1000 ╨╖╨░╨┤╨░╨╜╨╕╨╣, 10 000 ╤Б╨╛╨▒╤Л╤В╨╕╨╣, ╨║╨╛╨╜╨║╤Г╤А╨╡╨╜╤В╨╜╤Л╨╡ ╤Б╨║╨░╨╜╨╡╤А╤Л (╨▒╨░╨╖╨╛╨▓╤Л╨╡; ╨│╨╗╤Г╨▒╨╛╨║╨╕╨╡ тАФ ╨▓ v3.1.0)
+- **E2E** — `tests/e2e/`: полный цикл (задание → сканирование → находки), auth, heartbeat сканера, агенты, WebUI-прокси, retention
+- **Chaos** — `tests/chaos/`: падение Manager / Redis (fail-open) / PostgreSQL / Scanner, обрыв сети
+- **Load** — `tests/load/`: 1000 заданий, 10 000 событий, конкурентные сканеры (базовые; глубокие — в v3.1.0)
 
-## ╨Ь╨╛╨╜╨╕╤В╨╛╤А╨╕╨╜╨│ (╨Ф╨╡╨╜╤М 39): Prometheus + Grafana + Alertmanager
+## Мониторинг (День 39): Prometheus + Grafana + Alertmanager
 
-╨б╤В╨╡╨║ ╨╝╨╛╨╜╨╕╤В╨╛╤А╨╕╨╜╨│╨░ ╨┐╨╛╨┤╨╜╨╕╨╝╨░╨╡╤В╤Б╤П ╨▓╨╝╨╡╤Б╤В╨╡ ╤Б docker-compose:
+Стек мониторинга поднимается вместе с docker-compose:
 
 ```bash
 docker compose up -d prometheus grafana alertmanager \
   postgres_exporter redis_exporter celery_exporter
 ```
 
-- **Grafana** тАФ http://localhost:3000 (`admin` / `${GRAFANA_PASSWORD}`, ╨┤╨╡╤Д╨╛╨╗╤В `admin`); provisioning ╨┤╨░╤И╨▒╨╛╤А╨┤╨╛╨▓ ╨╕╨╖ `monitoring/grafana/provisioning/`
-- **Prometheus** тАФ http://localhost:9090; ╤В╨░╤А╨│╨╡╤В╤Л ╨▓ `monitoring/prometheus/prometheus.yml`
-- **Alertmanager** тАФ http://localhost:9093; ╤Г╨▓╨╡╨┤╨╛╨╝╨╗╨╡╨╜╨╕╤П (webhook/email/Slack/Telegram)
-- **╨Р╨╗╨╡╤А╤В╤Л** тАФ `monitoring/prometheus/alerts.yml` (ScannerInactive, TaskFailed, HighErrorRate, CeleryQueueBacklog)
-- **╨Ь╨╡╤В╤А╨╕╨║╨╕**:
-  - Manager тАФ `GET /metrics` (HTTP, tasks, findings, scanner heartbeat age, celery queues)
-  - Scanner (╤Е╨╛╤Б╤В, :9101) тАФ files/findings/duration/errors, ╤Б╨╛╨▒╨╕╤А╨░╨╡╤В╤Б╤П ╤З╨╡╤А╨╡╨╖ `host.docker.internal`
-  - Linux-╨░╨│╨╡╨╜╤В (:9102), S3-╨░╨│╨╡╨╜╤В (:9103), ╤Н╨║╤Б╨┐╨╛╤А╤В╨╡╤А╤Л Celery/PostgreSQL/Redis
-- **Heartbeat-╤В╤А╨╡╨┤ ╤Б╨║╨░╨╜╨╡╤А╨░**: ╤Д╨╛╨╜╨╛╨▓╤Л╨╣ ╨┐╨╛╤В╨╛╨║ ╤И╨╗╤С╤В heartbeat ╨║╨░╨╢╨┤╤Л╨╡ 30 ╤Б (╨▓ ╤В.╤З. ╨┐╤А╨╛╨│╤А╨╡╤Б╤Б ╨┤╨╗╨╕╨╜╨╜╤Л╤Е ╨╖╨░╨┤╨░╨╜╨╕╨╣) тАФ ╤Б╨║╨░╨╜╨╡╤А ╨▒╨╛╨╗╤М╤И╨╡ ╨╜╨╡ ╨┐╨╛╨╝╨╡╤З╨░╨╡╤В╤Б╤П "inactive" ╨▓╨╛ ╨▓╤А╨╡╨╝╤П ╤Б╨║╨░╨╜╨╕╤А╨╛╨▓╨░╨╜╨╕╤П
-- **╨б╤В╨░╤В╤Г╤Б**: `./scripts/monitoring-status.sh` (╨┐╨╛╨╗╨╜╤Л╨╣) ╨╕ `-q` (╤В╨╛╨╗╤М╨║╨╛ ╨┐╤А╨╛╨▒╨╗╨╡╨╝╤Л)
-- **╨Ф╨╛╨║╤Г╨╝╨╡╨╜╤В╨░╤Ж╨╕╤П**: `docs/monitoring.md`
+- **Grafana** — http://localhost:3000 (`admin` / `${GRAFANA_PASSWORD}`, дефолт `admin`); provisioning дашбордов из `monitoring/grafana/provisioning/`
+- **Prometheus** — http://localhost:9090; таргеты в `monitoring/prometheus/prometheus.yml`
+- **Alertmanager** — http://localhost:9093; уведомления (webhook/email/Slack/Telegram)
+- **Алерты** — `monitoring/prometheus/alerts.yml` (ScannerInactive, TaskFailed, HighErrorRate, CeleryQueueBacklog)
+- **Метрики**:
+  - Manager — `GET /metrics` (HTTP, tasks, findings, scanner heartbeat age, celery queues)
+  - Scanner (хост, :9101) — files/findings/duration/errors, собирается через `host.docker.internal`
+  - Linux-агент (:9102), S3-агент (:9103), экспортеры Celery/PostgreSQL/Redis
+- **Heartbeat-тред сканера**: фоновый поток шлёт heartbeat каждые 30 с (в т.ч. прогресс длинных заданий) — сканер больше не помечается "inactive" во время сканирования
+- **Статус**: `./scripts/monitoring-status.sh` (полный) и `-q` (только проблемы)
+- **Документация**: `docs/monitoring.md`
 
-## ╨Р╤А╤Е╨╕╤В╨╡╨║╤В╤Г╤А╨░
+## Архитектура
 
 ```
-тФМтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФР     тФМтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФР     тФМтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФР
-тФВ audit-agent тФВтФАтФАтФАтФАтЦ╢тФВ   Manager   тФВтЧАтФАтФАтФАтФАтФВ audit-agent тФВ
-тФВ  (Windows)  тФВ     тФВ   :8000     тФВ     тФВ   (Linux)   тФВ
-тФФтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФШ     тФФтФАтФАтФАтФАтФАтФАтФмтФАтФАтФАтФАтФАтФАтФШ     тФФтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФШ
-                           тФВ
-                    тФМтФАтФАтФАтФАтФАтФАтЦ╝тФАтФАтФАтФАтФАтФАтФР
-                    тФВ    WebUI    тФВ
-                    тФВ   :8001     тФВ
-                    тФФтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФШ
+┌─────────────┐     ┌─────────────┐     ┌─────────────┐
+│ audit-agent │────▶│   Manager   │◀────│ audit-agent │
+│  (Windows)  │     │   :8000     │     │   (Linux)   │
+└─────────────┘     └──────┬──────┘     └─────────────┘
+                           │
+                    ┌──────▼──────┐
+                    │    WebUI    │
+                    │   :8001     │
+                    └─────────────┘
 ```
 
-- **Manager** тАФ REST API, ╨┐╤А╨╕╨╡╨╝ ╤Б╨╛╨▒╤Л╤В╨╕╨╣ ╨╛╤В ╨░╨│╨╡╨╜╤В╨╛╨▓, ╤Е╤А╨░╨╜╨╡╨╜╨╕╨╡ ╨▓ PostgreSQL (╨╕╨╗╨╕ SQLite ╨▓ dev-╤А╨╡╨╢╨╕╨╝╨╡)
-- **WebUI** тАФ ╨┤╨░╤И╨▒╨╛╤А╨┤ ╤Б ╤Д╨╕╨╗╤М╤В╤А╨░╤Ж╨╕╨╡╨╣ ╨┐╨╛ ╨╕╤Б╤В╨╛╤З╨╜╨╕╨║╤Г (Windows/Linux), ╤Г╨┤╨░╨╗╨╡╨╜╨╕╨╡ ╨░╨│╨╡╨╜╤В╨╛╨▓/╤Б╨║╨░╨╜╨╡╤А╨╛╨▓. ╨Т╤Б╨╡ `/api/*` ╨╖╨░╨┐╤А╨╛╤Б╤Л ╨┐╤А╨╛╨║╤Б╨╕╤А╤Г╤О╤В╤Б╤П ╨▓ Manager (╨╜╨╡╤В ╨┐╤А╤П╨╝╨╛╨│╨╛ ╨┤╨╛╤Б╤В╤Г╨┐╨░ ╨║ ╨С╨Ф)
-- **╨Р╨│╨╡╨╜╤В╤Л** тАФ ╨╗╨╡╨│╨║╨╕╨╡ ╨║╨╛╨╝╨┐╨╛╨╜╨╡╨╜╤В╤Л, ╨▒╤Г╤Д╨╡╤А╨╕╨╖╤Г╤О╤В ╤Б╨╛╨▒╤Л╤В╨╕╤П ╨▓ SQLite, ╨╛╤В╨┐╤А╨░╨▓╨╗╤П╤О╤В ╨▒╨░╤В╤З╨░╨╝╨╕
+- **Manager** — REST API, прием событий от агентов, хранение в PostgreSQL (или SQLite в dev-режиме)
+- **WebUI** — дашборд с фильтрацией по источнику (Windows/Linux), удаление агентов/сканеров. Все `/api/*` запросы проксируются в Manager (нет прямого доступа к БД)
+- **Агенты** — легкие компоненты, буферизуют события в SQLite, отправляют батчами
 
-## ╨Х╨┤╨╕╨╜╤Л╨╣ ╤Д╨╛╤А╨╝╨░╤В ╤Б╨╛╨▒╤Л╤В╨╕╨╣
+## Единый формат событий
 
-╨Т╤Б╨╡ ╨░╨│╨╡╨╜╤В╤Л (Windows, Linux, S3, scanner) ╨╕╤Б╨┐╨╛╨╗╤М╨╖╤Г╤О╤В ╤Д╨╛╤А╨╝╨░╤В `UnifiedEvent`:
+Все агенты (Windows, Linux, S3, scanner) используют формат `UnifiedEvent`:
 
 - `event_type`: read, write, delete, move, rename
 - `event_source`: windows_agent, linux_agent, scanner, s3_agent
 - `user`, `user_sid`, `file_path`, `source_host`, `metadata`
 
-## ╨Т╨╡╤А╤Б╨╕╨╕
+## Версии
 
-| ╨Т╨╡╤А╤Б╨╕╤П | ╨Ю╨┐╨╕╤Б╨░╨╜╨╕╨╡ |
+| Версия | Описание |
 |--------|----------|
-| v1.0.0 | ╨С╨░╨╖╨╛╨▓╤Л╨╣ ╤Д╤Г╨╜╨║╤Ж╨╕╨╛╨╜╨░╨╗ (╨╛╨▒╨╜╨░╤А╤Г╨╢╨╡╨╜╨╕╨╡ + ╨║╨╗╨░╤Б╤Б╨╕╤Д╨╕╨║╨░╤Ж╨╕╤П + ╨║╨░╤В╨░╨╗╨╛╨│) |
-| v2.0.0 | ╨г╨┐╤А╨░╨▓╨╗╨╡╨╜╨╕╨╡ ╨┤╨╛╤Б╤В╤Г╨┐╨╛╨╝ + ╨Р╤Г╨┤╨╕╤В Windows (╤П╨┤╤А╨╛) |
-| v2.0.1 | Windows-╤Б╤В╨╡╨║ ╨┐╨╛╨╗╨╜╨╛╤Б╤В╤М╤О ╨│╨╛╤В╨╛╨▓ |
-| v2.1.0 | Linux-╨░╨│╨╡╨╜╤В + ╤Г╨╜╨╕╤Д╨╕╤Ж╨╕╤А╨╛╨▓╨░╨╜╨╜╤Л╨╣ ╤Д╨╛╤А╨╝╨░╤В + WebUI ╤Д╨╕╨╗╤М╤В╤А |
-| v3.0.0 | ╨г╨╜╨╕╤Д╨╕╨║╨░╤Ж╨╕╤П Manager ╨╕ WebUI: WebUI тАФ Jinja2 + ╨┐╤А╨╛╨║╤Б╨╕ API ╨╜╨░ Manager, ╨║╨╛╨╜╤Д╨╕╨│╨╕ ╨┐╨╛╤А╤В╨╛╨▓, run_all.py |
-| v3.1.0 | ╨У╨╕╨▒╤А╨╕╨┤╨╜╨░╤П ╨░╤Г╤В╨╡╨╜╤В╨╕╤Д╨╕╨║╨░╤Ж╨╕╤П (JWT+Bcrypt/SPNEGO) + ╤А╨╛╨╗╨╕; S3/MinIO ╨░╨│╨╡╨╜╤В ╨░╤Г╨┤╨╕╤В╨░ (polling, ╨▒╤Г╤Д╨╡╤А, heartbeat, JWT); Windows + Linux ╨░╤Г╨┤╨╕╤В |
-| v3.2.0 | ╨С╨╡╨╖╨╛╨┐╨░╤Б╨╜╨╛╤Б╤В╤М: mTLS (relaxed/strict), CertificateManager, SecretsManager, CRL, generate_certs.py/rotate_certs.py |
-| v3.3.0 | ╨Р╤А╤Е╨╕╨▓╨░╤Ж╨╕╤П ╨┤╨░╨╜╨╜╤Л╤Е: retention, ╨┐╨╛╨╗╨╕╤В╨╕╨║╨╕ ╤Е╤А╨░╨╜╨╡╨╜╨╕╤П, ╤Н╨║╤Б╨┐╨╛╤А╤В JSON/CSV, WebUI ╨╜╨░╤Б╤В╤А╨╛╨╣╨║╨╕ ╤Е╤А╨░╨╜╨╡╨╜╨╕╤П |
-| v3.4.0 | ╨Ш╨╜╤В╨╡╨│╤А╨░╤Ж╨╕╤П Secret Scanner (FP-╤Д╨╕╨╗╤М╤В╤А╤Л, ╨┐╤А╨╡╤Д╨╕╨╗╤М╤В╤А, ╨▒╤Г╤Д╨╡╤А╨╕╨╖╨░╤Ж╨╕╤П, ╤А╨░╤Б╤И╨╕╤А╨╡╨╜╨╜╤Л╨╡ ╤В╨╕╨┐╤Л, ╨╗╨╛╨│-╨╛╤В╤З╤С╤В) |
-| v3.5.0 | ╨Ь╨░╤Б╤И╤В╨░╨▒╨╕╤А╨╛╨▓╨░╨╜╨╕╨╡: PostgreSQL + Alembic, ╨┐╨░╤А╤В╨╕╤Ж╨╕╨╛╨╜╨╕╤А╨╛╨▓╨░╨╜╨╕╨╡ audit_logs, Redis (╨║╤Н╤И/╨▒╤А╨╛╨║╨╡╤А/rate-limit), Celery worker/beat + Flower, docker-compose ╨┐╨╛╨╗╨╜╤Л╨╣ ╤Б╤В╨╡╨║ |
-| v3.6.0 | ╨Ъ╨╛╨╜╤В╨╡╨╣╨╜╨╡╤А╨╕╨╖╨░╤Ж╨╕╤П ╨╕ ╨┤╨╡╨┐╨╗╨╛╨╣: multi-stage Dockerfile ╨┤╨╗╤П Manager/WebUI/S3/Linux-╨░╨│╨╡╨╜╤В, .dockerignore, docker-compose ╨┐╨╛╨╗╨╜╤Л╨╣ ╤Б╤В╨╡╨║ + prod overrides, ╤Б╨║╤А╨╕╨┐╤В╤Л deploy/stop/logs/status/healthcheck, docs/deployment.md |
-| v3.6.1 (╨┤╨╡╨╜╤М 38.5) | Scanner ╨▓ Docker: scanner/Dockerfile (multi-stage, Tesseract + spaCy + Presidio), profile `scanner` ╨▓ compose, ╨╝╨╛╨╜╤В╨╕╤А╨╛╨▓╨░╨╜╨╕╨╡ SCAN_PATH:/scanned:ro, ╨╗╨╕╨╝╨╕╤В╤Л CPU/RAM ╨▓ prod-override |
-| v3.6.2 (╨┤╨╡╨╜╤М 38.5+) | Scanner ╨▓╨╛╨╖╨▓╤А╨░╤Й╤С╨╜ ╨╜╨░ ╤Е╨╛╤Б╤В (Docker-╨║╨╛╨╜╤В╨╡╨╣╨╜╨╡╤А ╨╜╨╡ ╨╝╨╛╨╢╨╡╤В ╨┤╨╕╨╜╨░╨╝╨╕╤З╨╡╤Б╨║╨╕ ╨╝╨╛╨╜╤В╨╕╤А╨╛╨▓╨░╤В╤М ╨┐╨░╨┐╨║╨╕ ╨╕╨╖ ╨╖╨░╨┤╨░╨╜╨╕╨╣): `python run_scanner.py scanner/config/scanner_config.json`, ╤Д╨╕╨║╤Б ╤Б╨╛╤Е╤А╨░╨╜╨╡╨╜╨╕╤П `failed_files.error_type` (500 ╨┐╤А╨╕ ╨╛╤В╨┐╤А╨░╨▓╨║╨╡ ╤А╨╡╨╖╤Г╨╗╤М╤В╨░╤В╨╛╨▓) |
-| v3.7.0 (╨┤╨╡╨╜╤М 39) | ╨Ь╨╛╨╜╨╕╤В╨╛╤А╨╕╨╜╨│: heartbeat-╤В╤А╨╡╨┤ ╤Б╨║╨░╨╜╨╡╤А╨░ (╨╜╨╡ "inactive" ╨┐╤А╨╕ ╨┤╨╗╨╕╨╜╨╜╤Л╤Е ╨╖╨░╨┤╨░╨╜╨╕╤П╤Е), ╨┐╤А╨╛╨│╤А╨╡╤Б╤Б ╨╖╨░╨┤╨░╨╜╨╕╨╣ ╨╕╨╖ heartbeat (`scan_tasks.progress`), ╨╝╨╡╤В╤А╨╕╨║╨╕ Manager (HTTP/tasks/findings/celery) ╨╕ ╨░╨│╨╡╨╜╤В╨╛╨▓, Prometheus + Grafana (provisioning) + Alertmanager + ╤Н╨║╤Б╨┐╨╛╤А╤В╨╡╤А╤Л (celery/postgres/redis), docs/monitoring.md, scripts/monitoring-status.sh |
+| v1.0.0 | Базовый функционал (обнаружение + классификация + каталог) |
+| v2.0.0 | Управление доступом + Аудит Windows (ядро) |
+| v2.0.1 | Windows-стек полностью готов |
+| v2.1.0 | Linux-агент + унифицированный формат + WebUI фильтр |
+| v3.0.0 | Унификация Manager и WebUI: WebUI — Jinja2 + прокси API на Manager, конфиги портов, run_all.py |
+| v3.1.0 | Гибридная аутентификация (JWT+Bcrypt/SPNEGO) + роли; S3/MinIO агент аудита (polling, буфер, heartbeat, JWT); Windows + Linux аудит |
+| v3.2.0 | Безопасность: mTLS (relaxed/strict), CertificateManager, SecretsManager, CRL, generate_certs.py/rotate_certs.py |
+| v3.3.0 | Архивация данных: retention, политики хранения, экспорт JSON/CSV, WebUI настройки хранения |
+| v3.4.0 | Интеграция Secret Scanner (FP-фильтры, префильтр, буферизация, расширенные типы, лог-отчёт) |
+| v3.5.0 | Масштабирование: PostgreSQL + Alembic, партиционирование audit_logs, Redis (кэш/брокер/rate-limit), Celery worker/beat + Flower, docker-compose полный стек |
+| v3.6.0 | Контейнеризация и деплой: multi-stage Dockerfile для Manager/WebUI/S3/Linux-агент, .dockerignore, docker-compose полный стек + prod overrides, скрипты deploy/stop/logs/status/healthcheck, docs/deployment.md |
+| v3.6.1 (день 38.5) | Scanner в Docker: scanner/Dockerfile (multi-stage, Tesseract + spaCy + Presidio), profile `scanner` в compose, монтирование SCAN_PATH:/scanned:ro, лимиты CPU/RAM в prod-override |
+| v3.6.2 (день 38.5+) | Scanner возвращён на хост (Docker-контейнер не может динамически монтировать папки из заданий): `python run_scanner.py scanner/config/scanner_config.json`, фикс сохранения `failed_files.error_type` (500 при отправке результатов) |
+| v3.7.0 (день 39) | Мониторинг: heartbeat-тред сканера (не "inactive" при длинных заданиях), прогресс заданий из heartbeat (`scan_tasks.progress`), метрики Manager (HTTP/tasks/findings/celery) и агентов, Prometheus + Grafana (provisioning) + Alertmanager + экспортеры (celery/postgres/redis), docs/monitoring.md, scripts/monitoring-status.sh |
 
-## ╨в╤А╨╡╨▒╨╛╨▓╨░╨╜╨╕╤П
+## Требования
 
 - Python 3.8+
-- Windows: wevtutil (╨▓╤Б╤В╤А╨╛╨╡╨╜), ╨┐╤А╨░╨▓╨░ ╨░╨┤╨╝╨╕╨╜╨╕╤Б╤В╤А╨░╤В╨╛╤А╨░ ╨┤╨╗╤П ╨░╤Г╨┤╨╕╤В╨░
-- Linux: watchdog, optional: paramiko (SSH-╨╝╨╛╨╜╨╕╤В╨╛╤А╨╕╨╜╨│)
+- Windows: wevtutil (встроен), права администратора для аудита
+- Linux: watchdog, optional: paramiko (SSH-мониторинг)
 - Production: Docker (PostgreSQL 16, Redis 7)
