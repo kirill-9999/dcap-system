@@ -69,7 +69,7 @@ services:
     build:
       context: .
       dockerfile: manager/Dockerfile
-    image: dcap/manager:${VERSION:-3.0.0}
+    image: ghcr.io/kirill-9999/dcap-manager:${VERSION:-3.0.0}
     cap_drop:
       - ALL
     container_name: dcap-manager
@@ -116,7 +116,7 @@ services:
     build:
       context: .
       dockerfile: manager/Dockerfile
-    image: dcap/manager:${VERSION:-3.0.0}
+    image: ghcr.io/kirill-9999/dcap-manager:${VERSION:-3.0.0}
     cap_drop:
       - ALL
     environment:
@@ -148,7 +148,7 @@ services:
     build:
       context: .
       dockerfile: manager/Dockerfile
-    image: dcap/manager:${VERSION:-3.0.0}
+    image: ghcr.io/kirill-9999/dcap-manager:${VERSION:-3.0.0}
     cap_drop:
       - ALL
     container_name: dcap-celery-beat
@@ -195,7 +195,7 @@ services:
     build:
       context: ./webui
       dockerfile: Dockerfile
-    image: dcap/webui:${VERSION:-3.0.0}
+    image: ghcr.io/kirill-9999/dcap-webui:${VERSION:-3.0.0}
     cap_drop:
       - ALL
     container_name: dcap-webui
@@ -218,7 +218,7 @@ services:
     build:
       context: .
       dockerfile: audit-agent-s3/Dockerfile
-    image: dcap/s3-agent:${VERSION:-3.0.0}
+    image: ghcr.io/kirill-9999/dcap-s3-agent:${VERSION:-3.0.0}
     container_name: dcap-s3-agent
     environment:
       S3_ENDPOINT: ${S3_ENDPOINT:-https://s3.amazonaws.com}
@@ -258,7 +258,7 @@ services:
     build:
       context: audit-agent-linux
       dockerfile: Dockerfile
-    image: dcap/linux-agent:${VERSION:-3.0.0}
+    image: ghcr.io/kirill-9999/dcap-linux-agent:${VERSION:-3.0.0}
     container_name: dcap-linux-agent
     environment:
       MANAGER_URL: http://manager:8000

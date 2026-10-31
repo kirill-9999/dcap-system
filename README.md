@@ -51,6 +51,13 @@ python -c "import base64, os; print(base64.b64encode(os.urandom(32)).decode())"
 docker compose up -d --build --wait
 # Manager :8000, WebUI :8001, Grafana :3000, Prometheus :9090
 ```
+
+### Вариант Б: Использовать готовые Docker-образы
+```bash
+docker compose pull
+docker compose up -d --wait
+```
+(Образы автоматически скачаются из GitHub Container Registry)
 ### 3. Первый вход
 WebUI: http://localhost:8001
 
