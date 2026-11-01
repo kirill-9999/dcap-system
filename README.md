@@ -73,6 +73,9 @@ docker compose up -d --wait
 WebUI: http://localhost:8001
 
 Логин: admin / admin123 — сменить при первом запуске (Settings → Password).
+> **Примечание:** при первом старте Manager автоматически применяет миграции
+> Alembic (`alembic upgrade head`) и создает базовые роли (`admin`, `auditor`,
+> `scanner`, `viewer`) + пользователя `admin`. База не будет пустой.
 
 ### 4. Запустить сканер (на хосте)
 ```bash
